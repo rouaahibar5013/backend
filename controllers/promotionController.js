@@ -11,7 +11,7 @@ export const createPromotion = catchAsyncErrors(async (req, res, next) => {
   const { code, discount_percent, start_date, end_date, product_id } = req.body;
 
   if (!code || !discount_percent || !start_date || !end_date)
-    return next(new ErrorHandler("Please provide all promotion details.", 400));
+    return next(new ErrorHandler(" provide all promotion details.", 400));
 
   const existing = await database.query(
     "SELECT id FROM promotions WHERE code ILIKE $1", [code]
