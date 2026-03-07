@@ -1,13 +1,20 @@
-
+-- ─────────────────────────────────────────
+-- USERS (must be first)
+-- ─────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS users (
-  id         UUID    DEFAULT gen_random_uuid() PRIMARY KEY,
-  name       VARCHAR(100) NOT NULL,
-  email      VARCHAR(150) NOT NULL UNIQUE,
-  password   TEXT    NOT NULL,
-  avatar     TEXT,
-  role       VARCHAR(20)  DEFAULT 'user'
-             CHECK (role IN ('admin', 'user')),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  id                     UUID    DEFAULT gen_random_uuid() PRIMARY KEY,
+  name                   VARCHAR(100) NOT NULL,
+  email                  VARCHAR(150) NOT NULL UNIQUE,
+  password               TEXT,
+  avatar                 TEXT,
+  role                   VARCHAR(20)  DEFAULT 'user'
+                         CHECK (role IN ('admin', 'user')),
+  is_verified            BOOLEAN   DEFAULT false,
+  verification_token     TEXT,
+  reset_password_token   TEXT,
+  reset_password_expire  TIMESTAMP,
+  google_id              TEXT,
+  created_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ─────────────────────────────────────────
