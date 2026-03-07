@@ -1,97 +1,14 @@
--- ─────────────────────────────────────────
--- USERS
--- Must be created FIRST because products
--- and reviews reference users.id
--- ─────────────────────────────────────────
--- ============================================================
---  sql/tables.sql — Table users BIOVITA (Option B)
---
---  Exécution depuis zéro :
---    psql -U postgres -c "CREATE DATABASE biovita;"
---    psql -U postgres -d biovita -f tables.sql
---
---  Si la table existe déjà :
---    psql -U postgres -d biovita -f tables.sql
---    (ALTER TABLE IF NOT EXISTS ne cassera rien)
--- ============================================================
 
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
--- ============================================================
---  TABLE : users  (ta table originale)
--- ============================================================
 CREATE TABLE IF NOT EXISTS users (
-  id         UUID         DEFAULT gen_random_uuid() PRIMARY KEY,
+  id         UUID    DEFAULT gen_random_uuid() PRIMARY KEY,
   name       VARCHAR(100) NOT NULL,
   email      VARCHAR(150) NOT NULL UNIQUE,
-  password   TEXT         NOT NULL,
+  password   TEXT    NOT NULL,
   avatar     TEXT,
   role       VARCHAR(20)  DEFAULT 'user'
              CHECK (role IN ('admin', 'user')),
-  created_at TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-
--- ============================================================
---  Option B — Colonnes supplémentaires
--- ============================================================
-ALTER TABLE users
-  ADD COLUMN IF NOT EXISTS is_email_verified          BOOLEAN   DEFAULT FALSE,
-  ADD COLUMN IF NOT EXISTS email_verification_token   TEXT      DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS email_verification_expires TIMESTAMP DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS password_reset_token       TEXT      DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS password_reset_expires     TIMESTAMP DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS login_attempts             INTEGER   DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS lock_until                 TIMESTAMP DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS is_active                  BOOLEAN   DEFAULT TRUE,
-  ADD COLUMN IF NOT EXISTS last_login                 TIMESTAMP DEFAULT NULL;
-
--- ============================================================
---  TABLE : refresh_tokens
--- ============================================================
-CREATE TABLE IF NOT EXISTS refresh_tokens (
-  id         UUID      DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id    UUID      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token      TEXT      NOT NULL UNIQUE,
-  user_agent VARCHAR(500) DEFAULT '',
-  ip_address VARCHAR(50)  DEFAULT '',
-  created_at TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
-  expires_at TIMESTAMP    NOT NULL
-);
-
--- ============================================================
---  TABLE : password_reset_requests  (audit)
--- ============================================================
-CREATE TABLE IF NOT EXISTS password_reset_requests (
-  id         UUID      DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id    UUID      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  ip_address VARCHAR(50) DEFAULT '',
-  used       BOOLEAN     DEFAULT FALSE,
-  created_at TIMESTAMP   DEFAULT CURRENT_TIMESTAMP
-);
-
--- ============================================================
---  INDEX
--- ============================================================
-CREATE INDEX IF NOT EXISTS idx_users_email            ON users (email);
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens (user_id);
-CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires ON refresh_tokens (expires_at);
-
--- ============================================================
---  VUE : users_public  (sans colonnes sensibles)
--- ============================================================
-CREATE OR REPLACE VIEW users_public AS
-SELECT
-  id,
-  name,
-  email,
-  avatar,
-  role,
-  is_email_verified,
-  is_active,
-  last_login,
-  created_at
-FROM users;
-
 
 -- ─────────────────────────────────────────
 -- SUPPLIERS
