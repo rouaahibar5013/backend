@@ -1,34 +1,43 @@
-import jwt from "jsonwebtoken";
-import { catchAsyncErrors } from "./catchAsyncError.js";
-import ErrorHandler from "./errorMiddleware.js";
-import database from "../database/db.js";
+// middlewares/auth.js
 
-// Checks if the user is logged in
-// Reads the JWT from the Authorization header
-// and attaches the user to req.user
-export const isAuthenticated = catchAsyncErrors(async (req, res, next) => {
-  const token = req.headers.authorization?.split(" ")[1];
+import jwt                   from "jsonwebtoken";
+import { query }             from "../database/db.js";
+import ErrorHandler          from "./errorMiddleware.js";
+import { catchAsyncErrors }  from "./catchAsyncErrors.js";
 
-  if (!token)
-    return next(new ErrorHandler("Please login to access this resource.", 401));
+export const protect = catchAsyncErrors(async (req, res, next) => {
+  // Lit le token depuis le cookie httpOnly (mis par sendToken)
+  const token = req.cookies?.token;
 
-  // Decode the token and find the user in DB
+  if (!token) {
+    return next(new ErrorHandler("Veuillez vous connecter.", 401));
+  }
+
+  // Vérifie et décode le token
   const decoded = jwt.verify(token, process.env.JWT_SECRET);
-  const result  = await database.query(
-    "SELECT * FROM users WHERE id = $1", [decoded.id]
+
+  // Vérifie que l'utilisateur existe toujours en base
+  const { rows } = await query(
+    `SELECT id, name, email, avatar, role, is_active
+     FROM users WHERE id = $1`,
+    [decoded.id]
   );
 
-  if (result.rows.length === 0)
-    return next(new ErrorHandler("User not found.", 404));
+  if (rows.length === 0) {
+    return next(new ErrorHandler("Utilisateur introuvable.", 401));
+  }
 
-  req.user = result.rows[0]; // attach user to request
+  if (!rows[0].is_active) {
+    return next(new ErrorHandler("Compte désactivé. Contactez le support.", 403));
+  }
+
+  req.user = rows[0];
   next();
 });
 
-// Checks if the logged-in user is an admin
-// Always use AFTER isAuthenticated
-export const isAdmin = (req, res, next) => {
-  if (req.user.role !== "admin")
-    return next(new ErrorHandler("Access denied. Admins only.", 403));
+export const requireAdmin = (req, res, next) => {
+  if (req.user.role !== "admin") {
+    return next(new ErrorHandler("Accès refusé. Droits admin requis.", 403));
+  }
   next();
 };
