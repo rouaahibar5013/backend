@@ -8,6 +8,7 @@ import categoryRoutes  from "./routes/categoryRoutes.js";
 import supplierRoutes  from "./routes/supplierRoutes.js";
 import promotionRoutes from "./routes/promotionRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
+import passport from "./config/passport.js";
 
 import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 
@@ -15,6 +16,7 @@ dotenv.config();
 
 const app = express();
 
+app.use(passport.initialize());
 app.use(cookieParser());
 // Middlewares
 app.use(cors({

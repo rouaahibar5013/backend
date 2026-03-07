@@ -5,6 +5,16 @@ export const sendToken = (user, statusCode, message, res) => {
     expiresIn: process.env.JWT_EXPIRES_IN,
   });
 
+  // Remove sensitive fields before sending to client
+  const {
+    password,
+    verification_token,
+    reset_password_token,
+    reset_password_expire,
+    google_id,
+    ...safeUser
+  } = user;
+
   res
     .status(statusCode)
     .cookie("token", token, {
@@ -15,7 +25,7 @@ export const sendToken = (user, statusCode, message, res) => {
     })
     .json({
       success: true,
-      user,
+      user: safeUser,
       message,
       token,
     });
