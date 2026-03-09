@@ -13,7 +13,7 @@ const router = express.Router();
 router.get("/:slug", fetchSupplierBySlug);
 
 // ── Admin only ───────────────────────────
-router.get("/",               isAuthenticated, isAdmin, fetchAllSuppliers);
+router.get("/",               fetchAllSuppliers);
 router.post("/",              isAuthenticated, isAdmin, createSupplier);
 router.put("/:supplierId",    isAuthenticated, isAdmin, updateSupplier);
 router.delete("/:supplierId", isAuthenticated, isAdmin, deleteSupplier);
