@@ -85,16 +85,16 @@ export const fetchSupplierBySlug = catchAsyncErrors(async (req, res, next) => {
     `SELECT
        s.*,
        COALESCE(
-         json_agg(
-           json_build_object(
-             'id',      p.id,
-             'name',    p.name,
-             'price',   p.price,
-             'ratings', p.ratings,
-             'images',  p.images
-           )
-         ) FILTER (WHERE p.id IS NOT NULL AND p.status = 'approved'), '[]'
-       ) AS products
+  json_agg(
+    json_build_object(
+  'id',      p.id,
+  'name',    p.name,
+  'price',   (SELECT MIN(pv.price) FROM product_variants pv WHERE pv.product_id = p.id),
+  'ratings', p.ratings,
+  'images',  (SELECT pv.images FROM product_variants pv WHERE pv.product_id = p.id LIMIT 1)
+)
+  ) FILTER (WHERE p.id IS NOT NULL AND p.status = 'approved'), '[]'
+) AS products
      FROM suppliers s
      LEFT JOIN products p ON p.supplier_id = s.id
      WHERE s.slug = $1
