@@ -55,14 +55,14 @@ export const createSupplier = catchAsyncErrors(async (req, res, next) => {
 });
 
 // ─────────────────────────────────────────
-// FETCH ALL SUPPLIERS (admin only)
+// FETCH ALL SUPPLIERS (public)
 // GET /api/suppliers
 // ─────────────────────────────────────────
 export const fetchAllSuppliers = catchAsyncErrors(async (req, res, next) => {
   const result = await database.query(
     `SELECT s.*, COUNT(p.id) AS product_count
      FROM suppliers s
-     LEFT JOIN products p ON p.supplier_name ILIKE s.name
+     LEFT JOIN products p ON p.supplier_id = s.id
      GROUP BY s.id
      ORDER BY s.created_at DESC`
   );
@@ -77,9 +77,6 @@ export const fetchAllSuppliers = catchAsyncErrors(async (req, res, next) => {
 // ─────────────────────────────────────────
 // FETCH SUPPLIER BY SLUG (public)
 // GET /api/suppliers/:slug
-// This is the public profile page the user
-// lands on after clicking the supplier name
-// in a product description
 // ─────────────────────────────────────────
 export const fetchSupplierBySlug = catchAsyncErrors(async (req, res, next) => {
   const { slug } = req.params;
@@ -87,7 +84,6 @@ export const fetchSupplierBySlug = catchAsyncErrors(async (req, res, next) => {
   const result = await database.query(
     `SELECT
        s.*,
-       -- All products from this supplier
        COALESCE(
          json_agg(
            json_build_object(
@@ -100,7 +96,7 @@ export const fetchSupplierBySlug = catchAsyncErrors(async (req, res, next) => {
          ) FILTER (WHERE p.id IS NOT NULL AND p.status = 'approved'), '[]'
        ) AS products
      FROM suppliers s
-     LEFT JOIN products p ON p.supplier_name ILIKE s.name
+     LEFT JOIN products p ON p.supplier_id = s.id
      WHERE s.slug = $1
      GROUP BY s.id`,
     [slug]
@@ -179,7 +175,6 @@ export const updateSupplier = catchAsyncErrors(async (req, res, next) => {
 // ─────────────────────────────────────────
 // DELETE SUPPLIER (admin only)
 // DELETE /api/suppliers/:supplierId
-// Sets supplier_name to NULL on products
 // ─────────────────────────────────────────
 export const deleteSupplier = catchAsyncErrors(async (req, res, next) => {
   const { supplierId } = req.params;
@@ -190,10 +185,10 @@ export const deleteSupplier = catchAsyncErrors(async (req, res, next) => {
   if (supplier.rows.length === 0)
     return next(new ErrorHandler("Supplier not found.", 404));
 
-  // Set supplier_name to NULL on all linked products
+  // Set supplier_id to NULL on all linked products
   await database.query(
-    "UPDATE products SET supplier_name = NULL WHERE supplier_name ILIKE $1",
-    [supplier.rows[0].name]
+    "UPDATE products SET supplier_id = NULL WHERE supplier_id = $1",
+    [supplierId]
   );
 
   const deleted = await database.query(
