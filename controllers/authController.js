@@ -14,7 +14,8 @@ import { v2 as cloudinary } from "cloudinary";
 // Creates account + sends verification email
 // ═══════════════════════════════════════════════════════════
 export const register = catchAsyncErrors(async (req, res, next) => {
-  const { name, email, password } = req.body;
+  // ✅ Nouveau
+const { name, email, password, phone, address, city } = req.body;
 
   if (!name || !email || !password)
     return next(new ErrorHandler("Please provide name, email and password.", 400));
@@ -46,14 +47,13 @@ export const register = catchAsyncErrors(async (req, res, next) => {
   const rawToken          = crypto.randomBytes(32).toString("hex");
   const verificationToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-  const result = await database.query(
-    `INSERT INTO users
-      (name, email, password, avatar, role, is_verified, verification_token)
-     VALUES ($1, $2, $3, $4, 'user', false, $5)
-     RETURNING id, name, email, avatar, role, is_verified`,
-    [name, email, hashedPassword, avatarUrl, verificationToken]
-  );
-
+const result = await database.query(
+  `INSERT INTO users
+    (name, email, password, avatar, role, is_verified, verification_token, phone, address, city)
+   VALUES ($1, $2, $3, $4, 'user', false, $5, $6, $7, $8)
+   RETURNING id, name, email, avatar, role, is_verified, phone, address, city`,
+  [name, email, hashedPassword, avatarUrl, verificationToken, phone || null, address || null, city || null]
+);
   const user = result.rows[0];
 
   // Send verification email with raw token in the link
