@@ -14,20 +14,19 @@ import { v2 as cloudinary } from "cloudinary";
 // Creates account + sends verification email
 // ═══════════════════════════════════════════════════════════
 export const register = catchAsyncErrors(async (req, res, next) => {
-  // ✅ Nouveau
-const { name, email, password, phone, address, city } = req.body;
+  const { name, email, password, phone, address, city } = req.body;
 
   if (!name || !email || !password)
-    return next(new ErrorHandler("Please provide name, email and password.", 400));
+    return next(new ErrorHandler("Veuillez fournir un nom, un email et un mot de passe.", 400));
 
   if (password.length < 6)
-    return next(new ErrorHandler("Password must be at least 6 characters.", 400));
+    return next(new ErrorHandler("Le mot de passe doit contenir au moins 6 caractères.", 400));
 
   const existingUser = await database.query(
     "SELECT id FROM users WHERE email = $1", [email]
   );
   if (existingUser.rows.length > 0)
-    return next(new ErrorHandler("Email already in use.", 409));
+    return next(new ErrorHandler("Cet email est déjà utilisé.", 409));
 
   // Upload avatar if provided
   let avatarUrl = null;
@@ -41,33 +40,35 @@ const { name, email, password, phone, address, city } = req.body;
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  // Generate email verification token
-  // rawToken → sent in email link
-  // hashedToken → saved in DB
-  const rawToken          = crypto.randomBytes(32).toString("hex");
-  const verificationToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+  // ✅ FIX — token simple, pas de double hashing
+  // rawToken sauvegardé directement en DB (pas le hash)
+  const verificationToken = crypto.randomBytes(32).toString("hex");
 
-const result = await database.query(
-  `INSERT INTO users
-    (name, email, password, avatar, role, is_verified, verification_token, phone, address, city)
-   VALUES ($1, $2, $3, $4, 'user', false, $5, $6, $7, $8)
-   RETURNING id, name, email, avatar, role, is_verified, phone, address, city`,
-  [name, email, hashedPassword, avatarUrl, verificationToken, phone || null, address || null, city || null]
-);
+  const result = await database.query(
+    `INSERT INTO users
+      (name, email, password, avatar, role, is_verified, verification_token, phone, address, city)
+     VALUES ($1, $2, $3, $4, 'user', false, $5, $6, $7, $8)
+     RETURNING id, name, email, avatar, role, is_verified, verification_token, phone, address, city`,
+    [name, email, hashedPassword, avatarUrl, verificationToken, phone || null, address || null, city || null]
+  );
+
   const user = result.rows[0];
 
-  // Send verification email with raw token in the link
-  const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${rawToken}`;
+  // ✅ Log pour vérifier que le token est bien sauvegardé
+  console.log("✅ Token saved in DB:", user.verification_token);
+
+  // ✅ FIX — encodeURIComponent pour éviter les problèmes de caractères spéciaux dans l'URL
+  const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${encodeURIComponent(verificationToken)}`;
 
   await sendEmail({
     to:      email,
-    subject: "Verify your email — Ecommerce",
+    subject: "Verify your email — GOFFA",
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2>Welcome ${name} !</h2>
         <p>Please click the button below to verify your email address.</p>
         <a href="${verificationUrl}"
-           style="background: #4F46E5; color: white; padding: 12px 24px;
+           style="background: #059669; color: white; padding: 12px 24px;
                   text-decoration: none; border-radius: 6px; display: inline-block;">
           Verify my email
         </a>
@@ -94,22 +95,19 @@ const result = await database.query(
 export const verifyEmail = catchAsyncErrors(async (req, res, next) => {
   const { token } = req.params;
 
-  // Hash the raw token from URL to compare with DB
-  const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
-
+  // ✅ FIX — plus de hashing, on compare le token directement
   const result = await database.query(
-    "SELECT * FROM users WHERE verification_token = $1", [hashedToken]
+    "SELECT * FROM users WHERE verification_token = $1", [token]
   );
 
   if (result.rows.length === 0)
-    return next(new ErrorHandler("Invalid or expired verification link.", 400));
+    return next(new ErrorHandler("Lien de vérification invalide ou expiré.", 400));
 
   const user = result.rows[0];
 
   if (user.is_verified)
-    return next(new ErrorHandler("Email already verified.", 400));
+    return next(new ErrorHandler("Email déjà vérifié.", 400));
 
-  // ✅ FIX — update and return the updated user (not the old one)
   const updatedResult = await database.query(
     `UPDATE users
      SET is_verified = true, verification_token = NULL
@@ -134,26 +132,24 @@ export const login = catchAsyncErrors(async (req, res, next) => {
   const { email, password } = req.body;
 
   if (!email || !password)
-    return next(new ErrorHandler("Please provide email and password.", 400));
+    return next(new ErrorHandler("Veuillez fournir un email et un mot de passe.", 400));
 
   const result = await database.query(
     "SELECT * FROM users WHERE email = $1", [email]
   );
 
   if (result.rows.length === 0)
-    return next(new ErrorHandler("Invalid email or password.", 401));
+    return next(new ErrorHandler("Email ou mot de passe incorrect.", 401));
 
   const user = result.rows[0];
 
-  // Block login if email not verified
   if (!user.is_verified)
-    return next(new ErrorHandler("Please verify your email before logging in.", 401));
+    return next(new ErrorHandler("Veuillez vérifier votre email avant de vous connecter.", 401));
 
   const isPasswordCorrect = await bcrypt.compare(password, user.password);
   if (!isPasswordCorrect)
-    return next(new ErrorHandler("Invalid email or password.", 401));
+    return next(new ErrorHandler("Email ou mot de passe incorrect.", 401));
 
-  // Remove password from response
   const { password: _, ...userWithoutPassword } = user;
 
   sendToken(userWithoutPassword, 200, "Logged in successfully.", res);
@@ -163,24 +159,19 @@ export const login = catchAsyncErrors(async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════
 // GOOGLE AUTH CALLBACK
 // GET /api/auth/google/callback
-// Called by Google after user accepts permissions
-// passport already found/created the user in passport.js
-// ✅ FIX — uses jwt import instead of require()
 // ═══════════════════════════════════════════════════════════
 export const googleCallback = catchAsyncErrors(async (req, res, next) => {
   const user = req.user;
 
   if (!user)
-    return next(new ErrorHandler("Google authentication failed.", 401));
+    return next(new ErrorHandler("Authentification Google échouée.", 401));
 
-  // Generate token using imported jwt
   const token = jwt.sign(
     { id: user.id },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN }
   );
 
-  // Set cookie and redirect to frontend
   res
     .cookie("token", token, {
       expires:  new Date(Date.now() + process.env.COOKIES_EXPIRES_IN * 24 * 60 * 60 * 1000),
@@ -193,35 +184,29 @@ export const googleCallback = catchAsyncErrors(async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════
 // FORGOT PASSWORD
 // POST /api/auth/forgot-password
-// Body: { email }
-// Sends a reset link to the user's email
 // ═══════════════════════════════════════════════════════════
 export const forgotPassword = catchAsyncErrors(async (req, res, next) => {
   const { email } = req.body;
 
   if (!email)
-    return next(new ErrorHandler("Please provide your email.", 400));
+    return next(new ErrorHandler("Veuillez fournir votre email.", 400));
 
   const result = await database.query(
     "SELECT * FROM users WHERE email = $1", [email]
   );
 
-  // Don't reveal if email exists or not (security)
   if (result.rows.length === 0) {
     return res.status(200).json({
       success: true,
-      message: "If this email exists, a reset link has been sent.",
+      message: "Si cet email existe, un lien de réinitialisation a été envoyé.",
     });
   }
 
   const user = result.rows[0];
 
-  // Generate reset token
   const rawToken    = crypto.randomBytes(32).toString("hex");
   const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
-
-  // Token expires in 15 minutes
-  const expireTime = new Date(Date.now() + 15 * 60 * 1000);
+  const expireTime  = new Date(Date.now() + 15 * 60 * 1000);
 
   await database.query(
     `UPDATE users
@@ -230,17 +215,17 @@ export const forgotPassword = catchAsyncErrors(async (req, res, next) => {
     [hashedToken, expireTime, user.id]
   );
 
-  const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${rawToken}`;
+  const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${encodeURIComponent(rawToken)}`;
 
   await sendEmail({
     to:      email,
-    subject: "Reset your password — Ecommerce",
+    subject: "Reset your password — GOFFA",
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2>Password Reset Request</h2>
         <p>You requested to reset your password. Click the button below :</p>
         <a href="${resetUrl}"
-           style="background: #4F46E5; color: white; padding: 12px 24px;
+           style="background: #059669; color: white; padding: 12px 24px;
                   text-decoration: none; border-radius: 6px; display: inline-block;">
           Reset my password
         </a>
@@ -262,21 +247,19 @@ export const forgotPassword = catchAsyncErrors(async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════
 // RESET PASSWORD
 // POST /api/auth/reset-password/:token
-// Body: { password }
 // ═══════════════════════════════════════════════════════════
 export const resetPassword = catchAsyncErrors(async (req, res, next) => {
   const { token }    = req.params;
   const { password } = req.body;
 
   if (!password)
-    return next(new ErrorHandler("Please provide a new password.", 400));
+    return next(new ErrorHandler("Veuillez fournir un nouveau mot de passe.", 400));
 
   if (password.length < 6)
-    return next(new ErrorHandler("Password must be at least 6 characters.", 400));
+    return next(new ErrorHandler("Le mot de passe doit contenir au moins 6 caractères.", 400));
 
-  const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+  const hashedToken = crypto.createHash("sha256").update(decodeURIComponent(token)).digest("hex");
 
-  // Find user with valid (not expired) token
   const result = await database.query(
     `SELECT * FROM users
      WHERE reset_password_token = $1
@@ -285,13 +268,12 @@ export const resetPassword = catchAsyncErrors(async (req, res, next) => {
   );
 
   if (result.rows.length === 0)
-    return next(new ErrorHandler("Reset link is invalid or has expired.", 400));
+    return next(new ErrorHandler("Lien de réinitialisation invalide ou expiré.", 400));
 
   const user = result.rows[0];
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  // Update password and clear reset token
   await database.query(
     `UPDATE users
      SET password=$1, reset_password_token=NULL, reset_password_expire=NULL
@@ -301,7 +283,7 @@ export const resetPassword = catchAsyncErrors(async (req, res, next) => {
 
   res.status(200).json({
     success: true,
-    message: "Password reset successfully. You can now login.",
+    message: "Mot de passe réinitialisé avec succès. Vous pouvez maintenant vous connecter.",
   });
 });
 
@@ -319,7 +301,7 @@ export const logout = catchAsyncErrors(async (req, res, next) => {
     })
     .json({
       success: true,
-      message: "Logged out successfully.",
+      message: "Déconnexion réussie.",
     });
 });
 
@@ -327,17 +309,16 @@ export const logout = catchAsyncErrors(async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════
 // GET MY PROFILE
 // GET /api/auth/me
-// Requires: isAuthenticated
 // ═══════════════════════════════════════════════════════════
 export const getMe = catchAsyncErrors(async (req, res, next) => {
   const result = await database.query(
-    `SELECT id, name, email, avatar, role, is_verified, created_at
+    `SELECT id, name, email, avatar, role, is_verified, phone, address, city, created_at
      FROM users WHERE id = $1`,
     [req.user.id]
   );
 
   if (result.rows.length === 0)
-    return next(new ErrorHandler("User not found.", 404));
+    return next(new ErrorHandler("Utilisateur introuvable.", 404));
 
   res.status(200).json({
     success: true,
@@ -349,10 +330,9 @@ export const getMe = catchAsyncErrors(async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════
 // UPDATE PROFILE
 // PUT /api/auth/me
-// Requires: isAuthenticated
 // ═══════════════════════════════════════════════════════════
 export const updateProfile = catchAsyncErrors(async (req, res, next) => {
-  const { name } = req.body;
+  const { name, phone, address, city } = req.body;
 
   const user = await database.query(
     "SELECT * FROM users WHERE id = $1", [req.user.id]
@@ -372,15 +352,22 @@ export const updateProfile = catchAsyncErrors(async (req, res, next) => {
   }
 
   const result = await database.query(
-    `UPDATE users SET name=$1, avatar=$2
-     WHERE id=$3
-     RETURNING id, name, email, avatar, role, is_verified, created_at`,
-    [name || user.rows[0].name, avatarUrl, req.user.id]
+    `UPDATE users SET name=$1, avatar=$2, phone=$3, address=$4, city=$5
+     WHERE id=$6
+     RETURNING id, name, email, avatar, role, is_verified, phone, address, city, created_at`,
+    [
+      name    || user.rows[0].name,
+      avatarUrl,
+      phone   ?? user.rows[0].phone,
+      address ?? user.rows[0].address,
+      city    ?? user.rows[0].city,
+      req.user.id
+    ]
   );
 
   res.status(200).json({
     success: true,
-    message: "Profile updated successfully.",
+    message: "Profil mis à jour avec succès.",
     user:    result.rows[0],
   });
 });
@@ -389,16 +376,15 @@ export const updateProfile = catchAsyncErrors(async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════
 // UPDATE PASSWORD
 // PUT /api/auth/password
-// Requires: isAuthenticated
 // ═══════════════════════════════════════════════════════════
 export const updatePassword = catchAsyncErrors(async (req, res, next) => {
   const { currentPassword, newPassword } = req.body;
 
   if (!currentPassword || !newPassword)
-    return next(new ErrorHandler("Please provide current and new password.", 400));
+    return next(new ErrorHandler("Veuillez fournir le mot de passe actuel et le nouveau.", 400));
 
   if (newPassword.length < 6)
-    return next(new ErrorHandler("New password must be at least 6 characters.", 400));
+    return next(new ErrorHandler("Le nouveau mot de passe doit contenir au moins 6 caractères.", 400));
 
   const result = await database.query(
     "SELECT * FROM users WHERE id = $1", [req.user.id]
@@ -407,7 +393,7 @@ export const updatePassword = catchAsyncErrors(async (req, res, next) => {
 
   const isCorrect = await bcrypt.compare(currentPassword, user.password);
   if (!isCorrect)
-    return next(new ErrorHandler("Current password is incorrect.", 401));
+    return next(new ErrorHandler("Le mot de passe actuel est incorrect.", 401));
 
   const hashedPassword = await bcrypt.hash(newPassword, 10);
   await database.query(
@@ -417,6 +403,6 @@ export const updatePassword = catchAsyncErrors(async (req, res, next) => {
 
   res.status(200).json({
     success: true,
-    message: "Password updated successfully.",
+    message: "Mot de passe modifié avec succès.",
   });
 });
