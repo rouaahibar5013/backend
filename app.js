@@ -24,8 +24,7 @@ dotenv.config();
 
 const app = express();
 
-app.use(passport.initialize());
-app.use(cookieParser());
+
 // Middlewares
 app.use(cors({
   origin: process.env.FRONTEND_URL,
@@ -34,6 +33,14 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(fileUpload({ useTempFiles: true, tempFileDir: "/tmp/" }));
+
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(fileUpload({ useTempFiles: true, tempFileDir: "/tmp/" }));
+app.use(passport.initialize());
+
+
+
 
 // Routes
 app.use("/api/products",   productRoutes);
