@@ -12,6 +12,9 @@ import {
   updateProfile,
   updatePassword,
 } from "../controllers/authController.js";
+
+import { completeAccount } from "../controllers/authController.js";
+
 import { isAuthenticated } from "../middlewares/auth.js";
 
 const router = express.Router();
@@ -20,6 +23,7 @@ const router = express.Router();
 router.post("/register",    register);       // create account → sends verification email
 router.post("/login",       login);          // login → sets cookie
 router.post("/logout",      logout);         // logout → clears cookie
+router.post("/complete-account/:token", completeAccount);
 
 // ── Email Verification ───────────────────────────────────
 router.get("/verify-email/:token", verifyEmail); // user clicks link in email

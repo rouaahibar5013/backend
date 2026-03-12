@@ -9,6 +9,14 @@ import supplierRoutes  from "./routes/supplierRoutes.js";
 import promotionRoutes from "./routes/promotionRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import passport from "./config/passport.js";
+import cartRoutes from "./routes/cartRoutes.js";
+
+import orderRoutes from "./routes/orderRoutes.js";
+
+
+
+
+
 
 import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 
@@ -33,7 +41,8 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/suppliers",  supplierRoutes);
 app.use("/api/promotions", promotionRoutes);
 app.use("/api/auth", authRoutes);
-
+app.use("/api/orders", orderRoutes);
+app.use("/api/cart", cartRoutes);
 // Global error handler
 app.use(errorMiddleware);
 
