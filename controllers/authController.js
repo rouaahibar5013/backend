@@ -406,3 +406,66 @@ export const updatePassword = catchAsyncErrors(async (req, res, next) => {
     message: "Mot de passe modifié avec succès.",
   });
 });
+
+
+
+
+// ═══════════════════════════════════════════════════════════
+// COMPLETE ACCOUNT
+// POST /api/auth/complete-account/:token
+// Body: { password, confirmPassword }
+// Guest user sets their password after order
+// ═══════════════════════════════════════════════════════════
+export const completeAccount = catchAsyncErrors(async (req, res, next) => {
+  const { token }                     = req.params;
+  const { password, confirmPassword } = req.body;
+ 
+  if (!password || !confirmPassword)
+    return next(new ErrorHandler("Please provide password and confirmPassword.", 400));
+ 
+  if (password !== confirmPassword)
+    return next(new ErrorHandler("Passwords do not match.", 400));
+ 
+  if (password.length < 6)
+    return next(new ErrorHandler("Password must be at least 6 characters.", 400));
+ 
+  // Hash token from URL
+  const hashedToken = crypto
+    .createHash("sha256")
+    .update(token)
+    .digest("hex");
+ 
+  // Find user with valid token
+  const result = await database.query(
+    `SELECT * FROM users
+     WHERE complete_account_token=$1
+     AND complete_account_expire > NOW()`,
+    [hashedToken]
+  );
+ 
+  if (result.rows.length === 0)
+    return next(new ErrorHandler("Invalid or expired link.", 400));
+ 
+  const user = result.rows[0];
+ 
+  const hashedPassword = await bcrypt.hash(password, 10);
+ 
+  // Set password + verify account + clear token
+  const updatedUser = await database.query(
+    `UPDATE users
+     SET password=$1, is_verified=true,
+         complete_account_token=NULL, complete_account_expire=NULL
+     WHERE id=$2
+     RETURNING id, name, email, avatar, role, is_verified, created_at`,
+    [hashedPassword, user.id]
+  );
+ 
+  // Log them in directly
+  sendToken(
+    updatedUser.rows[0],
+    200,
+    "Account completed successfully. You are now logged in.",
+    res
+  );
+});
+ 
