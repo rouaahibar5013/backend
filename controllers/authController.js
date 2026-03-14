@@ -129,6 +129,7 @@ export const verifyEmail = catchAsyncErrors(async (req, res, next) => {
 // Blocks login if email not verified
 // ═══════════════════════════════════════════════════════════
 export const login = catchAsyncErrors(async (req, res, next) => {
+  console.log("req.body →", req.body);
   const { email, password } = req.body;
 
   if (!email || !password)
