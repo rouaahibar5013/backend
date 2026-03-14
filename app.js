@@ -11,7 +11,10 @@ import authRoutes from "./routes/authRoutes.js";
 import passport from "./config/passport.js";
 import cartRoutes from "./routes/cartRoutes.js";
 
+import reviewRoutes    from "./routes/reviewRoutes.js";
+import complaintRoutes from "./routes/complaintRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
+
 
 
 
@@ -50,6 +53,8 @@ app.use("/api/promotions", promotionRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/cart", cartRoutes);
+app.use("/api/reviews",    reviewRoutes);
+app.use("/api/complaints", complaintRoutes);
 // Global error handler
 app.use(errorMiddleware);
 
