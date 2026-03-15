@@ -336,11 +336,16 @@ export const createGuestOrder = catchAsyncErrors(async (req, res, next) => {
     const rawToken = crypto.randomBytes(32).toString("hex");
     const completeAccountToken = crypto.createHash("sha256").update(rawToken).digest("hex");
     const expireTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    const newUser = await database.query(
-      `INSERT INTO users (name, email, phone, role, is_verified, complete_account_token, complete_account_expire)
-       VALUES ($1, $2, $3, 'user', false, $4, $5) RETURNING *`,
-      [name, email, phone || null, completeAccountToken, expireTime]
-    );
+    // ✅ Nouveau — avec address et city
+const newUser = await database.query(
+  `INSERT INTO users 
+    (name, email, phone, address, city, role, is_verified, 
+     complete_account_token, complete_account_expire)
+   VALUES ($1, $2, $3, $4, $5, 'user', false, $6, $7) 
+   RETURNING *`,
+  [name, email, phone || null, shipping_address, shipping_city, 
+   completeAccountToken, expireTime]
+);
     user = newUser.rows[0];
 
     const completeUrl = `${process.env.FRONTEND_URL}/complete-account/${rawToken}`;
