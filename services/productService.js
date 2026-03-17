@@ -3,18 +3,65 @@ import database from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 
 // ═══════════════════════════════════════════════════════════
+// HELPER — upload product images in parallel
+// ═══════════════════════════════════════════════════════════
+const uploadProductImages = async (imageFiles) => {
+  const images   = Array.isArray(imageFiles) ? imageFiles : [imageFiles];
+  const uploaded = await Promise.all(
+    images.map(image =>
+      cloudinary.uploader.upload(image.tempFilePath, {
+        folder: "Ecommerce_Product_Images",
+        width:  1000,
+        crop:   "scale",
+      })
+    )
+  );
+  return uploaded.map(r => ({ url: r.secure_url, public_id: r.public_id }));
+};
+
+
+// ═══════════════════════════════════════════════════════════
+// HELPER — upsert attribute type + value
+// ═══════════════════════════════════════════════════════════
+const upsertAttribute = async (attribute_type, value) => {
+  let typeResult = await database.query(
+    "SELECT id FROM attribute_types WHERE name ILIKE $1", [attribute_type]
+  );
+  if (typeResult.rows.length === 0)
+    typeResult = await database.query(
+      "INSERT INTO attribute_types (name) VALUES ($1) RETURNING *", [attribute_type]
+    );
+  const typeId = typeResult.rows[0].id;
+
+  let valueResult = await database.query(
+    "SELECT id FROM attribute_values WHERE attribute_type_id=$1 AND value ILIKE $2",
+    [typeId, value]
+  );
+  if (valueResult.rows.length === 0)
+    valueResult = await database.query(
+      "INSERT INTO attribute_values (attribute_type_id, value) VALUES ($1, $2) RETURNING *",
+      [typeId, value]
+    );
+
+  return valueResult.rows[0].id;
+};
+
+
+// ═══════════════════════════════════════════════════════════
 // CREATE PRODUCT
 // ═══════════════════════════════════════════════════════════
 export const createProductService = async ({
   name, description, ethical_info, supplier_name,
   category_id, variants, userId, files,
 }) => {
+  // Check category
   const category = await database.query(
-    "SELECT id FROM categories WHERE id = $1", [category_id]
+    "SELECT id FROM categories WHERE id=$1", [category_id]
   );
   if (category.rows.length === 0)
     throw new ErrorHandler("Category not found.", 404);
 
+  // Resolve supplier
   let supplierId = null;
   if (supplier_name) {
     const supplier = await database.query(
@@ -25,15 +72,25 @@ export const createProductService = async ({
     supplierId = supplier.rows[0].id;
   }
 
+  // ✅ Upload product images (now on products table)
+  let uploadedImages = [];
+  if (files && files.images) {
+    uploadedImages = await uploadProductImages(files.images);
+  }
+
+  // Insert product
   const productResult = await database.query(
-    `INSERT INTO products (name, description, ethical_info, supplier_id, category_id, created_by, status)
-     VALUES ($1, $2, $3, $4, $5, $6, 'approved') RETURNING *`,
-    [name, description, ethical_info || null, supplierId, category_id, userId]
+    `INSERT INTO products
+      (name, description, ethical_info, supplier_id, category_id, created_by, images)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+    [name, description, ethical_info || null, supplierId,
+     category_id, userId, JSON.stringify(uploadedImages)]
   );
 
   const product         = productResult.rows[0];
   const createdVariants = [];
 
+  // Create variants
   for (const variant of variants) {
     const { price, stock, attributes } = variant;
 
@@ -41,60 +98,21 @@ export const createProductService = async ({
       throw new ErrorHandler("Each variant must have a valid price.", 400);
 
     const variantResult = await database.query(
-      `INSERT INTO product_variants (product_id, price, stock) VALUES ($1, $2, $3) RETURNING *`,
+      "INSERT INTO product_variants (product_id, price, stock) VALUES ($1, $2, $3) RETURNING *",
       [product.id, price, stock || 0]
     );
     const newVariant = variantResult.rows[0];
 
+    // Add attributes
     if (attributes && attributes.length > 0) {
       for (const attr of attributes) {
         const { attribute_type, value } = attr;
-        let typeResult = await database.query(
-          "SELECT id FROM attribute_types WHERE name ILIKE $1", [attribute_type]
-        );
-        if (typeResult.rows.length === 0)
-          typeResult = await database.query(
-            "INSERT INTO attribute_types (name) VALUES ($1) RETURNING *", [attribute_type]
-          );
-        const typeId = typeResult.rows[0].id;
-
-        let valueResult = await database.query(
-          "SELECT id FROM attribute_values WHERE attribute_type_id = $1 AND value ILIKE $2",
-          [typeId, value]
-        );
-        if (valueResult.rows.length === 0)
-          valueResult = await database.query(
-            "INSERT INTO attribute_values (attribute_type_id, value) VALUES ($1, $2) RETURNING *",
-            [typeId, value]
-          );
-        const valueId = valueResult.rows[0].id;
+        const valueId = await upsertAttribute(attribute_type, value);
         await database.query(
           "INSERT INTO variant_attributes (variant_id, attribute_value_id) VALUES ($1, $2)",
           [newVariant.id, valueId]
         );
       }
-    }
-
-    const variantIndex = variants.indexOf(variant);
-    const imageKey     = `variantImages_${variantIndex}`;
-    let   uploadedImages = [];
-
-    if (files && files[imageKey]) {
-      const images = Array.isArray(files[imageKey]) ? files[imageKey] : [files[imageKey]];
-      // ✅ Upload images in parallel
-      const uploaded = await Promise.all(
-        images.map(image =>
-          cloudinary.uploader.upload(image.tempFilePath, {
-            folder: "Ecommerce_Product_Images", width: 1000, crop: "scale",
-          })
-        )
-      );
-      uploadedImages = uploaded.map(r => ({ url: r.secure_url, public_id: r.public_id }));
-      await database.query(
-        "UPDATE product_variants SET images = $1 WHERE id = $2",
-        [JSON.stringify(uploadedImages), newVariant.id]
-      );
-      newVariant.images = uploadedImages;
     }
 
     createdVariants.push(newVariant);
@@ -106,33 +124,48 @@ export const createProductService = async ({
 
 // ═══════════════════════════════════════════════════════════
 // FETCH ALL PRODUCTS
+// ✅ Shows price from first variant
+// ✅ Images from products table
 // ═══════════════════════════════════════════════════════════
 export const fetchAllProductsService = async ({
   search, category_id, ratings, min_price, max_price, page = 1
 }) => {
-  const limit  = 10;
+  const limit  = 12;
   const offset = (page - 1) * limit;
 
-  const conditions = ["p.status = 'approved'"];
+  const conditions = [];
   const values     = [];
   let   index      = 1;
 
-  if (category_id) { conditions.push(`p.category_id = $${index}`); values.push(category_id); index++; }
-  if (ratings)     { conditions.push(`p.ratings >= $${index}`);     values.push(ratings);     index++; }
+  if (category_id) {
+    conditions.push(`p.category_id = $${index}`);
+    values.push(category_id); index++;
+  }
+  if (ratings) {
+    conditions.push(`p.ratings >= $${index}`);
+    values.push(ratings); index++;
+  }
   if (search) {
     conditions.push(`(p.name ILIKE $${index} OR p.description ILIKE $${index})`);
     values.push(`%${search}%`); index++;
   }
   if (min_price) {
-    conditions.push(`(SELECT MIN(pv.price) FROM product_variants pv WHERE pv.product_id = p.id) >= $${index}`);
+    conditions.push(
+      `(SELECT pv.price FROM product_variants pv WHERE pv.product_id = p.id ORDER BY pv.created_at ASC LIMIT 1) >= $${index}`
+    );
     values.push(min_price); index++;
   }
   if (max_price) {
-    conditions.push(`(SELECT MIN(pv.price) FROM product_variants pv WHERE pv.product_id = p.id) <= $${index}`);
+    conditions.push(
+      `(SELECT pv.price FROM product_variants pv WHERE pv.product_id = p.id ORDER BY pv.created_at ASC LIMIT 1) <= $${index}`
+    );
     values.push(max_price); index++;
   }
 
-  const whereClause = `WHERE ${conditions.join(" AND ")}`;
+  const whereClause = conditions.length > 0
+    ? `WHERE ${conditions.join(" AND ")}`
+    : "";
+
   const countValues = [...values];
   values.push(limit, offset);
 
@@ -141,23 +174,30 @@ export const fetchAllProductsService = async ({
     database.query(`SELECT COUNT(*) FROM products p ${whereClause}`, countValues),
     database.query(
       `SELECT
-         p.*,
-         c.name                                           AS category_name,
-         c.slug                                           AS category_slug,
-         s.name                                           AS supplier_name,
-         s.slug                                           AS supplier_slug,
-         COUNT(DISTINCT r.id)                             AS review_count,
-         MIN(pv.price)                                    AS min_price,
-         MAX(pv.price)                                    AS max_price,
-         SUM(pv.stock)                                    AS total_stock,
-         (SELECT pv2.images FROM product_variants pv2
-          WHERE pv2.product_id = p.id
-          ORDER BY pv2.created_at ASC LIMIT 1)            AS thumbnail
+         p.id,
+         p.name,
+         p.description,
+         p.ethical_info,
+         p.ratings,
+         p.images,
+         p.created_at,
+         p.supplier_id,
+         c.name   AS category_name,
+         c.slug   AS category_slug,
+         s.name   AS supplier_name,
+         s.slug   AS supplier_slug,
+         COUNT(DISTINCT r.id) AS review_count,
+         -- ✅ Price from first variant
+         (SELECT pv.price FROM product_variants pv
+          WHERE pv.product_id = p.id
+          ORDER BY pv.created_at ASC LIMIT 1) AS price,
+         -- ✅ Total stock from all variants
+         (SELECT SUM(pv.stock) FROM product_variants pv
+          WHERE pv.product_id = p.id) AS total_stock
        FROM products p
-       LEFT JOIN categories       c  ON c.id  = p.category_id
-       LEFT JOIN suppliers        s  ON s.id  = p.supplier_id
-       LEFT JOIN reviews          r  ON r.product_id = p.id
-       LEFT JOIN product_variants pv ON pv.product_id = p.id
+       LEFT JOIN categories c ON c.id = p.category_id
+       LEFT JOIN suppliers  s ON s.id = p.supplier_id
+       LEFT JOIN reviews    r ON r.product_id = p.id
        ${whereClause}
        GROUP BY p.id, c.name, c.slug, s.name, s.slug
        ORDER BY p.created_at DESC
@@ -179,6 +219,10 @@ export const fetchAllProductsService = async ({
 
 // ═══════════════════════════════════════════════════════════
 // FETCH SINGLE PRODUCT
+// ✅ Same price as list page (first variant)
+// ✅ Images from products table
+// ✅ Variants with attributes
+// ✅ Supplier slug for link to producer page
 // ═══════════════════════════════════════════════════════════
 export const fetchSingleProductService = async (productId) => {
   // ✅ Run product + variants in parallel
@@ -193,6 +237,13 @@ export const fetchSingleProductService = async (productId) => {
          s.name        AS supplier_name,
          s.slug        AS supplier_slug,
          s.description AS supplier_description,
+         -- ✅ Same price logic as list page
+         (SELECT pv.price FROM product_variants pv
+          WHERE pv.product_id = p.id
+          ORDER BY pv.created_at ASC LIMIT 1) AS price,
+         -- ✅ Total stock
+         (SELECT SUM(pv.stock) FROM product_variants pv
+          WHERE pv.product_id = p.id) AS total_stock,
          COALESCE(
            json_agg(
              json_build_object(
@@ -209,13 +260,14 @@ export const fetchSingleProductService = async (productId) => {
            ) FILTER (WHERE r.id IS NOT NULL), '[]'
          ) AS reviews
        FROM products p
-       LEFT JOIN categories  c  ON c.id  = p.category_id
-       LEFT JOIN categories  pc ON pc.id = c.parent_id
-       LEFT JOIN suppliers   s  ON s.id  = p.supplier_id
-       LEFT JOIN reviews     r  ON r.product_id = p.id
-       LEFT JOIN users       u  ON u.id = r.user_id
+       LEFT JOIN categories c  ON c.id  = p.category_id
+       LEFT JOIN categories pc ON pc.id = c.parent_id
+       LEFT JOIN suppliers  s  ON s.id  = p.supplier_id
+       LEFT JOIN reviews    r  ON r.product_id = p.id
+       LEFT JOIN users      u  ON u.id  = r.user_id
        WHERE p.id = $1
-       GROUP BY p.id, c.name, c.slug, pc.name, pc.slug, s.name, s.slug, s.description`,
+       GROUP BY p.id, c.name, c.slug, pc.name, pc.slug,
+                s.name, s.slug, s.description`,
       [productId]
     ),
     database.query(
@@ -254,17 +306,17 @@ export const fetchSingleProductService = async (productId) => {
 // UPDATE PRODUCT
 // ═══════════════════════════════════════════════════════════
 export const updateProductService = async ({
-  productId, name, description, ethical_info, supplier_name, category_id
+  productId, name, description, ethical_info, supplier_name, category_id, files
 }) => {
   const product = await database.query(
-    "SELECT * FROM products WHERE id = $1", [productId]
+    "SELECT * FROM products WHERE id=$1", [productId]
   );
   if (product.rows.length === 0)
     throw new ErrorHandler("Product not found.", 404);
 
   if (category_id) {
     const category = await database.query(
-      "SELECT id FROM categories WHERE id = $1", [category_id]
+      "SELECT id FROM categories WHERE id=$1", [category_id]
     );
     if (category.rows.length === 0)
       throw new ErrorHandler("Category not found.", 404);
@@ -280,15 +332,30 @@ export const updateProductService = async ({
     supplierId = supplier.rows[0].id;
   }
 
+  // Handle images update
+  let images = product.rows[0].images || [];
+  if (files && files.images) {
+    // ✅ Delete old images in parallel
+    await Promise.all(
+      images
+        .filter(img => img.public_id)
+        .map(img => cloudinary.uploader.destroy(img.public_id))
+    );
+    images = await uploadProductImages(files.images);
+  }
+
   const result = await database.query(
-    `UPDATE products SET name=$1, description=$2, ethical_info=$3, supplier_id=$4, category_id=$5
-     WHERE id=$6 RETURNING *`,
+    `UPDATE products
+     SET name=$1, description=$2, ethical_info=$3,
+         supplier_id=$4, category_id=$5, images=$6
+     WHERE id=$7 RETURNING *`,
     [
       name         || product.rows[0].name,
       description  || product.rows[0].description,
       ethical_info || null,
       supplierId,
       category_id  || product.rows[0].category_id,
+      JSON.stringify(images),
       productId,
     ]
   );
@@ -300,9 +367,9 @@ export const updateProductService = async ({
 // ═══════════════════════════════════════════════════════════
 // ADD VARIANT
 // ═══════════════════════════════════════════════════════════
-export const addVariantService = async ({ productId, price, stock, attributes, files }) => {
+export const addVariantService = async ({ productId, price, stock, attributes }) => {
   const product = await database.query(
-    "SELECT id FROM products WHERE id = $1", [productId]
+    "SELECT id FROM products WHERE id=$1", [productId]
   );
   if (product.rows.length === 0)
     throw new ErrorHandler("Product not found.", 404);
@@ -311,7 +378,7 @@ export const addVariantService = async ({ productId, price, stock, attributes, f
     throw new ErrorHandler("Please provide a valid price.", 400);
 
   const variantResult = await database.query(
-    `INSERT INTO product_variants (product_id, price, stock) VALUES ($1, $2, $3) RETURNING *`,
+    "INSERT INTO product_variants (product_id, price, stock) VALUES ($1, $2, $3) RETURNING *",
     [productId, price, stock || 0]
   );
   const variant = variantResult.rows[0];
@@ -322,48 +389,12 @@ export const addVariantService = async ({ productId, price, stock, attributes, f
   if (parsedAttributes && parsedAttributes.length > 0) {
     for (const attr of parsedAttributes) {
       const { attribute_type, value } = attr;
-      let typeResult = await database.query(
-        "SELECT id FROM attribute_types WHERE name ILIKE $1", [attribute_type]
-      );
-      if (typeResult.rows.length === 0)
-        typeResult = await database.query(
-          "INSERT INTO attribute_types (name) VALUES ($1) RETURNING *", [attribute_type]
-        );
-      const typeId = typeResult.rows[0].id;
-
-      let valueResult = await database.query(
-        "SELECT id FROM attribute_values WHERE attribute_type_id=$1 AND value ILIKE $2",
-        [typeId, value]
-      );
-      if (valueResult.rows.length === 0)
-        valueResult = await database.query(
-          "INSERT INTO attribute_values (attribute_type_id, value) VALUES ($1, $2) RETURNING *",
-          [typeId, value]
-        );
-      const valueId = valueResult.rows[0].id;
+      const valueId = await upsertAttribute(attribute_type, value);
       await database.query(
         "INSERT INTO variant_attributes (variant_id, attribute_value_id) VALUES ($1, $2)",
         [variant.id, valueId]
       );
     }
-  }
-
-  if (files && files.images) {
-    const images = Array.isArray(files.images) ? files.images : [files.images];
-    // ✅ Upload in parallel
-    const uploaded = await Promise.all(
-      images.map(image =>
-        cloudinary.uploader.upload(image.tempFilePath, {
-          folder: "Ecommerce_Product_Images", width: 1000, crop: "scale",
-        })
-      )
-    );
-    const uploadedImages = uploaded.map(r => ({ url: r.secure_url, public_id: r.public_id }));
-    await database.query(
-      "UPDATE product_variants SET images=$1 WHERE id=$2",
-      [JSON.stringify(uploadedImages), variant.id]
-    );
-    variant.images = uploadedImages;
   }
 
   return variant;
@@ -373,38 +404,16 @@ export const addVariantService = async ({ productId, price, stock, attributes, f
 // ═══════════════════════════════════════════════════════════
 // UPDATE VARIANT
 // ═══════════════════════════════════════════════════════════
-export const updateVariantService = async ({ variantId, price, stock, files }) => {
+export const updateVariantService = async ({ variantId, price, stock }) => {
   const variant = await database.query(
-    "SELECT * FROM product_variants WHERE id = $1", [variantId]
+    "SELECT * FROM product_variants WHERE id=$1", [variantId]
   );
   if (variant.rows.length === 0)
     throw new ErrorHandler("Variant not found.", 404);
 
-  let images = variant.rows[0].images || [];
-
-  if (files && files.images) {
-    // ✅ Delete old images in parallel
-    await Promise.all(
-      images
-        .filter(img => img.public_id)
-        .map(img => cloudinary.uploader.destroy(img.public_id))
-    );
-    images = [];
-    const newImages = Array.isArray(files.images) ? files.images : [files.images];
-    // ✅ Upload new images in parallel
-    const uploaded = await Promise.all(
-      newImages.map(image =>
-        cloudinary.uploader.upload(image.tempFilePath, {
-          folder: "Ecommerce_Product_Images", width: 1000, crop: "scale",
-        })
-      )
-    );
-    images = uploaded.map(r => ({ url: r.secure_url, public_id: r.public_id }));
-  }
-
   const result = await database.query(
-    `UPDATE product_variants SET price=$1, stock=$2, images=$3 WHERE id=$4 RETURNING *`,
-    [price ?? variant.rows[0].price, stock ?? variant.rows[0].stock, JSON.stringify(images), variantId]
+    "UPDATE product_variants SET price=$1, stock=$2 WHERE id=$3 RETURNING *",
+    [price ?? variant.rows[0].price, stock ?? variant.rows[0].stock, variantId]
   );
 
   return result.rows[0];
@@ -416,19 +425,12 @@ export const updateVariantService = async ({ variantId, price, stock, files }) =
 // ═══════════════════════════════════════════════════════════
 export const deleteVariantService = async (variantId) => {
   const variant = await database.query(
-    "SELECT * FROM product_variants WHERE id = $1", [variantId]
+    "SELECT * FROM product_variants WHERE id=$1", [variantId]
   );
   if (variant.rows.length === 0)
     throw new ErrorHandler("Variant not found.", 404);
 
-  // ✅ Delete images in parallel
-  await Promise.all(
-    (variant.rows[0].images || [])
-      .filter(img => img.public_id)
-      .map(img => cloudinary.uploader.destroy(img.public_id))
-  );
-
-  await database.query("DELETE FROM product_variants WHERE id = $1", [variantId]);
+  await database.query("DELETE FROM product_variants WHERE id=$1", [variantId]);
 };
 
 
@@ -437,58 +439,19 @@ export const deleteVariantService = async (variantId) => {
 // ═══════════════════════════════════════════════════════════
 export const deleteProductService = async (productId) => {
   const product = await database.query(
-    "SELECT * FROM products WHERE id = $1", [productId]
+    "SELECT * FROM products WHERE id=$1", [productId]
   );
   if (product.rows.length === 0)
     throw new ErrorHandler("Product not found.", 404);
 
-  const variants = await database.query(
-    "SELECT images FROM product_variants WHERE product_id = $1", [productId]
-  );
-
-  // ✅ Delete all images in parallel
-  const allImages = variants.rows.flatMap(v => v.images || []);
+  // ✅ Delete product images in parallel
   await Promise.all(
-    allImages
+    (product.rows[0].images || [])
       .filter(img => img.public_id)
       .map(img => cloudinary.uploader.destroy(img.public_id))
   );
 
-  await database.query("DELETE FROM products WHERE id = $1", [productId]);
+  await database.query("DELETE FROM products WHERE id=$1", [productId]);
 };
 
 
-// ═══════════════════════════════════════════════════════════
-// UPDATE PRODUCT STATUS
-// ═══════════════════════════════════════════════════════════
-export const updateProductStatusService = async ({ productId, status }) => {
-  const product = await database.query(
-    "SELECT id FROM products WHERE id = $1", [productId]
-  );
-  if (product.rows.length === 0)
-    throw new ErrorHandler("Product not found.", 404);
-
-  const result = await database.query(
-    "UPDATE products SET status=$1 WHERE id=$2 RETURNING *", [status, productId]
-  );
-
-  return result.rows[0];
-};
-
-
-// ═══════════════════════════════════════════════════════════
-// FETCH PENDING PRODUCTS
-// ═══════════════════════════════════════════════════════════
-export const fetchPendingProductsService = async () => {
-  const result = await database.query(
-    `SELECT p.*, c.name AS category_name, COUNT(pv.id) AS variant_count
-     FROM products p
-     LEFT JOIN categories       c  ON c.id = p.category_id
-     LEFT JOIN product_variants pv ON pv.product_id = p.id
-     WHERE p.status = 'pending'
-     GROUP BY p.id, c.name
-     ORDER BY p.created_at DESC`
-  );
-
-  return result.rows;
-};
