@@ -14,6 +14,8 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
   const {
     name_fr, name_ar, description_fr, description_ar,
     ethical_info_fr, ethical_info_ar, origin, certifications,
+    usage_fr, usage_ar, ingredients_fr, ingredients_ar,
+    precautions_fr, precautions_ar,
     supplier_id, category_id, slug, variants,
   } = req.body;
 
@@ -27,6 +29,8 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
   const { product, variants: createdVariants } = await productService.createProductService({
     name_fr, name_ar, description_fr, description_ar,
     ethical_info_fr, ethical_info_ar, origin,
+    usage_fr, usage_ar, ingredients_fr, ingredients_ar,
+    precautions_fr, precautions_ar,
     certifications: certifications ? JSON.parse(certifications) : null,
     supplier_id: supplier_id || null,
     category_id, slug,
@@ -92,6 +96,8 @@ export const updateProduct = catchAsyncErrors(async (req, res) => {
   const {
     name_fr, name_ar, description_fr, description_ar,
     ethical_info_fr, ethical_info_ar, origin, certifications,
+    usage_fr, usage_ar, ingredients_fr, ingredients_ar,
+    precautions_fr, precautions_ar,
     supplier_id, category_id, slug, is_active, is_featured,
   } = req.body;
 
@@ -99,6 +105,8 @@ export const updateProduct = catchAsyncErrors(async (req, res) => {
     productId: req.params.productId,
     name_fr, name_ar, description_fr, description_ar,
     ethical_info_fr, ethical_info_ar, origin,
+    usage_fr, usage_ar, ingredients_fr, ingredients_ar,
+    precautions_fr, precautions_ar,
     certifications: certifications ? JSON.parse(certifications) : undefined,
     supplier_id, category_id, slug,
     is_active:  is_active  !== undefined ? is_active  === "true" : undefined,

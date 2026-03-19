@@ -58,6 +58,8 @@ const upsertAttribute = async (attribute_type_fr, value_fr, attribute_type_ar = 
 export const createProductService = async ({
   name_fr, name_ar, description_fr, description_ar,
   ethical_info_fr, ethical_info_ar, origin,
+  usage_fr, usage_ar, ingredients_fr, ingredients_ar,
+  precautions_fr, precautions_ar,
   certifications, supplier_id, category_id,
   slug, variants, userId, files,
 }) => {
@@ -96,8 +98,10 @@ export const createProductService = async ({
     `INSERT INTO products
       (name_fr, name_ar, description_fr, description_ar,
        ethical_info_fr, ethical_info_ar, origin, certifications,
+       usage_fr, usage_ar, ingredients_fr, ingredients_ar,
+       precautions_fr, precautions_ar,
        supplier_id, category_id, created_by, images, slug)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
      RETURNING *`,
     [
       name_fr, name_ar || null,
@@ -105,6 +109,9 @@ export const createProductService = async ({
       ethical_info_fr || null, ethical_info_ar || null,
       origin || null,
       certifications ? JSON.stringify(certifications) : null,
+      usage_fr || null, usage_ar || null,
+      ingredients_fr || null, ingredients_ar || null,
+      precautions_fr || null, precautions_ar || null,
       supplier_id || null, category_id,
       userId, JSON.stringify(uploadedImages),
       finalSlug,
@@ -172,9 +179,9 @@ export const fetchAllProductsService = async ({
   const conditions = ["p.is_active = true"];
   const values     = [];
   let   i          = 1;
-  let   searchIndex = null;
 
   if (category_id) {
+    // Include subcategories
     conditions.push(`(p.category_id = $${i} OR c.parent_id = $${i})`);
     values.push(category_id); i++;
   }
@@ -190,12 +197,10 @@ export const fetchAllProductsService = async ({
     values.push(supplier_id); i++;
   }
   if (search) {
-    searchIndex = i;
-    conditions.push(`
-      to_tsvector('french', p.name_fr || ' ' || COALESCE(p.description_fr, ''))
-      @@ plainto_tsquery('french', $${i})
-    `);
-    values.push(search); i++;
+    conditions.push(
+      `(p.name_fr ILIKE $${i} OR p.name_ar ILIKE $${i} OR p.description_fr ILIKE $${i})`
+    );
+    values.push(`%${search}%`); i++;
   }
   if (min_price) {
     conditions.push(
@@ -241,10 +246,12 @@ export const fetchAllProductsService = async ({
          s.name      AS supplier_name,
          s.slug      AS supplier_slug,
          s.is_certified_bio,
+         -- min price from active variants
          (SELECT MIN(pv2.price)
           FROM product_variants pv2
           WHERE pv2.product_id = p.id AND pv2.is_active = true
          ) AS min_price,
+         -- total stock
          (SELECT COALESCE(SUM(pv2.stock), 0)
           FROM product_variants pv2
           WHERE pv2.product_id = p.id AND pv2.is_active = true
@@ -254,12 +261,7 @@ export const fetchAllProductsService = async ({
        LEFT JOIN suppliers  s ON s.id = p.supplier_id
        ${WHERE}
        GROUP BY p.id, c.id, c.name_fr, c.slug, s.id, s.name, s.slug, s.is_certified_bio
-       ORDER BY
-         ${searchIndex ? `ts_rank(
-             to_tsvector('french', p.name_fr || ' ' || COALESCE(p.description_fr, '')),
-             plainto_tsquery('french', $${searchIndex})
-           ) DESC,` : ""}
-         p.created_at DESC
+       ORDER BY p.created_at DESC
        LIMIT $${i} OFFSET $${i + 1}`,
       values
     ),
@@ -274,6 +276,7 @@ export const fetchAllProductsService = async ({
     products:      result.rows,
   };
 };
+
 // ═══════════════════════════════════════════════════════════
 // FETCH SINGLE PRODUCT
 // ✅ Full details + variants + attributes + reviews
@@ -402,6 +405,8 @@ export const fetchFeaturedProductsService = async (limit = 8) => {
 export const updateProductService = async ({
   productId, name_fr, name_ar, description_fr, description_ar,
   ethical_info_fr, ethical_info_ar, origin, certifications,
+  usage_fr, usage_ar, ingredients_fr, ingredients_ar,
+  precautions_fr, precautions_ar,
   supplier_id, category_id, slug, is_active, is_featured, files,
 }) => {
   const existing = await database.query(
@@ -421,7 +426,6 @@ export const updateProductService = async ({
     if (sup.rows.length === 0) throw new ErrorHandler("Supplier not found.", 404);
   }
 
-  // Handle image update
   let images = p.images || [];
   if (files && files.images) {
     await Promise.all(
@@ -437,10 +441,13 @@ export const updateProductService = async ({
        description_fr=$3, description_ar=$4,
        ethical_info_fr=$5, ethical_info_ar=$6,
        origin=$7, certifications=$8,
-       supplier_id=$9, category_id=$10,
-       slug=$11, is_active=$12, is_featured=$13, images=$14,
+       usage_fr=$9, usage_ar=$10,
+       ingredients_fr=$11, ingredients_ar=$12,
+       precautions_fr=$13, precautions_ar=$14,
+       supplier_id=$15, category_id=$16,
+       slug=$17, is_active=$18, is_featured=$19, images=$20,
        updated_at=now()
-     WHERE id=$15 RETURNING *`,
+     WHERE id=$21 RETURNING *`,
     [
       name_fr          ?? p.name_fr,
       name_ar          ?? p.name_ar,
@@ -450,6 +457,12 @@ export const updateProductService = async ({
       ethical_info_ar  ?? p.ethical_info_ar,
       origin           ?? p.origin,
       certifications   ? JSON.stringify(certifications) : p.certifications,
+      usage_fr         ?? p.usage_fr,
+      usage_ar         ?? p.usage_ar,
+      ingredients_fr   ?? p.ingredients_fr,
+      ingredients_ar   ?? p.ingredients_ar,
+      precautions_fr   ?? p.precautions_fr,
+      precautions_ar   ?? p.precautions_ar,
       supplier_id      ?? p.supplier_id,
       category_id      ?? p.category_id,
       slug             ?? p.slug,
