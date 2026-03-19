@@ -172,9 +172,9 @@ export const fetchAllProductsService = async ({
   const conditions = ["p.is_active = true"];
   const values     = [];
   let   i          = 1;
+  let   searchIndex = null;
 
   if (category_id) {
-    // Include subcategories
     conditions.push(`(p.category_id = $${i} OR c.parent_id = $${i})`);
     values.push(category_id); i++;
   }
@@ -190,10 +190,12 @@ export const fetchAllProductsService = async ({
     values.push(supplier_id); i++;
   }
   if (search) {
-    conditions.push(
-      `(p.name_fr ILIKE $${i} OR p.name_ar ILIKE $${i} OR p.description_fr ILIKE $${i})`
-    );
-    values.push(`%${search}%`); i++;
+    searchIndex = i;
+    conditions.push(`
+      to_tsvector('french', p.name_fr || ' ' || COALESCE(p.description_fr, ''))
+      @@ plainto_tsquery('french', $${i})
+    `);
+    values.push(search); i++;
   }
   if (min_price) {
     conditions.push(
@@ -239,12 +241,10 @@ export const fetchAllProductsService = async ({
          s.name      AS supplier_name,
          s.slug      AS supplier_slug,
          s.is_certified_bio,
-         -- min price from active variants
          (SELECT MIN(pv2.price)
           FROM product_variants pv2
           WHERE pv2.product_id = p.id AND pv2.is_active = true
          ) AS min_price,
-         -- total stock
          (SELECT COALESCE(SUM(pv2.stock), 0)
           FROM product_variants pv2
           WHERE pv2.product_id = p.id AND pv2.is_active = true
@@ -254,7 +254,12 @@ export const fetchAllProductsService = async ({
        LEFT JOIN suppliers  s ON s.id = p.supplier_id
        ${WHERE}
        GROUP BY p.id, c.id, c.name_fr, c.slug, s.id, s.name, s.slug, s.is_certified_bio
-       ORDER BY p.created_at DESC
+       ORDER BY
+         ${searchIndex ? `ts_rank(
+             to_tsvector('french', p.name_fr || ' ' || COALESCE(p.description_fr, '')),
+             plainto_tsquery('french', $${searchIndex})
+           ) DESC,` : ""}
+         p.created_at DESC
        LIMIT $${i} OFFSET $${i + 1}`,
       values
     ),
@@ -269,7 +274,6 @@ export const fetchAllProductsService = async ({
     products:      result.rows,
   };
 };
-
 // ═══════════════════════════════════════════════════════════
 // FETCH SINGLE PRODUCT
 // ✅ Full details + variants + attributes + reviews
