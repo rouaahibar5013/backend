@@ -13,6 +13,8 @@ import authRoutes      from "./routes/authRoutes.js";
 import cartRoutes      from "./routes/cartRoutes.js";
 import orderRoutes     from "./routes/orderRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
+import wishlistRoutes from "./routes/wishlistRoutes.js";
+
 
 import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 
@@ -61,7 +63,7 @@ app.use("/api/auth",       authRoutes);
 app.use("/api/cart",       cartRoutes);
 app.use("/api/orders",     orderRoutes);
 app.use("/api/reviews", reviewRoutes);
-
+app.use("/api/wishlist", wishlistRoutes);
 // ─── Global error handler ─────────────────────────────────
 app.use(errorMiddleware);
 
