@@ -11,6 +11,7 @@ import promotionRoutes from "./routes/promotionRoutes.js";
 import authRoutes      from "./routes/authRoutes.js";
 import cartRoutes      from "./routes/cartRoutes.js";
 import orderRoutes     from "./routes/orderRoutes.js";
+import reviewRoutes from "./routes/reviewRoutes.js";
 import homeRoutes from "./routes/homeRoutes.js";
 
 
@@ -29,15 +30,21 @@ app.use(cors({
   methods:     ["GET", "POST", "PUT", "DELETE", "PATCH"],
 }));
 
+
+
+// 3. Parsers JSON et URL-encoded
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+
+
+
 // 2. fileUpload — AVANT express.json() pour traiter le multipart/form-data
 app.use(fileUpload({
   useTempFiles: true,
   tempFileDir:  "/tmp/",
 }));
 
-// 3. Parsers JSON et URL-encoded
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // 4. Cookie parser
 app.use(cookieParser());
@@ -54,6 +61,7 @@ app.use("/api/promotions", promotionRoutes);
 app.use("/api/auth",       authRoutes);
 app.use("/api/cart",       cartRoutes);
 app.use("/api/orders",     orderRoutes);
+app.use("/api/reviews", reviewRoutes);
 
 app.use("/api/home", homeRoutes);
 
