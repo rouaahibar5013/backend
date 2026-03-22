@@ -44,7 +44,6 @@ export const getHomeDataService = async () => {
          p.rating_count,
          p.is_new,
          p.origin,
-         p.is_certified_bio,
          s.name   AS supplier_name,
          s.slug   AS supplier_slug,
          (SELECT pv.price FROM product_variants pv
@@ -76,7 +75,6 @@ export const getHomeDataService = async () => {
          p.rating_count,
          p.views_count,
          p.origin,
-         p.is_certified_bio,
          s.name   AS supplier_name,
          s.slug   AS supplier_slug,
          (SELECT pv.price FROM product_variants pv
@@ -91,7 +89,7 @@ export const getHomeDataService = async () => {
        LEFT JOIN suppliers s ON s.id = p.supplier_id
        WHERE p.is_active    = true
        AND p.views_count > 0
-       ORDER BY p.views_ount DESC
+       ORDER BY p.views_count DESC
        LIMIT 6`
     ),
 
