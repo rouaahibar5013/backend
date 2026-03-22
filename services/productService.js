@@ -282,11 +282,6 @@ export const fetchAllProductsService = async ({
 // ✅ Full details + variants + attributes + reviews
 // ═══════════════════════════════════════════════════════════
 export const fetchSingleProductService = async (productId) => {
-    database.query(
-  "UPDATE products SET views_count = views_count + 1 WHERE id=$1",
-  [productId]
-);
-
   const [productResult, variantsResult] = await Promise.all([
     database.query(
       `SELECT
@@ -361,8 +356,6 @@ export const fetchSingleProductService = async (productId) => {
        ORDER BY pv.price ASC`,
       [productId]
     ),
-
-
   ]);
 
   if (productResult.rows.length === 0)
