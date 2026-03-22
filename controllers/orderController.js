@@ -69,7 +69,7 @@ export const createOrder = catchAsyncErrors(async (req, res, next) => {
          COALESCE(json_agg(json_build_object('attribute_type', at.name, 'attribute_value', av.value)) FILTER (WHERE at.id IS NOT NULL), '[]') AS attributes
        FROM product_variants pv
        LEFT JOIN products p ON p.id = pv.product_id
-       LEFT JOIN variant_attributes va ON va.variant_id = pv.id
+       LEFT JOIN product_variant_attributes va ON va.variant_id = pv.id
        LEFT JOIN attribute_values av ON av.id = va.attribute_value_id
        LEFT JOIN attribute_types at ON at.id = av.attribute_type_id
        WHERE pv.id = $1 GROUP BY pv.id, p.name`,
@@ -384,7 +384,7 @@ const newUser = await database.query(
          COALESCE(json_agg(json_build_object('attribute_type', at.name, 'attribute_value', av.value)) FILTER (WHERE at.id IS NOT NULL), '[]') AS attributes
        FROM product_variants pv
        LEFT JOIN products p ON p.id = pv.product_id
-       LEFT JOIN variant_attributes va ON va.variant_id = pv.id
+       LEFT JOIN product_variant_attributes va ON va.variant_id = pv.id
        LEFT JOIN attribute_values av ON av.id = va.attribute_value_id
        LEFT JOIN attribute_types at ON at.id = av.attribute_type_id
        WHERE pv.id = $1 GROUP BY pv.id, p.name`,

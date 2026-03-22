@@ -64,7 +64,7 @@ export const getCart = catchAsyncErrors(async (req, res, next) => {
      FROM cart_items ci
      LEFT JOIN product_variants  pv ON pv.id = ci.variant_id
      LEFT JOIN products          p  ON p.id  = pv.product_id
-     LEFT JOIN variant_attributes va ON va.variant_id = pv.id
+     LEFT JOIN product_variant_attributes va ON va.variant_id = pv.id
      LEFT JOIN attribute_values   av ON av.id = va.attribute_value_id
      LEFT JOIN attribute_types    at ON at.id = av.attribute_type_id
      WHERE ${condition}

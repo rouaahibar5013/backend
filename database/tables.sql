@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS product_variants (
 -- ─────────────────────────────────────────
 -- VARIANT ATTRIBUTES
 -- ─────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS variant_attributes (
+CREATE TABLE IF NOT EXISTS product_variant_attributes (
   id                 UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   variant_id         UUID NOT NULL REFERENCES product_variants(id) ON DELETE CASCADE,
   attribute_value_id UUID NOT NULL REFERENCES attribute_values(id) ON DELETE CASCADE,
