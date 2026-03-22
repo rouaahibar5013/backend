@@ -4,6 +4,7 @@ import cors from "cors";
 import fileUpload from "express-fileupload";
 import cookieParser from "cookie-parser";
 import passport from "./config/passport.js";
+
 import productRoutes   from "./routes/productRoutes.js";
 import categoryRoutes  from "./routes/categoryRoutes.js";
 import supplierRoutes  from "./routes/supplierRoutes.js";
@@ -13,7 +14,6 @@ import cartRoutes      from "./routes/cartRoutes.js";
 import orderRoutes     from "./routes/orderRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 import wishlistRoutes from "./routes/wishlistRoutes.js";
-import homeRoutes from "./routes/homeRoutes.js";
 
 
 import { errorMiddleware } from "./middlewares/errorMiddleware.js";
@@ -64,9 +64,6 @@ app.use("/api/cart",       cartRoutes);
 app.use("/api/orders",     orderRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/wishlist", wishlistRoutes);
-
-app.use("/api/home", homeRoutes);
-
 // ─── Global error handler ─────────────────────────────────
 app.use(errorMiddleware);
 
