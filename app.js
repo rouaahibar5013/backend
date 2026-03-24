@@ -5,6 +5,8 @@ import fileUpload from "express-fileupload";
 import cookieParser from "cookie-parser";
 import passport from "./config/passport.js";
 
+import statsRoutes from "./routes/statsRoutes.js";
+
 import homeRoutes from "./routes/homeRoutes.js";
 import productRoutes   from "./routes/productRoutes.js";
 import categoryRoutes  from "./routes/categoryRoutes.js";
@@ -67,6 +69,7 @@ app.use("/api/orders",     orderRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/offres", offresRoutes);
+app.use("/api/stats", statsRoutes);
 
 // ─── Global error handler ─────────────────────────────────
 app.use(errorMiddleware);
