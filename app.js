@@ -16,6 +16,8 @@ import orderRoutes     from "./routes/orderRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 import wishlistRoutes from "./routes/wishlistRoutes.js";
 
+import offresRoutes from "./routes/offresRoutes.js";
+
 import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 
 dotenv.config();
@@ -64,6 +66,7 @@ app.use("/api/cart",       cartRoutes);
 app.use("/api/orders",     orderRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/wishlist", wishlistRoutes);
+app.use("/api/offres", offresRoutes);
 
 // ─── Global error handler ─────────────────────────────────
 app.use(errorMiddleware);
