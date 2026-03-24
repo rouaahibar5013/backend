@@ -13,7 +13,6 @@ const productColumns = `
   p.rating_count,
   p.is_new,
   p.is_featured,
-  p.is_certified_bio,
   p.origin,
   s.name AS supplier_name,
   s.slug AS supplier_slug,
