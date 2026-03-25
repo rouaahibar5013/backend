@@ -2,6 +2,7 @@ import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import { sendToken } from "../utils/jwtToken.js";
 import * as authService from "../services/authService.js";
+import database from "../database/db.js";
 
 // ═══════════════════════════════════════════════════════════
 // REGISTER
@@ -202,4 +203,40 @@ export const completeAccount = catchAsyncErrors(async (req, res, next) => {
   const user = await authService.completeUserAccount({ token, password });
 
   sendToken(user, 200, "Account completed successfully. You are now logged in.", res);
+});
+
+
+// ═══════════════════════════════════════════════════════════
+// GET ALL USERS (admin)
+// GET /api/auth/users
+// ═══════════════════════════════════════════════════════════
+export const getAllUsers = catchAsyncErrors(async (req, res, next) => {
+    const { search } = req.query;
+    let query = `SELECT id, name, email, avatar, role, is_verified, created_at FROM users`;
+    const values = [];
+    if (search) {
+        query += ` WHERE name ILIKE $1 OR email ILIKE $1`;
+        values.push(`%${search}%`);
+    }
+    query += ` ORDER BY created_at DESC`;
+    const result = await database.query(query, values);
+    res.status(200).json({ success: true, users: result.rows });
+});
+
+export const deleteUser = catchAsyncErrors(async (req, res, next) => {
+    const { userId } = req.params;
+    await database.query("DELETE FROM users WHERE id = $1", [userId]);
+    res.status(200).json({ success: true, message: "Utilisateur supprimé." });
+});
+
+export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
+    const { userId } = req.params;
+    const { role } = req.body;
+    if (!['user', 'admin'].includes(role))
+        return next(new ErrorHandler("Rôle invalide.", 400));
+    const result = await database.query(
+        "UPDATE users SET role=$1 WHERE id=$2 RETURNING id, name, email, role",
+        [role, userId]
+    );
+    res.status(200).json({ success: true, user: result.rows[0] });
 });
