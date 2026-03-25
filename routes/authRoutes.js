@@ -11,11 +11,14 @@ import {
   getMe,
   updateProfile,
   updatePassword,
+  getAllUsers,
+  deleteUser,
+  updateUserRole 
 } from "../controllers/authController.js";
 
 import { completeAccount } from "../controllers/authController.js";
 
-import { isAuthenticated } from "../middlewares/auth.js";
+import { isAuthenticated , isAdmin  } from "../middlewares/auth.js";
 
 const router = express.Router();
 
@@ -50,5 +53,10 @@ router.get(
 router.get("/me",       isAuthenticated, getMe);
 router.put("/me",       isAuthenticated, updateProfile);
 router.put("/password", isAuthenticated, updatePassword);
+
+
+router.get("/users",                isAuthenticated, isAdmin, getAllUsers);
+router.delete("/users/:userId",     isAuthenticated, isAdmin, deleteUser);
+router.patch("/users/:userId/role", isAuthenticated, isAdmin, updateUserRole);
 
 export default router;
