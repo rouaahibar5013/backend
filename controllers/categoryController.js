@@ -55,7 +55,15 @@ export const fetchSingleCategory = catchAsyncErrors(async (req, res) => {
 // PUT /api/categories/:categoryId
 // ═══════════════════════════════════════════════════════════
 export const updateCategory = catchAsyncErrors(async (req, res) => {
-  const { name_fr, name_ar, description_fr, description_ar, parent_id, is_active, sort_order } = req.body;
+  const {
+    name_fr,
+    name_ar,
+    description_fr,
+    description_ar,
+    parent_id,
+    is_active,
+    sort_order
+} = req.body || {};
 
   const category = await categoryService.updateCategoryService({
     categoryId: req.params.categoryId,
