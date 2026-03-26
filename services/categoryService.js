@@ -111,7 +111,13 @@ export const fetchAllCategoriesService = async () => {
      ORDER BY c.sort_order ASC, c.name_fr ASC`
   );
 
-  const all   = result.rows;
+ const all = result.rows.map(row => ({
+    ...row,
+    product_count: parseInt(row.product_count) || 0,
+    images: typeof row.images === 'string'
+        ? JSON.parse(row.images)
+        : row.images ?? [],
+}));
   const roots = all.filter(c => c.parent_id === null);
 
   // Nest subcategories inside their parent
