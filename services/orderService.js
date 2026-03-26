@@ -3,15 +3,25 @@ import crypto from "crypto";
 import database from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import sendEmail from "../utils/sendEmail.js";
+import { generateInvoicePDF } from "../utils/generateInvoicePDF.js";
 import { createGuestAccountService } from "./authService.js";
 import { exportOrderToOdoo } from "./odooService.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ═══════════════════════════════════════════════════════════
-// HELPER — Email de confirmation de commande
+// HELPER — Email de confirmation + Facture PDF en pièce jointe
 // ═══════════════════════════════════════════════════════════
 const sendOrderConfirmationEmail = async (toEmail, order, customerName) => {
+  // Récupérer les articles de la commande pour le PDF
+  const itemsResult = await database.query(
+    "SELECT * FROM order_items WHERE order_id=$1", [order.id]
+  );
+  const items = itemsResult.rows;
+
+  // Générer le PDF
+  const pdfBuffer = await generateInvoicePDF(order, items);
+
   await sendEmail({
     to:      toEmail,
     subject: `✅ Commande confirmée #${order.order_number} — GOFFA 🧺`,
@@ -32,10 +42,15 @@ const sendOrderConfirmationEmail = async (toEmail, order, customerName) => {
               order.payment_method === 'cod'    ? '💵 Paiement à la livraison' :
               order.payment_method === 'stripe' ? '💳 Carte bancaire / Twint'  : order.payment_method
             }</p>
-            ${order.discount_amount > 0 ? `
+            ${parseFloat(order.discount_amount) > 0 ? `
             <p><strong>Réduction :</strong> -${order.discount_amount} DT</p>
             ` : ''}
             <p style="font-size: 20px; color: #166534;"><strong>Total : ${order.total_price} DT</strong></p>
+          </div>
+          <div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 16px; margin: 16px 0;">
+            <p style="margin: 0; color: #166534; font-size: 14px;">
+              📎 Votre <strong>facture PDF</strong> est jointe à cet email.
+            </p>
           </div>
           <p style="color: #666; font-size: 14px;">
             Vous recevrez une notification par email quand votre commande sera expédiée.
@@ -49,6 +64,14 @@ const sendOrderConfirmationEmail = async (toEmail, order, customerName) => {
         </div>
       </div>
     `,
+    // ✅ Facture PDF en pièce jointe
+    attachments: [
+      {
+        filename:    `Facture-${order.order_number}.pdf`,
+        content:     pdfBuffer,
+        contentType: 'application/pdf',
+      },
+    ],
   });
 };
 

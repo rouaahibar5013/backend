@@ -71,6 +71,7 @@ app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/offres", offresRoutes);
 app.use("/api/stats", statsRoutes);
 
+
 // ─── Global error handler ─────────────────────────────────
 app.use(errorMiddleware);
 
