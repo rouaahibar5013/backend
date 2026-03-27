@@ -4,7 +4,8 @@ import database from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import sendEmail from "../utils/sendEmail.js";
 import { generateInvoicePDF } from "../utils/generateInvoicePDF.js";
-import { createGuestAccountService } from "./authService.js";
+
+import { createGuestAccount } from "./authService.js";
 import { exportOrderToOdoo } from "./odooService.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -341,7 +342,7 @@ export const createGuestOrderService = async ({
   shipping_country, promo_code, notes,
 }) => {
   // ── Créer ou récupérer le compte guest ────────────────
-  const user = await createGuestAccountService({
+  const user = await createGuestAccount({
     name, email, phone,
     shipping_address, shipping_city,
   });
