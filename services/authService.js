@@ -10,14 +10,12 @@ import sendEmail from "../utils/sendEmail.js";
 // REGISTER
 // ═══════════════════════════════════════════════════════════
 export const registerUser = async ({ name, email, password, phone, address, city, avatarFile }) => {
-  // Vérifier email existant
   const existingUser = await database.query(
     "SELECT id FROM users WHERE email = $1", [email]
   );
   if (existingUser.rows.length > 0)
     throw new ErrorHandler("Cet email est déjà utilisé.", 409);
 
-  // Upload avatar si fourni
   let avatarUrl = null;
   if (avatarFile) {
     const result = await cloudinary.uploader.upload(
@@ -27,14 +25,12 @@ export const registerUser = async ({ name, email, password, phone, address, city
     avatarUrl = result.secure_url;
   }
 
-  // Hash password
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  // ✅ FIX — rawToken dans l'email, hashedToken en DB
+  // ✅ rawToken dans l'email, hashedToken en DB
   const rawToken          = crypto.randomBytes(32).toString("hex");
   const verificationToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-  // INSERT en DB
   const result = await database.query(
     `INSERT INTO users
       (name, email, password, avatar, role, is_verified, verification_token, phone, address, city)
@@ -46,24 +42,27 @@ export const registerUser = async ({ name, email, password, phone, address, city
 
   const user = result.rows[0];
 
-  // ✅ Envoyer rawToken dans l'email (pas le hashé)
   const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${encodeURIComponent(rawToken)}`;
 
   await sendEmail({
     to:      email,
-    subject: "Verify your email — GOFFA",
+    subject: "Vérifiez votre email — GOFFA 🧺",
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>Welcome ${name} !</h2>
-        <p>Please click the button below to verify your email address.</p>
-        <a href="${verificationUrl}"
-           style="background: #059669; color: white; padding: 12px 24px;
-                  text-decoration: none; border-radius: 6px; display: inline-block;">
-          Verify my email
-        </a>
-        <p style="margin-top: 16px; color: #666;">
-          This link expires in 24 hours.
-        </p>
+        <div style="background: #166534; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+          <h1 style="color: white; margin: 0;">🧺 GOFFA</h1>
+          <p style="color: #86efac; margin: 5px 0 0;">artisanat tunisien</p>
+        </div>
+        <div style="padding: 30px; background: #f9fafb; border-radius: 0 0 10px 10px;">
+          <h2>Bienvenue ${name} !</h2>
+          <p>Cliquez sur le bouton ci-dessous pour vérifier votre adresse email.</p>
+          <a href="${verificationUrl}"
+             style="background: #166534; color: white; padding: 12px 24px;
+                    text-decoration: none; border-radius: 6px; display: inline-block; margin: 16px 0;">
+            Vérifier mon email →
+          </a>
+          <p style="color: #666; font-size: 14px;">Ce lien expire dans <strong>24 heures</strong>.</p>
+        </div>
       </div>
     `,
   });
@@ -76,7 +75,6 @@ export const registerUser = async ({ name, email, password, phone, address, city
 // VERIFY EMAIL
 // ═══════════════════════════════════════════════════════════
 export const verifyUserEmail = async (token) => {
-  // ✅ Hash le rawToken reçu depuis l'URL pour comparer avec DB
   const hashedToken = crypto
     .createHash("sha256")
     .update(decodeURIComponent(token))
@@ -119,17 +117,16 @@ export const loginUser = async ({ email, password }) => {
 
   const user = result.rows[0];
 
-  // Bloquer les users suspendus
   if (user.is_active === false)
     throw new ErrorHandler("Votre compte a été suspendu. Contactez le support.", 403);
 
-  // Bloquer les users non vérifiés
-  // ✅ Exception : les guest users (pas de password) ne sont pas bloqués ici
-  // car ils n'ont pas encore de mot de passe
-  if (!user.is_verified && user.password)
+  // ✅ Guest users (sans password) ne peuvent pas se connecter par email/password
+  if (!user.password)
+    throw new ErrorHandler("Veuillez compléter votre compte via le lien reçu par email.", 401);
+
+  if (!user.is_verified)
     throw new ErrorHandler("Veuillez vérifier votre email avant de vous connecter.", 401);
 
-  // Vérifier le mot de passe
   const isPasswordCorrect = await bcrypt.compare(password, user.password);
   if (!isPasswordCorrect)
     throw new ErrorHandler("Email ou mot de passe incorrect.", 401);
@@ -164,7 +161,6 @@ export const forgotUserPassword = async (email) => {
     "SELECT * FROM users WHERE email = $1", [email]
   );
 
-  // Réponse ambiguë volontaire — sécurité
   if (result.rows.length === 0) return false;
 
   const user = result.rows[0];
@@ -174,9 +170,7 @@ export const forgotUserPassword = async (email) => {
   const expireTime  = new Date(Date.now() + 15 * 60 * 1000);
 
   await database.query(
-    `UPDATE users
-     SET reset_password_token=$1, reset_password_expire=$2
-     WHERE id=$3`,
+    `UPDATE users SET reset_password_token=$1, reset_password_expire=$2 WHERE id=$3`,
     [hashedToken, expireTime, user.id]
   );
 
@@ -184,20 +178,25 @@ export const forgotUserPassword = async (email) => {
 
   await sendEmail({
     to:      email,
-    subject: "Reset your password — GOFFA",
+    subject: "Réinitialisation de mot de passe — GOFFA 🧺",
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>Password Reset Request</h2>
-        <p>You requested to reset your password. Click the button below :</p>
-        <a href="${resetUrl}"
-           style="background: #059669; color: white; padding: 12px 24px;
-                  text-decoration: none; border-radius: 6px; display: inline-block;">
-          Reset my password
-        </a>
-        <p style="margin-top: 16px; color: #666;">
-          This link expires in <strong>15 minutes</strong>.
-          If you didn't request this, ignore this email.
-        </p>
+        <div style="background: #166534; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+          <h1 style="color: white; margin: 0;">🧺 GOFFA</h1>
+        </div>
+        <div style="padding: 30px; background: #f9fafb; border-radius: 0 0 10px 10px;">
+          <h2>Réinitialisation de mot de passe</h2>
+          <p>Cliquez sur le bouton ci-dessous pour réinitialiser votre mot de passe :</p>
+          <a href="${resetUrl}"
+             style="background: #166534; color: white; padding: 12px 24px;
+                    text-decoration: none; border-radius: 6px; display: inline-block; margin: 16px 0;">
+            Réinitialiser mon mot de passe →
+          </a>
+          <p style="color: #666; font-size: 14px;">
+            Ce lien expire dans <strong>15 minutes</strong>.
+            Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.
+          </p>
+        </div>
       </div>
     `,
   });
@@ -226,7 +225,6 @@ export const resetUserPassword = async ({ token, password }) => {
     throw new ErrorHandler("Lien de réinitialisation invalide ou expiré.", 400);
 
   const user = result.rows[0];
-
   const hashedPassword = await bcrypt.hash(password, 10);
 
   await database.query(
@@ -241,7 +239,7 @@ export const resetUserPassword = async ({ token, password }) => {
 
 
 // ═══════════════════════════════════════════════════════════
-// GET MY PROFILE
+// GET USER BY ID
 // ═══════════════════════════════════════════════════════════
 export const getUserById = async (id) => {
   const result = await database.query(
@@ -323,71 +321,59 @@ export const updateUserPassword = async ({ userId, currentPassword, newPassword 
 
 
 // ═══════════════════════════════════════════════════════════
-// CREATE GUEST ACCOUNT
-// Called from orderService when guest places an order
-// ✅ Saves phone, address, city in users table
-// ✅ Does NOT send verify email — sends complete account email
+// CREATE GUEST ACCOUNT SERVICE
+// ✅ Nom correct pour l'import dans orderService.js
+// Appelé automatiquement quand un guest passe une commande
 // ═══════════════════════════════════════════════════════════
-export const createGuestAccount = async ({ name, email, phone, shipping_address, shipping_city }) => {
-  // Check if user already exists
+export const createGuestAccountService = async ({ name, email, phone, shipping_address, shipping_city }) => {
+  // User existe déjà → retourner son compte
   const existingUser = await database.query(
     "SELECT * FROM users WHERE email=$1", [email]
   );
-
-  if (existingUser.rows.length > 0) {
-    // User already exists → return existing user
+  if (existingUser.rows.length > 0)
     return existingUser.rows[0];
-  }
 
-  // Generate complete account token
+  // ✅ Créer compte guest avec token pour compléter le compte
   const rawToken             = crypto.randomBytes(32).toString("hex");
-  const completeAccountToken = crypto
-    .createHash("sha256")
-    .update(rawToken)
-    .digest("hex");
+  const completeAccountToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+  const expireTime           = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 jours
 
-  const expireTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
-  // ✅ Save phone, address, city from order info
   const newUser = await database.query(
     `INSERT INTO users
       (name, email, phone, address, city, role, is_verified,
        complete_account_token, complete_account_expire)
      VALUES ($1, $2, $3, $4, $5, 'user', false, $6, $7)
      RETURNING *`,
-    [
-      name,
-      email,
-      phone         || null,
-      shipping_address,
-      shipping_city,
-      completeAccountToken,
-      expireTime,
-    ]
+    [name, email, phone || null, shipping_address, shipping_city,
+     completeAccountToken, expireTime]
   );
 
   const user = newUser.rows[0];
 
-  // ✅ Send complete account email (NOT verify email)
+  // ✅ Email pour compléter le compte (pas de vérification email)
   const completeUrl = `${process.env.FRONTEND_URL}/complete-account/${encodeURIComponent(rawToken)}`;
 
   await sendEmail({
     to:      email,
-    subject: "Complétez votre compte — GOFFA",
+    subject: "Complétez votre compte — GOFFA 🧺",
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>Bienvenue ${name} !</h2>
-        <p>Votre commande a été passée avec succès. 🎉</p>
-        <p>Nous avons créé un compte pour vous. Cliquez sur le bouton ci-dessous
-           pour définir votre mot de passe et accéder à votre historique de commandes.</p>
-        <a href="${completeUrl}"
-           style="background: #059669; color: white; padding: 12px 24px;
-                  text-decoration: none; border-radius: 6px; display: inline-block;">
-          Compléter mon compte
-        </a>
-        <p style="margin-top: 16px; color: #666;">
-          Ce lien expire dans <strong>7 jours</strong>.
-        </p>
+        <div style="background: #166534; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+          <h1 style="color: white; margin: 0;">🧺 GOFFA</h1>
+          <p style="color: #86efac; margin: 5px 0 0;">artisanat tunisien</p>
+        </div>
+        <div style="padding: 30px; background: #f9fafb; border-radius: 0 0 10px 10px;">
+          <h2>Bienvenue ${name} ! 🎉</h2>
+          <p>Votre commande a été passée avec succès.</p>
+          <p>Nous avons créé un compte pour vous. Cliquez ci-dessous pour définir votre mot de passe
+             et accéder à votre historique de commandes :</p>
+          <a href="${completeUrl}"
+             style="background: #166534; color: white; padding: 12px 24px;
+                    text-decoration: none; border-radius: 6px; display: inline-block; margin: 16px 0;">
+            Créer mon mot de passe →
+          </a>
+          <p style="color: #666; font-size: 14px;">Ce lien expire dans <strong>7 jours</strong>.</p>
+        </div>
       </div>
     `,
   });
@@ -398,8 +384,7 @@ export const createGuestAccount = async ({ name, email, phone, shipping_address,
 
 // ═══════════════════════════════════════════════════════════
 // COMPLETE ACCOUNT
-// Guest user sets their password after order
-// ✅ Activates account + logs user in
+// Guest définit son mot de passe après commande
 // ═══════════════════════════════════════════════════════════
 export const completeUserAccount = async ({ token, password }) => {
   const hashedToken = crypto
@@ -418,17 +403,14 @@ export const completeUserAccount = async ({ token, password }) => {
     throw new ErrorHandler("Lien invalide ou expiré.", 400);
 
   const user = result.rows[0];
-
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  // ✅ Set password + verify account + clear token
   const updatedUser = await database.query(
     `UPDATE users
      SET password=$1, is_verified=true,
          complete_account_token=NULL, complete_account_expire=NULL
      WHERE id=$2
-     RETURNING id, name, email, avatar, role, is_verified,
-               phone, address, city, created_at`,
+     RETURNING id, name, email, avatar, role, is_verified, phone, address, city, created_at`,
     [hashedPassword, user.id]
   );
 

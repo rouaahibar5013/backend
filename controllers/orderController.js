@@ -70,7 +70,18 @@ export const createGuestOrder = catchAsyncErrors(async (req, res, next) => {
 
   res.status(201).json({ success: true, ...data });
 });
+// Stripe Webhook
+export const stripeWebhook = catchAsyncErrors(async (req, res, next) => {
+  const signature = req.headers['stripe-signature'];
+  const result = await orderService.handleStripeWebhookService(req.body, signature);
+  res.status(200).json(result);
+});
 
+// Low stock products
+export const getLowStockProducts = catchAsyncErrors(async (req, res, next) => {
+  const products = await orderService.getLowStockProductsService();
+  res.status(200).json({ success: true, totalProducts: products.length, products });
+});
 
 // ═══════════════════════════════════════════════════════════
 // CONFIRM STRIPE PAYMENT
