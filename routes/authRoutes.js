@@ -16,6 +16,9 @@ import {
   updateUserRole 
 } from "../controllers/authController.js";
 
+
+import {  suspendUser, activateUser } from "../controllers/authController.js";
+
 import { completeAccount } from "../controllers/authController.js";
 
 import { isAuthenticated , isAdmin  } from "../middlewares/auth.js";
@@ -58,5 +61,7 @@ router.put("/password", isAuthenticated, updatePassword);
 router.get("/users",                isAuthenticated, isAdmin, getAllUsers);
 router.delete("/users/:userId",     isAuthenticated, isAdmin, deleteUser);
 router.patch("/users/:userId/role", isAuthenticated, isAdmin, updateUserRole);
+router.patch("/users/:userId/suspend",  isAuthenticated, isAdmin, suspendUser);
+router.patch("/users/:userId/activate", isAuthenticated, isAdmin, activateUser);
 
 export default router;

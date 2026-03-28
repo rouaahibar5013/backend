@@ -474,6 +474,7 @@ export const updateProductService = async ({
   );
 
   return result.rows[0];
+
 };
 
 // ═══════════════════════════════════════════════════════════

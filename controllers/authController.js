@@ -212,7 +212,8 @@ export const completeAccount = catchAsyncErrors(async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════
 export const getAllUsers = catchAsyncErrors(async (req, res, next) => {
     const { search } = req.query;
-    let query = `SELECT id, name, email, avatar, role, is_verified, created_at FROM users`;
+    let query = `SELECT id, name, email, avatar, role, is_verified, is_active, created_at FROM users
+`;
     const values = [];
     if (search) {
         query += ` WHERE name ILIKE $1 OR email ILIKE $1`;
@@ -239,4 +240,29 @@ export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
         [role, userId]
     );
     res.status(200).json({ success: true, user: result.rows[0] });
+});
+// Ajoute ces 2 fonctions dans authController.js
+
+export const suspendUser = catchAsyncErrors(async (req, res, next) => {
+  const { userId } = req.params;
+  if (userId === req.user.id)
+    return next(new ErrorHandler("Vous ne pouvez pas suspendre votre propre compte.", 400));
+  const result = await database.query(
+    "UPDATE users SET is_active=false WHERE id=$1 RETURNING id, name, email, is_active",
+    [userId]
+  );
+  if (result.rows.length === 0)
+    return next(new ErrorHandler("Utilisateur introuvable.", 404));
+  res.status(200).json({ success: true, message: "Compte suspendu.", user: result.rows[0] });
+});
+
+export const activateUser = catchAsyncErrors(async (req, res, next) => {
+  const { userId } = req.params;
+  const result = await database.query(
+    "UPDATE users SET is_active=true WHERE id=$1 RETURNING id, name, email, is_active",
+    [userId]
+  );
+  if (result.rows.length === 0)
+    return next(new ErrorHandler("Utilisateur introuvable.", 404));
+  res.status(200).json({ success: true, message: "Compte activé.", user: result.rows[0] });
 });
