@@ -15,7 +15,8 @@ import {
   updateOdooSettings,
   getSyncLogs,
   stripeWebhook,           // ← Add this import
-  getLowStockProducts, 
+  getLowStockProducts,
+  adminUpdateOrderShipping, 
 } from "../controllers/orderController.js";
 import { isAuthenticated, isAdmin } from "../middlewares/auth.js";
 
@@ -47,10 +48,16 @@ router.get("/odoo/settings",             isAuthenticated, isAdmin, getOdooSettin
 router.put("/odoo/settings",             isAuthenticated, isAdmin, updateOdooSettings);
 router.get("/odoo/logs",                 isAuthenticated, isAdmin, getSyncLogs);
 
+
 // ⚠️ Webhook Stripe doit être AVANT express.json() dans app.js
 router.post("/webhooks/stripe", express.raw({type: 'application/json'}), stripeWebhook);
 
 
-
+router.put(
+  "/:orderId/shipping",
+  isAuthenticated,
+  isAdmin,
+  adminUpdateOrderShipping
+);
 
 export default router;

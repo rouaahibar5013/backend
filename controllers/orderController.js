@@ -207,3 +207,38 @@ export const getSyncLogs = catchAsyncErrors(async (req, res, next) => {
   const logs = await odooService.getSyncLogsService({ type, status, page });
   res.status(200).json({ success: true, logs });
 });
+
+
+
+// ═══════════════════════════════════════════════════════════
+// ADMIN UPDATE ORDER SHIPPING (FULL)
+// PUT /api/orders/:orderId/shipping
+// ═══════════════════════════════════════════════════════════
+export const adminUpdateOrderShipping = catchAsyncErrors(async (req, res, next) => {
+  const { orderId } = req.params;
+
+  const {
+    shipping_full_name,
+    shipping_phone,
+    shipping_address,
+    shipping_city,
+    shipping_governorate,
+    shipping_postal_code,
+  } = req.body;
+
+  const updatedOrder = await orderService.adminUpdateOrderShippingService({
+    orderId,
+    shipping_full_name,
+    shipping_phone,
+    shipping_address,
+    shipping_city,
+    shipping_governorate,
+    shipping_postal_code,
+  });
+
+  res.status(200).json({
+    success: true,
+    message: "Informations de livraison mises à jour avec succès.",
+    order: updatedOrder,
+  });
+});

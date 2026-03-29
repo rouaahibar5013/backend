@@ -266,3 +266,24 @@ export const activateUser = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler("Utilisateur introuvable.", 404));
   res.status(200).json({ success: true, message: "Compte activé.", user: result.rows[0] });
 });
+
+// ═══════════════════════════════════════════════════════════
+// ADMIN UPDATE USER
+// PUT /api/auth/users/:userId
+// Admin peut modifier toutes les infos d'un user
+// ═══════════════════════════════════════════════════════════
+
+export const adminUpdateUser = catchAsyncErrors(async (req, res, next) => {
+  const { userId } = req.params;
+
+  const user = await authService.adminUpdateUserService({
+    userId,
+    ...req.body
+  });
+
+  res.status(200).json({
+    success: true,
+    message: "Utilisateur mis à jour avec succès.",
+    user,
+  });
+});

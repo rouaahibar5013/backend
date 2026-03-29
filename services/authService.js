@@ -416,3 +416,71 @@ export const completeUserAccount = async ({ token, password }) => {
 
   return updatedUser.rows[0];
 };
+
+
+
+// ═══════════════════════════════════════════════════════════
+// ADMIN UPDATE USER
+// PUT /api/auth/users/:userId
+// Admin peut modifier toutes les infos d'un user
+// ═══════════════════════════════════════════════════════════
+
+export const adminUpdateUserService = async ({
+  userId,
+  name, email, phone, address, city,
+  role, is_verified, is_active, newPassword
+}) => {
+
+  // Vérifier que le user existe
+  const userResult = await database.query(
+    "SELECT * FROM users WHERE id=$1", [userId]
+  );
+  if (userResult.rows.length === 0)
+    throw new ErrorHandler("Utilisateur introuvable.", 404);
+
+  const current = userResult.rows[0];
+
+  // Vérifier email unique
+  if (email && email !== current.email) {
+    const emailExists = await database.query(
+      "SELECT id FROM users WHERE email=$1 AND id!=$2", [email, userId]
+    );
+    if (emailExists.rows.length > 0)
+      throw new ErrorHandler("Cet email est déjà utilisé.", 409);
+  }
+
+  // Valider rôle
+  if (role && !['user', 'admin'].includes(role))
+    throw new ErrorHandler("Rôle invalide.", 400);
+
+  // hasher le nouveau Password
+  let hashedPassword = current.password;
+  if (newPassword) {
+    if (newPassword.length < 6)
+      throw new ErrorHandler("Le mot de passe doit contenir au moins 6 caractères.", 400);
+    hashedPassword = await bcrypt.hash(newPassword, 10);
+  }
+
+  const result = await database.query(
+    `UPDATE users
+     SET name=$1, email=$2, phone=$3, address=$4, city=$5,
+         role=$6, is_verified=$7, is_active=$8, password=$9
+     WHERE id=$10
+     RETURNING id, name, email, avatar, role, is_verified,
+               is_active, phone, address, city, created_at`,
+    [
+      name        || current.name,
+      email       || current.email,
+      phone       ?? current.phone,
+      address     ?? current.address,
+      city        ?? current.city,
+      role        || current.role,
+      is_verified ?? current.is_verified,
+      is_active   ?? current.is_active,
+      hashedPassword,
+      userId,
+    ]
+  );
+
+  return result.rows[0];
+};

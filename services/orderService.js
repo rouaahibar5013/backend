@@ -791,3 +791,57 @@ export const getLowStockProductsService = async () => {
 
   return result.rows;
 };
+
+
+
+
+// ═══════════════════════════════════════════════════════════
+// ADMIN UPDATE ORDER SHIPPING INFO
+// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// ADMIN UPDATE ORDER SHIPPING (FULL)
+// ═══════════════════════════════════════════════════════════
+export const adminUpdateOrderShippingService = async ({
+  orderId,
+  shipping_full_name,
+  shipping_phone,
+  shipping_address,
+  shipping_city,
+  shipping_governorate,
+  shipping_postal_code,
+}) => {
+  const orderResult = await database.query(
+    "SELECT * FROM orders WHERE id=$1",
+    [orderId]
+  );
+
+  if (orderResult.rows.length === 0) {
+    throw new ErrorHandler("Commande introuvable.", 404);
+  }
+
+  const current = orderResult.rows[0];
+
+  const result = await database.query(
+    `UPDATE orders
+     SET shipping_full_name   = $1,
+         shipping_phone       = $2,
+         shipping_address     = $3,
+         shipping_city        = $4,
+         shipping_governorate = $5,
+         shipping_postal_code = $6,
+         updated_at = NOW()
+     WHERE id = $7
+     RETURNING *`,
+    [
+      shipping_full_name   ?? current.shipping_full_name,
+      shipping_phone       ?? current.shipping_phone,
+      shipping_address     ?? current.shipping_address,
+      shipping_city        ?? current.shipping_city,
+      shipping_governorate ?? current.shipping_governorate,
+      shipping_postal_code ?? current.shipping_postal_code,
+      orderId,
+    ]
+  );
+
+  return result.rows[0];
+};
