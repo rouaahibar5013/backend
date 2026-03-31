@@ -320,3 +320,36 @@ export const getAllRecipesAdminService = async () => {
   );
   return result.rows;
 };
+
+// ═══════════════════════════════════════════════════════════
+// GET SINGLE RECIPE BY ID (admin) — pas de filtre is_published
+// ═══════════════════════════════════════════════════════════
+export const getRecipeByIdAdminService = async (recipeId) => {
+  const [recipeResult, ingredientsResult, stepsResult] = await Promise.all([
+    database.query(
+      `SELECT * FROM recipes WHERE id=$1`,
+      [recipeId]
+    ),
+    database.query(
+      `SELECT * FROM recipe_ingredients
+       WHERE recipe_id=$1
+       ORDER BY sort_order ASC`,
+      [recipeId]
+    ),
+    database.query(
+      `SELECT * FROM recipe_steps
+       WHERE recipe_id=$1
+       ORDER BY step_number ASC`,
+      [recipeId]
+    ),
+  ]);
+
+  if (recipeResult.rows.length === 0)
+    throw new ErrorHandler("Recette introuvable.", 404);
+
+  const recipe = recipeResult.rows[0];
+  recipe.ingredients = ingredientsResult.rows;
+  recipe.steps       = stepsResult.rows;
+
+  return recipe;
+};

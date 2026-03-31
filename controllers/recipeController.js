@@ -132,4 +132,14 @@ export const getAllRecipesAdmin = catchAsyncErrors(async (req, res, next) => {
     totalRecipes: recipes.length,
     recipes,
   });
+
+});
+
+// ═══════════════════════════════════════════════════════════
+// GET SINGLE RECIPE BY ID (admin) — inclut ingrédients + étapes
+// GET /api/recipes/admin/:recipeId
+// ═══════════════════════════════════════════════════════════
+export const getRecipeByIdAdmin = catchAsyncErrors(async (req, res, next) => {
+  const recipe = await recipeService.getRecipeByIdAdminService(req.params.recipeId);
+  res.status(200).json({ success: true, recipe });
 });
