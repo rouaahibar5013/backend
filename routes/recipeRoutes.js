@@ -14,11 +14,12 @@ const router = express.Router();
 
 // ── Public ───────────────────────────────────────────────
 router.get("/",              fetchAllRecipes);
-router.get("/featured",      fetchFeaturedRecipes);
-router.get("/:slug",         fetchSingleRecipe);
+router.get("/featured",      fetchFeaturedRecipes);   
+router.get("/admin/all",     isAuthenticated, isAdmin, getAllRecipesAdmin); 
+
+router.get("/:slug",         fetchSingleRecipe);      
 
 // ── Admin only ───────────────────────────────────────────
-router.get("/admin/all",     isAuthenticated, isAdmin, getAllRecipesAdmin);
 router.post("/",             isAuthenticated, isAdmin, createRecipe);
 router.put("/:recipeId",     isAuthenticated, isAdmin, updateRecipe);
 router.delete("/:recipeId",  isAuthenticated, isAdmin, deleteRecipe);
