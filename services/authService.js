@@ -121,8 +121,18 @@ export const loginUser = async ({ email, password }) => {
     throw new ErrorHandler("Votre compte a été suspendu. Contactez le support.", 403);
 
   // ✅ Guest users (sans password) ne peuvent pas se connecter par email/password
-  if (!user.password)
-    throw new ErrorHandler("Veuillez compléter votre compte via le lien reçu par email.", 401);
+
+// ✅ Nouveau
+if (!user.password) {
+  if (user.google_id) {
+    throw new ErrorHandler(
+      "Ce compte utilise la connexion Google. Cliquez sur 'Se connecter avec Google'.", 401
+    );
+  }
+  throw new ErrorHandler(
+    "Veuillez compléter votre compte via le lien reçu par email.", 401
+  );
+}
 
   if (!user.is_verified)
     throw new ErrorHandler("Veuillez vérifier votre email avant de vous connecter.", 401);
