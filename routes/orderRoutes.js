@@ -21,43 +21,30 @@ import {
 import { isAuthenticated, isAdmin } from "../middlewares/auth.js";
 
 const router = express.Router();
-
-// ── Public (webhooks Odoo — sécurisés par token Odoo) ────
+// ── Webhooks publics ──────────────────────────────────────
 router.post("/webhooks/odoo/stock-update", odooStockUpdate);
 router.post("/webhooks/odoo/price-update", odooPriceUpdate);
 
 // ── Guest ─────────────────────────────────────────────────
 router.post("/guest", createGuestOrder);
 
-// ── Client connecté ───────────────────────────────────────
-router.post("/",                         isAuthenticated, createOrder);
-router.get("/my",                        isAuthenticated, getMyOrders);
-router.get("/:orderId",                  isAuthenticated, getSingleOrder);
-router.patch("/:orderId/cancel",         isAuthenticated, cancelOrder);
-router.post("/:orderId/stripe/confirm",  isAuthenticated, confirmStripePayment);
-
-// ── Admin ─────────────────────────────────────────────────
-// Low stock (admin)
+// ── Statiques admin — AVANT /:orderId ────────────────────
 router.get("/admin/low-stock", isAuthenticated, isAdmin, getLowStockProducts);
-router.get("/",                          isAuthenticated, isAdmin, getAllOrders);
-router.patch("/:orderId/status",         isAuthenticated, isAdmin, updateOrderStatus);
-router.patch("/:orderId/delivery",       isAuthenticated, isAdmin, updateDelivery);
+router.get("/odoo/settings",   isAuthenticated, isAdmin, getOdooSettings);
+router.get("/odoo/logs",       isAuthenticated, isAdmin, getSyncLogs);
+router.put("/odoo/settings",   isAuthenticated, isAdmin, updateOdooSettings);
 
-// ── Admin — Odoo settings ─────────────────────────────────
-router.get("/odoo/settings",             isAuthenticated, isAdmin, getOdooSettings);
-router.put("/odoo/settings",             isAuthenticated, isAdmin, updateOdooSettings);
-router.get("/odoo/logs",                 isAuthenticated, isAdmin, getSyncLogs);
+// ── Statiques client — AVANT /:orderId ───────────────────
+router.get("/my",  isAuthenticated, getMyOrders);
+router.post("/",   isAuthenticated, createOrder);
+router.get("/",    isAuthenticated, isAdmin, getAllOrders);
 
-
-// ⚠️ Webhook Stripe doit être AVANT express.json() dans app.js
-router.post("/webhooks/stripe", express.raw({type: 'application/json'}), stripeWebhook);
-
-
-router.put(
-  "/:orderId/shipping",
-  isAuthenticated,
-  isAdmin,
-  adminUpdateOrderShipping
-);
+// ── Dynamiques avec :orderId — EN DERNIER ─────────────────
+router.get("/:orderId",                 isAuthenticated, getSingleOrder);
+router.patch("/:orderId/cancel",        isAuthenticated, cancelOrder);
+router.post("/:orderId/stripe/confirm", isAuthenticated, confirmStripePayment);
+router.patch("/:orderId/status",        isAuthenticated, isAdmin, updateOrderStatus);
+router.patch("/:orderId/delivery",      isAuthenticated, isAdmin, updateDelivery);
+router.put("/:orderId/shipping",        isAuthenticated, isAdmin, adminUpdateOrderShipping);
 
 export default router;
