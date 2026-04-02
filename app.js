@@ -40,6 +40,10 @@ app.use(cors({
 
 
 // 3. Parsers JSON et URL-encoded
+app.use(
+    '/api/orders/webhooks/stripe',
+    express.raw({ type: 'application/json' })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
