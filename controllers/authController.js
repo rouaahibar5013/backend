@@ -212,8 +212,9 @@ export const completeAccount = catchAsyncErrors(async (req, res, next) => {
 // ═══════════════════════════════════════════════════════════
 export const getAllUsers = catchAsyncErrors(async (req, res, next) => {
     const { search } = req.query;
-    let query = `SELECT id, name, email, avatar, role, is_verified, is_active, created_at FROM users
-`;
+    let query = `SELECT id, name, email, avatar, role, is_verified, is_active,
+                        phone, address, city, created_at
+                 FROM users`;
     const values = [];
     if (search) {
         query += ` WHERE name ILIKE $1 OR email ILIKE $1`;

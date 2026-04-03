@@ -171,17 +171,16 @@ export const createProductService = async ({
 // ═══════════════════════════════════════════════════════════
 export const fetchAllProductsService = async ({
   search, category_id, min_rating, min_price, max_price, page = 1,
-  is_featured, supplier_id,
+  is_featured, supplier_id, admin = false,
 }) => {
   const LIMIT  = 12;
   const offset = (page - 1) * LIMIT;
 
-  const conditions = ["p.is_active = true"];
+  const conditions = admin === 'true' ? [] : ["p.is_active = true"];
   const values     = [];
   let   i          = 1;
 
   if (category_id) {
-    // Include subcategories
     conditions.push(`(p.category_id = $${i} OR c.parent_id = $${i})`);
     values.push(category_id); i++;
   }
@@ -215,9 +214,8 @@ export const fetchAllProductsService = async ({
     values.push(max_price); i++;
   }
 
-  const WHERE = `WHERE ${conditions.join(" AND ")}`;
-
-  const countValues = [...values];
+  const WHERE        = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const countValues  = [...values];
   values.push(LIMIT, offset);
 
   const [totalResult, result] = await Promise.all([
@@ -229,39 +227,40 @@ export const fetchAllProductsService = async ({
       countValues
     ),
     database.query(
-  `SELECT DISTINCT ON (p.id)
-     p.id,
-     p.name_fr,
-     p.name_ar,
-     p.slug,
-     p.images,
-     p.rating_avg,
-     p.rating_count,
-     p.is_featured,
-     p.created_at,
-     c.id        AS category_id,
-     c.name_fr   AS category_name,
-     c.slug      AS category_slug,
-     s.id        AS supplier_id,
-     s.name      AS supplier_name,
-     s.slug      AS supplier_slug,
-     s.is_certified_bio,
-     (SELECT MIN(pv2.price)
-      FROM product_variants pv2
-      WHERE pv2.product_id = p.id AND pv2.is_active = true
-     ) AS min_price,
-     (SELECT COALESCE(SUM(pv2.stock), 0)
-      FROM product_variants pv2
-      WHERE pv2.product_id = p.id AND pv2.is_active = true
-     ) AS total_stock
-   FROM products p
-   LEFT JOIN categories c ON c.id = p.category_id
-   LEFT JOIN suppliers  s ON s.id = p.supplier_id
-   ${WHERE}
-   ORDER BY p.id, p.created_at DESC
-   LIMIT $${i} OFFSET $${i + 1}`,
-  values
-)
+      `SELECT DISTINCT ON (p.id)
+         p.id,
+         p.name_fr,
+         p.name_ar,
+         p.slug,
+         p.images,
+         p.rating_avg,
+         p.rating_count,
+         p.is_featured,
+         p.is_active,
+         p.created_at,
+         c.id        AS category_id,
+         c.name_fr   AS category_name,
+         c.slug      AS category_slug,
+         s.id        AS supplier_id,
+         s.name      AS supplier_name,
+         s.slug      AS supplier_slug,
+         s.is_certified_bio,
+         (SELECT MIN(pv2.price)
+          FROM product_variants pv2
+          WHERE pv2.product_id = p.id AND pv2.is_active = true
+         ) AS min_price,
+         (SELECT COALESCE(SUM(pv2.stock), 0)
+          FROM product_variants pv2
+          WHERE pv2.product_id = p.id AND pv2.is_active = true
+         ) AS total_stock
+       FROM products p
+       LEFT JOIN categories c ON c.id = p.category_id
+       LEFT JOIN suppliers  s ON s.id = p.supplier_id
+       ${WHERE}
+       ORDER BY p.id, p.created_at DESC
+       LIMIT $${i} OFFSET $${i + 1}`,
+      values
+    ),
   ]);
 
   const total = parseInt(totalResult.rows[0].count);
@@ -277,8 +276,9 @@ export const fetchAllProductsService = async ({
 // ═══════════════════════════════════════════════════════════
 // FETCH SINGLE PRODUCT
 // ✅ Full details + variants + attributes + reviews
+// FIX 3b: accepts admin flag to bypass is_active filter
 // ═══════════════════════════════════════════════════════════
-export const fetchSingleProductService = async (productId) => {
+export const fetchSingleProductService = async (productId, admin = false) => {
   const [productResult, variantsResult] = await Promise.all([
     database.query(
       `SELECT
@@ -320,7 +320,7 @@ export const fetchSingleProductService = async (productId) => {
        LEFT JOIN suppliers  s  ON s.id  = p.supplier_id
        LEFT JOIN reviews    r  ON r.product_id = p.id
        LEFT JOIN users      u  ON u.id  = r.user_id
-       WHERE p.id = $1 AND p.is_active = true
+       WHERE p.id = $1 ${admin ? "" : "AND p.is_active = true"}
        GROUP BY p.id, c.id, c.name_fr, c.name_ar, c.slug,
                 pc.name_fr, pc.slug,
                 s.name, s.name_ar, s.slug, s.description_fr,
@@ -366,42 +366,43 @@ export const fetchSingleProductService = async (productId) => {
 
 // ═══════════════════════════════════════════════════════════
 // FETCH FEATURED PRODUCTS (homepage)
+// FIX 2: ORDER BY must start with p.id to satisfy DISTINCT ON
 // ═══════════════════════════════════════════════════════════
 export const fetchFeaturedProductsService = async (limit = 8) => {
   const result = await database.query(
-  `SELECT DISTINCT ON (p.id)
-     p.id,
-     p.name_fr,
-     p.name_ar,
-     p.slug,
-     p.images,
-     p.rating_avg,
-     p.rating_count,
-     p.is_featured,
-     p.created_at,
-     c.id        AS category_id,
-     c.name_fr   AS category_name,
-     c.slug      AS category_slug,
-     s.id        AS supplier_id,
-     s.name      AS supplier_name,
-     s.slug      AS supplier_slug,
-     s.is_certified_bio,
-     (SELECT MIN(pv2.price)
-      FROM product_variants pv2
-      WHERE pv2.product_id = p.id AND pv2.is_active = true
-     ) AS min_price,
-     (SELECT COALESCE(SUM(pv2.stock), 0)
-      FROM product_variants pv2
-      WHERE pv2.product_id = p.id AND pv2.is_active = true
-     ) AS total_stock
-   FROM products p
-   LEFT JOIN categories c ON c.id = p.category_id
-   LEFT JOIN suppliers  s ON s.id = p.supplier_id
-   ${WHERE}
-   ORDER BY p.id, p.created_at DESC
-   LIMIT $${i} OFFSET $${i + 1}`,
-  values
-)
+    `SELECT DISTINCT ON (p.id)
+       p.id,
+       p.name_fr,
+       p.name_ar,
+       p.slug,
+       p.images,
+       p.rating_avg,
+       p.rating_count,
+       p.is_featured,
+       p.created_at,
+       c.id        AS category_id,
+       c.name_fr   AS category_name,
+       c.slug      AS category_slug,
+       s.id        AS supplier_id,
+       s.name      AS supplier_name,
+       s.slug      AS supplier_slug,
+       s.is_certified_bio,
+       (SELECT MIN(pv2.price)
+        FROM product_variants pv2
+        WHERE pv2.product_id = p.id AND pv2.is_active = true
+       ) AS min_price,
+       (SELECT COALESCE(SUM(pv2.stock), 0)
+        FROM product_variants pv2
+        WHERE pv2.product_id = p.id AND pv2.is_active = true
+       ) AS total_stock
+     FROM products p
+     LEFT JOIN categories c ON c.id = p.category_id
+     LEFT JOIN suppliers  s ON s.id = p.supplier_id
+     WHERE p.is_active = true AND p.is_featured = true
+     ORDER BY p.id, p.created_at DESC
+     LIMIT $1`,
+    [limit]
+  );
   return result.rows;
 };
 

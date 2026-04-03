@@ -9,6 +9,8 @@ export const getStats = catchAsyncErrors(async (req, res, next) => {
         revenueResult,
         recentOrdersResult,
         topProductsResult,
+        revenueByMonthResult,
+        ordersByStatusResult,
     ] = await Promise.all([
 
         database.query(`SELECT COUNT(*) FROM users`),
@@ -36,6 +38,27 @@ export const getStats = catchAsyncErrors(async (req, res, next) => {
              ORDER BY total_qty DESC
              LIMIT 5`
         ),
+
+        // 🆕 Revenus & commandes par mois (6 derniers mois)
+        database.query(
+            `SELECT
+                TO_CHAR(DATE_TRUNC('month', created_at), 'Mon') AS month,
+                EXTRACT(MONTH FROM created_at)                  AS month_num,
+                COALESCE(SUM(total_price), 0)::float            AS revenue,
+                COUNT(*)::int                                   AS orders
+             FROM orders
+             WHERE created_at >= NOW() - INTERVAL '6 months'
+               AND status != 'cancelled'
+             GROUP BY DATE_TRUNC('month', created_at), month_num
+             ORDER BY DATE_TRUNC('month', created_at) ASC`
+        ),
+
+        // 🆕 Nombre de commandes par statut
+        database.query(
+            `SELECT status, COUNT(*)::int AS count
+             FROM orders
+             GROUP BY status`
+        ),
     ]);
 
     res.status(200).json({
@@ -46,7 +69,9 @@ export const getStats = catchAsyncErrors(async (req, res, next) => {
             totalOrders:   parseInt(ordersResult.rows[0].count),
             totalRevenue:  parseFloat(revenueResult.rows[0].total),
         },
-        recentOrders: recentOrdersResult.rows,
-        topProducts:  topProductsResult.rows,
+        recentOrders:    recentOrdersResult.rows,
+        topProducts:     topProductsResult.rows,
+        revenueByMonth:  revenueByMonthResult.rows,   // 🆕
+        ordersByStatus:  ordersByStatusResult.rows,   // 🆕
     });
 });
