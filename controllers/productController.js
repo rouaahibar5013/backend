@@ -56,14 +56,14 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
 export const fetchAllProducts = catchAsyncErrors(async (req, res) => {
   const {
     search, category_id, min_rating, min_price, max_price,
-    is_featured, supplier_id,
+    is_featured, supplier_id, admin,
   } = req.query;
   const page = parseInt(req.query.page) || 1;
 
   const data = await productService.fetchAllProductsService({
     search, category_id, min_rating, min_price, max_price,
     is_featured: is_featured === "true",
-    supplier_id, page,
+    supplier_id, page, admin,
   });
 
   res.status(200).json({ success: true, ...data });
@@ -80,11 +80,14 @@ export const fetchFeaturedProducts = catchAsyncErrors(async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// FETCH SINGLE PRODUCT (public)
+// FETCH SINGLE PRODUCT (public + admin)
 // GET /api/products/:productId
+// Query: admin=true  →  bypasses is_active filter (admin only)
 // ═══════════════════════════════════════════════════════════
 export const fetchSingleProduct = catchAsyncErrors(async (req, res) => {
-  const product = await productService.fetchSingleProductService(req.params.productId);
+  // FIX 3a: read admin flag — only honour it when the caller is actually an admin
+  const admin = req.query.admin === "true" && req.user?.role === "admin";
+  const product = await productService.fetchSingleProductService(req.params.productId, admin);
   res.status(200).json({ success: true, product });
 });
 
