@@ -229,7 +229,7 @@ export const fetchAllProductsService = async ({
       countValues
     ),
     database.query(
-      `SELECT
+   `SELECT
          p.id,
          p.name_fr,
          p.name_ar,
