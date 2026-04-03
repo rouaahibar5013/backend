@@ -316,9 +316,9 @@ const finalizeOrder = async ({ order, orderItems, promoId, customerEmail, custom
     );
   }
 
-  // Email de confirmation
-  await sendOrderConfirmationEmail(customerEmail, order, customerName);
-
+if (order.payment_method === 'cod') {
+    await sendOrderConfirmationEmail(customerEmail, order, customerName);
+  }
   // Export vers Odoo si activé
   await exportOrderToOdoo(order.id).catch(err =>
     console.error("Odoo export error:", err.message)
@@ -370,6 +370,8 @@ export const createOrderService = async ({
       "UPDATE orders SET payment_id=$1 WHERE id=$2",
       [paymentIntent.id, order.id]
     );
+    // 2. On met à jour l'objet JS (La mémoire vive pour la réponse JSON)
+    order.payment_id = paymentIntent.id;
     return {
       order,
       payment: {
@@ -495,14 +497,27 @@ export const handleStripeWebhookService = async (payload, signature) => {
   switch (event.type) {
     case 'payment_intent.succeeded': {
       const paymentIntent = event.data.object;
-      const orderId       = paymentIntent.metadata.order_id;
+ // 1. Mettre à jour le statut en base de données
+      const updateResult = await database.query(
+        `UPDATE orders 
+         SET payment_status='paid', status='confirmed' 
+         WHERE payment_id=$1 
+         RETURNING *`,
+        [paymentIntent.id]
+      );
 
-      if (orderId) {
-        await database.query(
-          "UPDATE orders SET payment_status='paid', status='confirmed' WHERE payment_id=$1",
-          [paymentIntent.id]
-        );
-        console.log(`✅ Stripe payment confirmed for order ${orderId}`);
+      const order = updateResult.rows[0];
+
+      if (order) {
+        // 2. RÉCUPÉRER L'EMAIL DU CLIENT (via la table users car les orders n'ont pas toujours l'email direct)
+        const userResult = await database.query("SELECT email, name FROM users WHERE id=$1", [order.user_id]);
+        const user = userResult.rows[0];
+
+        // 3. ENVOYER L'EMAIL SEULEMENT MAINTENANT
+        if (user) {
+          await sendOrderConfirmationEmail(user.email, order, user.name);
+          console.log(`✅ Email envoyé et paiement confirmé pour commande ${order.order_number}`);
+        }
       }
       break;
     }
