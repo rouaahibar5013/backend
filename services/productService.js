@@ -229,42 +229,39 @@ export const fetchAllProductsService = async ({
       countValues
     ),
     database.query(
-      `SELECT
-         p.id,
-         p.name_fr,
-         p.name_ar,
-         p.slug,
-         p.images,
-         p.rating_avg,
-         p.rating_count,
-         p.is_featured,
-         p.created_at,
-         c.id        AS category_id,
-         c.name_fr   AS category_name,
-         c.slug      AS category_slug,
-         s.id        AS supplier_id,
-         s.name      AS supplier_name,
-         s.slug      AS supplier_slug,
-         s.is_certified_bio,
-         -- min price from active variants
-         (SELECT MIN(pv2.price)
-          FROM product_variants pv2
-          WHERE pv2.product_id = p.id AND pv2.is_active = true
-         ) AS min_price,
-         -- total stock
-         (SELECT COALESCE(SUM(pv2.stock), 0)
-          FROM product_variants pv2
-          WHERE pv2.product_id = p.id AND pv2.is_active = true
-         ) AS total_stock
-       FROM products p
-       LEFT JOIN categories c ON c.id = p.category_id
-       LEFT JOIN suppliers  s ON s.id = p.supplier_id
-       ${WHERE}
-       GROUP BY p.id, c.id, c.name_fr, c.slug, s.id, s.name, s.slug, s.is_certified_bio
-       ORDER BY p.created_at DESC
-       LIMIT $${i} OFFSET $${i + 1}`,
-      values
-    ),
+  `SELECT DISTINCT ON (p.id)
+     p.id,
+     p.name_fr,
+     p.name_ar,
+     p.slug,
+     p.images,
+     p.rating_avg,
+     p.rating_count,
+     p.is_featured,
+     p.created_at,
+     c.id        AS category_id,
+     c.name_fr   AS category_name,
+     c.slug      AS category_slug,
+     s.id        AS supplier_id,
+     s.name      AS supplier_name,
+     s.slug      AS supplier_slug,
+     s.is_certified_bio,
+     (SELECT MIN(pv2.price)
+      FROM product_variants pv2
+      WHERE pv2.product_id = p.id AND pv2.is_active = true
+     ) AS min_price,
+     (SELECT COALESCE(SUM(pv2.stock), 0)
+      FROM product_variants pv2
+      WHERE pv2.product_id = p.id AND pv2.is_active = true
+     ) AS total_stock
+   FROM products p
+   LEFT JOIN categories c ON c.id = p.category_id
+   LEFT JOIN suppliers  s ON s.id = p.supplier_id
+   ${WHERE}
+   ORDER BY p.id, p.created_at DESC
+   LIMIT $${i} OFFSET $${i + 1}`,
+  values
+)
   ]);
 
   const total = parseInt(totalResult.rows[0].count);
