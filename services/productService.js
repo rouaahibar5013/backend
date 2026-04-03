@@ -372,30 +372,39 @@ export const fetchSingleProductService = async (productId) => {
 // ═══════════════════════════════════════════════════════════
 export const fetchFeaturedProductsService = async (limit = 8) => {
   const result = await database.query(
-    `SELECT
-       p.id, p.name_fr, p.name_ar, p.slug, p.images,
-       p.rating_avg, p.rating_count, p.is_featured,
-       c.name_fr  AS category_name,
-       c.slug     AS category_slug,
-       s.name     AS supplier_name,
-       s.slug     AS supplier_slug,
-       s.is_certified_bio,
-       (SELECT MIN(pv2.price)
-        FROM product_variants pv2
-        WHERE pv2.product_id = p.id AND pv2.is_active = true
-       ) AS min_price,
-       (SELECT COALESCE(SUM(pv2.stock), 0)
-        FROM product_variants pv2
-        WHERE pv2.product_id = p.id AND pv2.is_active = true
-       ) AS total_stock
-     FROM products p
-     LEFT JOIN categories c ON c.id = p.category_id
-     LEFT JOIN suppliers  s ON s.id = p.supplier_id
-     WHERE p.is_active = true AND p.is_featured = true
-     ORDER BY p.rating_avg DESC, p.created_at DESC
-     LIMIT $1`,
-    [limit]
-  );
+  `SELECT DISTINCT ON (p.id)
+     p.id,
+     p.name_fr,
+     p.name_ar,
+     p.slug,
+     p.images,
+     p.rating_avg,
+     p.rating_count,
+     p.is_featured,
+     p.created_at,
+     c.id        AS category_id,
+     c.name_fr   AS category_name,
+     c.slug      AS category_slug,
+     s.id        AS supplier_id,
+     s.name      AS supplier_name,
+     s.slug      AS supplier_slug,
+     s.is_certified_bio,
+     (SELECT MIN(pv2.price)
+      FROM product_variants pv2
+      WHERE pv2.product_id = p.id AND pv2.is_active = true
+     ) AS min_price,
+     (SELECT COALESCE(SUM(pv2.stock), 0)
+      FROM product_variants pv2
+      WHERE pv2.product_id = p.id AND pv2.is_active = true
+     ) AS total_stock
+   FROM products p
+   LEFT JOIN categories c ON c.id = p.category_id
+   LEFT JOIN suppliers  s ON s.id = p.supplier_id
+   ${WHERE}
+   ORDER BY p.id, p.created_at DESC
+   LIMIT $${i} OFFSET $${i + 1}`,
+  values
+)
   return result.rows;
 };
 

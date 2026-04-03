@@ -1,17 +1,10 @@
 import database from "../database/db.js";
 
-// ═══════════════════════════════════════════════════════════
-// GET HOME DATA
-// Retourne tout ce dont la home page a besoin
-// en une seule requête parallèle
-// ═══════════════════════════════════════════════════════════
 export const getHomeDataService = async () => {
 
-  // ✅ Toutes les requêtes en parallèle — performance maximale
   const [categoriesResult, newProductsResult, trendingProductsResult] = await Promise.all([
 
-    // ── Categories parentes avec le vrai nombre de produits ──
-    // ✅ Compte les produits des sous-catégories aussi
+    // ── Catégories parentes ──
     database.query(
       `SELECT
          c.id,
@@ -31,8 +24,7 @@ export const getHomeDataService = async () => {
        LIMIT 8`
     ),
 
-    // ── Nouveautés — 6 produits les plus récents ──────────
-    // ✅ ORDER BY created_at au lieu de is_new = true
+    // ── Nouveautés ──
     database.query(
       `SELECT
          p.id,
@@ -53,7 +45,11 @@ export const getHomeDataService = async () => {
          (SELECT pv.compare_price FROM product_variants pv
           WHERE pv.product_id = p.id
           AND   pv.is_active  = true
-          ORDER BY pv.created_at ASC LIMIT 1) AS compare_price
+          ORDER BY pv.created_at ASC LIMIT 1) AS compare_price,
+         (SELECT pv.id FROM product_variants pv
+          WHERE pv.product_id = p.id
+          AND   pv.is_active  = true
+          ORDER BY pv.created_at ASC LIMIT 1) AS variant_id
        FROM products p
        LEFT JOIN suppliers s ON s.id = p.supplier_id
        WHERE p.is_active = true
@@ -61,9 +57,7 @@ export const getHomeDataService = async () => {
        LIMIT 6`
     ),
 
-    // ── Tendances — 6 produits les mieux notés ────────────
-    // ✅ ORDER BY rating_avg au lieu de views_count
-    // Quand views_count sera rempli → changer en ORDER BY views_count DESC
+    // ── Tendances ──
     database.query(
       `SELECT
          p.id,
@@ -84,11 +78,15 @@ export const getHomeDataService = async () => {
          (SELECT pv.compare_price FROM product_variants pv
           WHERE pv.product_id = p.id
           AND   pv.is_active  = true
-          ORDER BY pv.created_at ASC LIMIT 1) AS compare_price
+          ORDER BY pv.created_at ASC LIMIT 1) AS compare_price,
+         (SELECT pv.id FROM product_variants pv
+          WHERE pv.product_id = p.id
+          AND   pv.is_active  = true
+          ORDER BY pv.created_at ASC LIMIT 1) AS variant_id
        FROM products p
        LEFT JOIN suppliers s ON s.id = p.supplier_id
        WHERE p.is_active    = true
-       AND p.views_count > 0
+       AND   p.views_count  > 0
        ORDER BY p.views_count DESC
        LIMIT 6`
     ),

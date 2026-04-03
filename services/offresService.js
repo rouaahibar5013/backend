@@ -23,7 +23,11 @@ const productColumns = `
   (SELECT pv.compare_price FROM product_variants pv
    WHERE pv.product_id = p.id
    AND   pv.is_active  = true
-   ORDER BY pv.created_at ASC LIMIT 1) AS compare_price
+   ORDER BY pv.created_at ASC LIMIT 1) AS compare_price,
+  (SELECT pv.id FROM product_variants pv
+   WHERE pv.product_id = p.id
+   AND   pv.is_active  = true
+   ORDER BY pv.created_at ASC LIMIT 1) AS variant_id
 `;
 
 
