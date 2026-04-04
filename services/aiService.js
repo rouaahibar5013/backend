@@ -44,7 +44,7 @@ export const getRecipeSuggestionsService = async ({ ingredients, servings = 4 })
     .map(p => `- ${p.name_fr} (${p.category_name}) — ${p.price} DT`)
     .join("\n");
 
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
   const prompt = `
 Tu es un chef cuisinier expert en cuisine tunisienne et méditerranéenne bio.
@@ -138,7 +138,7 @@ export const aiProductSearchService = async ({ query }) => {
     .map(p => `ID:${p.id} | ${p.name_fr} | ${p.category_name} | ${p.price} DT | slug:${p.slug}`)
     .join("\n");
 
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
   const prompt = `
 Tu es un assistant shopping expert en produits bio tunisiens pour la boutique GOFFA.
@@ -197,7 +197,7 @@ Réponds UNIQUEMENT en JSON valide :
 // Répond aux questions générales sur les produits bio
 // ═══════════════════════════════════════════════════════════
 export const aiChatService = async ({ message, history = [] }) => {
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
   // ✅ Construire l'historique de conversation
   const chat = model.startChat({
