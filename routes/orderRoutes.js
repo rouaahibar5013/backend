@@ -14,20 +14,25 @@ import {
   getOdooSettings,
   updateOdooSettings,
   getSyncLogs,
-  stripeWebhook,           // ← Add this import
+  stripeWebhook,
   getLowStockProducts,
-  adminUpdateOrderShipping, 
+  adminUpdateOrderShipping,
+  validatePromo,            // ← NEW
 } from "../controllers/orderController.js";
 import { isAuthenticated, isAdmin } from "../middlewares/auth.js";
 
 const router = express.Router();
+
 // ── Webhooks publics ──────────────────────────────────────
-router.post('/webhooks/stripe', stripeWebhook);
+router.post('/webhooks/stripe',            stripeWebhook);
 router.post("/webhooks/odoo/stock-update", odooStockUpdate);
 router.post("/webhooks/odoo/price-update", odooPriceUpdate);
 
 // ── Guest ─────────────────────────────────────────────────
 router.post("/guest", createGuestOrder);
+
+// ── Validation code promo (public) ───────────────────────
+router.post("/validate-promo", validatePromo);   // ← NEW — avant /:orderId
 
 // ── Statiques admin — AVANT /:orderId ────────────────────
 router.get("/admin/low-stock", isAuthenticated, isAdmin, getLowStockProducts);
