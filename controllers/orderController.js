@@ -242,3 +242,22 @@ export const adminUpdateOrderShipping = catchAsyncErrors(async (req, res, next) 
     order: updatedOrder,
   });
 });
+
+// ═══════════════════════════════════════════════════════════
+// VALIDATE PROMO CODE
+// POST /api/orders/validate-promo
+// Public — appelé depuis le checkout pour afficher la réduction
+// ═══════════════════════════════════════════════════════════
+export const validatePromo = catchAsyncErrors(async (req, res, next) => {
+  const { code, subtotal } = req.body;
+
+  if (!code || !subtotal)
+    return next(new ErrorHandler("Veuillez fournir un code et un sous-total.", 400));
+
+  const result = await orderService.validatePromoService({
+    code,
+    subtotal: parseFloat(subtotal),
+  });
+
+  res.status(200).json({ success: true, ...result });
+});
