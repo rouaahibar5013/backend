@@ -1,28 +1,21 @@
 import nodemailer from "nodemailer";
 
-// ═══════════════════════════════════════════════════════════
-// SEND EMAIL UTILITY
-// Used for:
-//   - Email verification after register
-//   - Password reset link
-// ═══════════════════════════════════════════════════════════
-const sendEmail = async ({ to, subject, html }) => {
-  // ── Create transporter (Gmail) ────────────────────────
+const sendEmail = async ({ to, subject, html, attachments = [] }) => {
   const transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,   // smtp.gmail.com
-    port: process.env.EMAIL_PORT,   // 587
+    host: process.env.EMAIL_HOST,
+    port: process.env.EMAIL_PORT,
     auth: {
-      user: process.env.EMAIL_USER, // ton email Gmail
-      pass: process.env.EMAIL_PASS, // ton app password Gmail
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
     },
   });
 
-  // ── Send the email ────────────────────────────────────
   await transporter.sendMail({
-    from:    `"Ecommerce" <${process.env.EMAIL_USER}>`,
+    from:        `"GOFFA" <${process.env.EMAIL_USER}>`,
     to,
     subject,
     html,
+    attachments, // ✅ ajouté ici
   });
 };
 
