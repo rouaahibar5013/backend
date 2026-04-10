@@ -690,6 +690,7 @@ export const createGuestOrderService = async ({
       "UPDATE orders SET payment_id=$1 WHERE id=$2",
       [paymentIntent.id, order.id]
     );
+    order.is_guest = true;
     return {
       order,
       payment: {
@@ -698,7 +699,7 @@ export const createGuestOrderService = async ({
       },
     };
   }
-
+  order.is_guest = true;
   return { order, payment: { method: 'cod' } };
 };
 
