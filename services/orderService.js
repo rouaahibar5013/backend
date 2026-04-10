@@ -18,7 +18,7 @@ const sendOrderConfirmationEmail = async (toEmail, order, customerName, pdfBuffe
     ? [{
         filename: `facture-goffa-${order.order_number}.pdf`,
         content:  pdfBuffer,
-        encoding: "base64",
+        contentType: "application/pdf", // ✅ type MIME explicite,
       }]
     : [];
 
