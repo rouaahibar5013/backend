@@ -1,77 +1,42 @@
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
-import database from "../database/db.js";
+import * as statsService from "../services/statsService.js";
 
+// ═══════════════════════════════════════════════════════════
+// GET DASHBOARD STATS
+// GET /api/stats
+// GET /api/stats?period=today
+// GET /api/stats?period=7days
+// GET /api/stats?period=30days
+// GET /api/stats?period=year
+// GET /api/stats?month=3&year=2026
+// Requires: isAuthenticated + isAdmin
+// ═══════════════════════════════════════════════════════════
 export const getStats = catchAsyncErrors(async (req, res, next) => {
-    const [
-        usersResult,
-        productsResult,
-        ordersResult,
-        revenueResult,
-        recentOrdersResult,
-        topProductsResult,
-        revenueByMonthResult,
-        ordersByStatusResult,
-    ] = await Promise.all([
+  const { period, month, year } = req.query;
 
-        database.query(`SELECT COUNT(*) FROM users`),
-        database.query(`SELECT COUNT(*) FROM products WHERE is_active = true`),
-        database.query(`SELECT COUNT(*) FROM orders`),
-        database.query(`SELECT COALESCE(SUM(total_price), 0) AS total FROM orders WHERE status != 'cancelled'`),
+  const data = await statsService.getDashboardStatsService({
+    period: period || '30days',
+    month:  month  ? parseInt(month)  : null,
+    year:   year   ? parseInt(year)   : null,
+  });
 
-        database.query(
-            `SELECT o.id, o.status, o.total_price, o.created_at,
-                u.name AS customer_name, COUNT(oi.id) AS item_count
-             FROM orders o
-             LEFT JOIN users u ON u.id = o.user_id
-             LEFT JOIN order_items oi ON oi.order_id = o.id
-             GROUP BY o.id, u.name
-             ORDER BY o.created_at DESC
-             LIMIT 5`
-        ),
+  res.status(200).json({
+    success: true,
+    ...data,
+  });
+});
 
-        database.query(
-            `SELECT p.name_fr, COUNT(oi.id) AS total_orders, SUM(oi.quantity) AS total_qty
-             FROM order_items oi
-             LEFT JOIN product_variants pv ON pv.id = oi.variant_id
-             LEFT JOIN products p ON p.id = pv.product_id
-             GROUP BY p.name_fr
-             ORDER BY total_qty DESC
-             LIMIT 5`
-        ),
+export const exportStats = catchAsyncErrors(async (req, res, next) => {
+  const { period, month, year, type } = req.query;
 
-        // 🆕 Revenus & commandes par mois (6 derniers mois)
-        database.query(
-            `SELECT
-                TO_CHAR(DATE_TRUNC('month', created_at), 'Mon') AS month,
-                EXTRACT(MONTH FROM created_at)                  AS month_num,
-                COALESCE(SUM(total_price), 0)::float            AS revenue,
-                COUNT(*)::int                                   AS orders
-             FROM orders
-             WHERE created_at >= NOW() - INTERVAL '6 months'
-               AND status != 'cancelled'
-             GROUP BY DATE_TRUNC('month', created_at), month_num
-             ORDER BY DATE_TRUNC('month', created_at) ASC`
-        ),
+  const { csv, filename } = await statsService.exportStatsService({
+    period: period || '30days',
+    month:  month ? parseInt(month) : null,
+    year:   year  ? parseInt(year)  : null,
+    type:   type  || 'orders',
+  });
 
-        // 🆕 Nombre de commandes par statut
-        database.query(
-            `SELECT status, COUNT(*)::int AS count
-             FROM orders
-             GROUP BY status`
-        ),
-    ]);
-
-    res.status(200).json({
-        success: true,
-        stats: {
-            totalUsers:    parseInt(usersResult.rows[0].count),
-            totalProducts: parseInt(productsResult.rows[0].count),
-            totalOrders:   parseInt(ordersResult.rows[0].count),
-            totalRevenue:  parseFloat(revenueResult.rows[0].total),
-        },
-        recentOrders:    recentOrdersResult.rows,
-        topProducts:     topProductsResult.rows,
-        revenueByMonth:  revenueByMonthResult.rows,   // 🆕
-        ordersByStatus:  ordersByStatusResult.rows,   // 🆕
-    });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.status(200).send('\uFEFF' + csv); // BOM pour Excel
 });
