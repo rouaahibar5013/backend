@@ -491,6 +491,7 @@ export const handleStripeWebhookService = async (payload, signature) => {
       process.env.STRIPE_WEBHOOK_SECRET
     );
   } catch (err) {
+    
     throw new ErrorHandler(`Webhook invalide : ${err.message}`, 400);
   }
 
