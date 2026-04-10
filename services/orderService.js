@@ -4,16 +4,28 @@ import ErrorHandler from "../middlewares/errorMiddleware.js";
 import sendEmail from "../utils/sendEmail.js";
 import { createGuestAccountService } from "./authService.js";
 import { exportOrderToOdoo } from "./odooService.js";
+import PDFDocument from "pdfkit";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ═══════════════════════════════════════════════════════════
 // HELPER — Email confirmation commande
+// ═══════════════════════════════════════════════════════════// ═══════════════════════════════════════════════════════════
+// HELPER — Email confirmation commande + PDF facture joint
 // ═══════════════════════════════════════════════════════════
-const sendOrderConfirmationEmail = async (toEmail, order, customerName) => {
+const sendOrderConfirmationEmail = async (toEmail, order, customerName, pdfBuffer = null) => {
+  const attachments = pdfBuffer
+    ? [{
+        filename: `facture-goffa-${order.order_number}.pdf`,
+        content:  pdfBuffer,
+        encoding: "base64",
+      }]
+    : [];
+
   await sendEmail({
-    to:      toEmail,
-    subject: `✅ Commande #${order.order_number} confirmée — GOFFA 🧺`,
+    to:          toEmail,
+    subject:     `✅ Commande #${order.order_number} confirmée — GOFFA 🧺`,
+    attachments,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: #166534; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
@@ -28,12 +40,13 @@ const sendOrderConfirmationEmail = async (toEmail, order, customerName) => {
             <p><strong>N° de commande :</strong> #${order.order_number}</p>
             <p><strong>Livraison à :</strong> ${order.shipping_full_name}, ${order.shipping_address}, ${order.shipping_city}</p>
             <p><strong>Mode de paiement :</strong> ${
-              order.payment_method === 'cod'    ? '💵 Paiement à la livraison' :
-              order.payment_method === 'stripe' ? '💳 Carte bancaire / Twint'  : order.payment_method
+              order.payment_method === "cod"    ? "💵 Paiement à la livraison" :
+              order.payment_method === "stripe" ? "💳 Carte bancaire / Twint"  : order.payment_method
             }</p>
-            ${order.discount_amount > 0 ? `<p><strong>Réduction :</strong> -${order.discount_amount} DT</p>` : ''}
+            ${order.discount_amount > 0 ? `<p><strong>Réduction :</strong> -${order.discount_amount} DT</p>` : ""}
             <p style="font-size: 20px; color: #166534;"><strong>Total : ${order.total_price} DT</strong></p>
           </div>
+          ${pdfBuffer ? `<p style="color:#4b5563; font-size:13px;">📎 Votre <strong>facture PDF</strong> est jointe à cet email.</p>` : ""}
           <div style="text-align: center; margin-top: 24px;">
             <a href="${process.env.FRONTEND_URL}/commandes/${order.id}"
                style="background: #166534; color: white; padding: 12px 28px; border-radius: 6px;
@@ -44,6 +57,245 @@ const sendOrderConfirmationEmail = async (toEmail, order, customerName) => {
         </div>
       </div>
     `,
+  });
+};
+
+// ═══════════════════════════════════════════════════════════
+// HELPER — Générer la facture PDF en mémoire
+// ═══════════════════════════════════════════════════════════
+const generateInvoicePDF = (order, orderItems, customerName) => {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50, size: "A4" });
+    const buffers = [];
+
+    doc.on("data", (chunk) => buffers.push(chunk));
+    doc.on("end", () => resolve(Buffer.concat(buffers)));
+    doc.on("error", reject);
+
+    const pageWidth = doc.page.width - 100; // marges gauche + droite
+
+    // ── En-tête ──────────────────────────────────────────
+    doc
+      .fillColor("#166534")
+      .fontSize(26)
+      .font("Helvetica-Bold")
+      .text("GOFFA", 50, 50);
+
+    doc
+      .fontSize(10)
+      .fillColor("#4b5563")
+      .font("Helvetica")
+      .text("Artisanat tunisien", 50, 80)
+      .text("Email : contact@goffa.tn", 50, 95)
+      .text("Site : www.goffa.tn", 50, 110);
+
+    // Bloc FACTURE à droite
+    doc
+      .fillColor("#166534")
+      .fontSize(20)
+      .font("Helvetica-Bold")
+      .text("FACTURE", 350, 50, { align: "right", width: 200 });
+
+    doc
+      .fontSize(10)
+      .fillColor("#374151")
+      .font("Helvetica")
+      .text(`N° commande : #${order.order_number}`, 350, 80, { align: "right", width: 200 })
+      .text(`Date : ${new Date(order.created_at).toLocaleDateString("fr-FR", {
+        day: "2-digit", month: "long", year: "numeric"
+      })}`, 350, 95, { align: "right", width: 200 })
+      .text(`Statut paiement : ${
+        order.payment_status === "paid"    ? "Payé" :
+        order.payment_status === "pending" ? "En attente" : order.payment_status
+      }`, 350, 110, { align: "right", width: 200 });
+
+    // Ligne séparatrice
+    doc
+      .moveTo(50, 135)
+      .lineTo(545, 135)
+      .strokeColor("#166534")
+      .lineWidth(2)
+      .stroke();
+
+    // ── Infos client + livraison ──────────────────────────
+    doc
+      .fillColor("#166534")
+      .fontSize(12)
+      .font("Helvetica-Bold")
+      .text("Informations client", 50, 155);
+
+    doc
+      .fontSize(10)
+      .fillColor("#374151")
+      .font("Helvetica")
+      .text(`Nom : ${customerName}`, 50, 173)
+      .text(`Adresse : ${order.shipping_address}`, 50, 188)
+      .text(`Ville : ${order.shipping_city}`, 50, 203)
+      .text(`Gouvernorat : ${order.shipping_governorate || "—"}`, 50, 218)
+      .text(`Code postal : ${order.shipping_postal_code || "—"}`, 50, 233)
+      .text(`Pays : ${order.shipping_country || "TN"}`, 50, 248)
+      .text(`Téléphone : ${order.shipping_phone || "—"}`, 50, 263);
+
+    doc
+      .fillColor("#166534")
+      .fontSize(12)
+      .font("Helvetica-Bold")
+      .text("Mode de paiement", 300, 155);
+
+    doc
+      .fontSize(10)
+      .fillColor("#374151")
+      .font("Helvetica")
+      .text(
+        order.payment_method === "cod"
+          ? "Paiement à la livraison (COD)"
+          : "Carte bancaire / Twint (Stripe)",
+        300, 173
+      );
+
+    // ── Tableau des articles ──────────────────────────────
+    const tableTop = 295;
+
+    // En-tête tableau
+    doc
+      .fillColor("#166534")
+      .rect(50, tableTop, pageWidth, 24)
+      .fill();
+
+    doc
+      .fillColor("#ffffff")
+      .fontSize(10)
+      .font("Helvetica-Bold")
+      .text("Produit",       60,  tableTop + 7)
+      .text("Détails",      230,  tableTop + 7)
+      .text("Qté",          370,  tableTop + 7, { width: 40, align: "center" })
+      .text("Prix unit.",   415,  tableTop + 7, { width: 70, align: "right" })
+      .text("Total",        490,  tableTop + 7, { width: 55, align: "right" });
+
+    // Lignes articles
+    let y = tableTop + 30;
+    let rowIndex = 0;
+
+    for (const item of orderItems) {
+      const rowHeight = 28;
+      const lineTotal = (parseFloat(item.price_at_order) * item.quantity).toFixed(2);
+
+      // Fond alterné
+      if (rowIndex % 2 === 0) {
+        doc.fillColor("#f0fdf4").rect(50, y - 4, pageWidth, rowHeight).fill();
+      }
+
+      // Attributs (couleur, taille…)
+      let details = "—";
+      if (item.variant_details) {
+        try {
+          const attrs = typeof item.variant_details === "string"
+            ? JSON.parse(item.variant_details)
+            : item.variant_details;
+          if (Array.isArray(attrs) && attrs.length > 0) {
+            details = attrs.map((a) => `${a.attribute_type}: ${a.attribute_value}`).join(", ");
+          }
+        } catch {}
+      }
+
+      doc
+        .fillColor("#111827")
+        .fontSize(9)
+        .font("Helvetica-Bold")
+        .text(item.product_name_fr || "—", 60, y, { width: 165, ellipsis: true });
+
+      doc
+        .font("Helvetica")
+        .fillColor("#4b5563")
+        .text(details, 230, y, { width: 135, ellipsis: true })
+        .fillColor("#111827")
+        .text(String(item.quantity), 370, y, { width: 40, align: "center" })
+        .text(`${parseFloat(item.price_at_order).toFixed(2)} DT`, 415, y, { width: 70, align: "right" })
+        .font("Helvetica-Bold")
+        .text(`${lineTotal} DT`, 490, y, { width: 55, align: "right" });
+
+      y += rowHeight;
+      rowIndex++;
+    }
+
+    // Ligne de fin tableau
+    doc
+      .moveTo(50, y + 2)
+      .lineTo(545, y + 2)
+      .strokeColor("#166534")
+      .lineWidth(0.5)
+      .stroke();
+
+    // ── Totaux ───────────────────────────────────────────
+    y += 16;
+
+    const totalsX = 350;
+    const totalsWidth = 195;
+
+    doc
+      .fontSize(10)
+      .font("Helvetica")
+      .fillColor("#374151")
+      .text("Sous-total :", totalsX, y, { width: totalsWidth, align: "left" })
+      .text(`${parseFloat(order.subtotal).toFixed(2)} DT`, totalsX, y, { width: totalsWidth, align: "right" });
+
+    y += 18;
+
+    if (parseFloat(order.discount_amount) > 0) {
+      doc
+        .fillColor("#dc2626")
+        .text(`Réduction :`, totalsX, y, { width: totalsWidth, align: "left" })
+        .text(`-${parseFloat(order.discount_amount).toFixed(2)} DT`, totalsX, y, { width: totalsWidth, align: "right" });
+      y += 18;
+    }
+
+    doc
+      .fillColor("#374151")
+      .text("Frais de livraison :", totalsX, y, { width: totalsWidth, align: "left" })
+      .text("Gratuit", totalsX, y, { width: totalsWidth, align: "right" });
+
+    y += 14;
+
+    // Ligne séparatrice totaux
+    doc
+      .moveTo(totalsX, y)
+      .lineTo(545, y)
+      .strokeColor("#166534")
+      .lineWidth(1)
+      .stroke();
+
+    y += 10;
+
+    // Total final
+    doc
+      .fillColor("#166534")
+      .fontSize(13)
+      .font("Helvetica-Bold")
+      .text("TOTAL :", totalsX, y, { width: totalsWidth, align: "left" })
+      .text(`${parseFloat(order.total_price).toFixed(2)} DT`, totalsX, y, { width: totalsWidth, align: "right" });
+
+    // ── Pied de page ─────────────────────────────────────
+    doc
+      .moveTo(50, 750)
+      .lineTo(545, 750)
+      .strokeColor("#e5e7eb")
+      .lineWidth(1)
+      .stroke();
+
+    doc
+      .fontSize(9)
+      .fillColor("#9ca3af")
+      .font("Helvetica")
+      .text(
+        "Merci pour votre commande ! Pour toute question : contact@goffa.tn",
+        50, 760, { align: "center", width: pageWidth }
+      )
+      .text(
+        "GOFFA — Artisanat tunisien authentique",
+        50, 775, { align: "center", width: pageWidth }
+      );
+
+    doc.end();
   });
 };
 
@@ -316,8 +568,10 @@ const finalizeOrder = async ({ order, orderItems, promoId, customerEmail, custom
     );
   }
 
-if (order.payment_method === 'cod') {
-    await sendOrderConfirmationEmail(customerEmail, order, customerName);
+if (order.payment_method === 'cod') {// On génère le PDF ici pour le paiement à la livraison
+    const pdfBuffer = await generateInvoicePDF(order, orderItems, customerName);
+    // BIEN PASSER pdfBuffer en 4ème argument ici :
+    await sendOrderConfirmationEmail(customerEmail, order, customerName, pdfBuffer);
   }
   // Export vers Odoo si activé
   await exportOrderToOdoo(order.id).catch(err =>
@@ -516,9 +770,18 @@ export const handleStripeWebhookService = async (payload, signature) => {
 
         // 3. ENVOYER L'EMAIL SEULEMENT MAINTENANT
         if (user) {
-          await sendOrderConfirmationEmail(user.email, order, user.name);
-          console.log(`✅ Email envoyé et paiement confirmé pour commande ${order.order_number}`);
-        }
+         // ✅ Récupérer les articles pour le PDF
+      const itemsResult = await database.query(
+        "SELECT * FROM order_items WHERE order_id=$1",
+        [order.id]
+      );
+
+      // ✅ Générer le PDF et envoyer l'email avec la facture
+      const pdfBuffer = await generateInvoicePDF(order, itemsResult.rows, user.name);
+      await sendOrderConfirmationEmail(user.email, order, user.name, pdfBuffer);
+
+      console.log(`✅ Email + facture PDF envoyés pour commande ${order.order_number}`);
+    }
       }
       break;
     }
