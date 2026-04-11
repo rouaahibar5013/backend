@@ -100,8 +100,8 @@ export const createProductService = async ({
        ethical_info_fr, ethical_info_ar, origin, certifications,
        usage_fr, usage_ar, ingredients_fr, ingredients_ar,
        precautions_fr, precautions_ar,
-       supplier_id, category_id, created_by, images, slug)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+       supplier_id, category_id, created_by, images, slug, is_new)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19, true)
      RETURNING *`,
     [
       name_fr, name_ar || null,
@@ -278,7 +278,14 @@ export const fetchAllProductsService = async ({
 // ✅ Full details + variants + attributes + reviews
 // FIX 3b: accepts admin flag to bypass is_active filter
 // ═══════════════════════════════════════════════════════════
-export const fetchSingleProductService = async (productId, admin = false) => {
+export const fetchSingleProductService = async (productId, admin = false, alreadyViewed = false) => {
+
+
+ if (!admin && !alreadyViewed) {
+    database.query(`UPDATE products SET views_count = views_count + 1 WHERE id = $1`, [productId]);
+    database.query(`INSERT INTO product_views (product_id) VALUES ($1)`, [productId]);
+  }
+  
   const [productResult, variantsResult] = await Promise.all([
     database.query(
       `SELECT

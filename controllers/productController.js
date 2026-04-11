@@ -87,7 +87,19 @@ export const fetchFeaturedProducts = catchAsyncErrors(async (req, res) => {
 export const fetchSingleProduct = catchAsyncErrors(async (req, res) => {
   // FIX 3a: read admin flag — only honour it when the caller is actually an admin
   const admin = req.query.admin === "true" && req.user?.role === "admin";
-  const product = await productService.fetchSingleProductService(req.params.productId, admin);
+  // ✅ Cooldown : 1 vue par produit par heure par utilisateur
+  const viewKey      = `viewed_${req.params.productId}`;
+  const alreadyViewed = req.cookies?.[viewKey] === "1";
+  const product = await productService.fetchSingleProductService(req.params.productId, admin,
+    alreadyViewed );
+    // Set cookie 1h si pas encore vu
+  if (!admin && !alreadyViewed) {
+    res.cookie(viewKey, "1", {
+      maxAge:   60 * 60 * 1000, // 1 heure
+      httpOnly: true,
+      sameSite: "lax",
+    });
+  }
   res.status(200).json({ success: true, product });
 });
 
