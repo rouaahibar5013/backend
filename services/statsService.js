@@ -78,7 +78,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     revenueResult,
     ordersResult,
     usersResult,
-    newUsersResult,
+    
 
     // KPIs période précédente (pour comparaison)
     prevRevenueResult,
@@ -106,6 +106,13 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
 
     // Trafic vs Ventes
     trafficVsSalesResult,
+     reclamationsTotalResult,
+  reclamationsPendingResult,
+  reclamationsResolvedResult,
+  reclamationsByTypeResult,
+  recentReclamationsResult,
+  prevReclamationsTotalResult,    // ← AJOUTER
+prevReclamationsPendingResult,
   ] = await Promise.all([
 
     // ── CA période actuelle ───────────────────────────────
@@ -134,13 +141,6 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
       [start, end]
     ),
 
-    // ── Nouveaux users période actuelle ───────────────────
-    database.query(
-      `SELECT COUNT(*)::int AS count
-       FROM users
-       WHERE DATE(created_at) BETWEEN $1 AND $2`,
-      [start, end]
-    ),
 
     // ── CA période précédente ─────────────────────────────
     database.query(
@@ -236,27 +236,88 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     ),
 
     // ── CA mensuel (6 derniers mois) ──────────────────────
-    database.query(
-      `SELECT
-         TO_CHAR(DATE_TRUNC('month', created_at), 'Mon YYYY') AS month,
-         TO_CHAR(DATE_TRUNC('month', created_at), 'MM/YYYY')  AS month_key,
-         COALESCE(SUM(total_price), 0)::float AS revenue,
-         COUNT(*)::int AS orders
-       FROM orders
-       WHERE status != 'cancelled'
-       AND created_at >= NOW() - INTERVAL '6 months'
-       GROUP BY DATE_TRUNC('month', created_at)
-       ORDER BY DATE_TRUNC('month', created_at) ASC`
-    ),
+   database.query(
+  `SELECT
+     TO_CHAR(DATE_TRUNC('month', created_at), 'Mon YYYY') AS month,
+     TO_CHAR(DATE_TRUNC('month', created_at), 'MM/YYYY')  AS month_key,
+     COALESCE(SUM(total_price), 0)::float AS revenue,
+     COUNT(*)::int AS orders
+   FROM orders
+   WHERE status != 'cancelled'
+   AND DATE(created_at) BETWEEN $1 AND $2
+   GROUP BY DATE_TRUNC('month', created_at)
+   ORDER BY DATE_TRUNC('month', created_at) ASC`,
+  [start, end]
+),
 
     // ── Commandes par statut ──────────────────────────────
-    database.query(
-      `SELECT status, COUNT(*)::int AS count
-       FROM orders
-       GROUP BY status
-       ORDER BY count DESC`
-    ),
+  database.query(
+  `SELECT status, COUNT(*)::int AS count
+   FROM orders
+   WHERE DATE(created_at) BETWEEN $1 AND $2
+   GROUP BY status
+   ORDER BY count DESC`,
+  [start, end]
+),
+// ── Stats réclamations ────────────────────────────────────
+database.query(
+  `SELECT COUNT(*)::int AS total
+   FROM reclamations
+   WHERE DATE(created_at) BETWEEN $1 AND $2`,
+  [start, end]
+),
 
+database.query(
+  `SELECT COUNT(*)::int AS count
+   FROM reclamations
+   WHERE status = 'en_attente'
+   AND DATE(created_at) BETWEEN $1 AND $2`,
+  [start, end]
+),
+
+database.query(
+  `SELECT COUNT(*)::int AS count
+   FROM reclamations
+   WHERE status = 'resolue'
+   AND DATE(created_at) BETWEEN $1 AND $2`,
+  [start, end]
+),
+
+// ── Réclamations par type ─────────────────────────────────
+database.query(
+  `SELECT reclamation_type, COUNT(*)::int AS count
+   FROM reclamations
+   WHERE DATE(created_at) BETWEEN $1 AND $2
+   GROUP BY reclamation_type
+   ORDER BY count DESC`,
+  [start, end]
+),
+
+// ── Réclamations non résolues récentes (pour le dashboard) ─
+database.query(
+  `SELECT id, user_name, user_email, user_phone,
+          order_number, reclamation_type, message,
+          status, created_at
+   FROM reclamations
+   WHERE status = 'en_attente'
+   ORDER BY created_at DESC
+   LIMIT 10`
+),
+// ── Réclamations période précédente (comparaison) ─────
+database.query(
+  `SELECT COUNT(*)::int AS total
+   FROM reclamations
+   WHERE DATE(created_at) BETWEEN $1 AND $2`,
+  [prevStartStr, prevEndStr]
+),
+
+database.query(
+  `SELECT COUNT(*)::int AS count
+   FROM reclamations
+   WHERE status = 'en_attente'
+   AND DATE(created_at) BETWEEN $1 AND $2`,
+  [prevStartStr, prevEndStr]
+),
     // ── Ventes par catégorie (Donut Chart) ────────────────
     database.query(
       `SELECT
@@ -297,50 +358,41 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     ),
 
     // ── 5 dernières commandes ─────────────────────────────
-    database.query(
-      `SELECT
-         o.id, o.order_number, o.status,
-         o.payment_method, o.payment_status,
-         o.total_price, o.created_at,
-         u.name  AS customer_name,
-         u.email AS customer_email,
-         COUNT(oi.id)::int AS item_count
-       FROM orders o
-       LEFT JOIN users       u  ON u.id  = o.user_id
-       LEFT JOIN order_items oi ON oi.order_id = o.id
-       GROUP BY o.id, u.name, u.email
-       ORDER BY o.created_at DESC
-       LIMIT 5`
-    ),
+ database.query(
+  `SELECT
+     o.id, o.order_number, o.status,
+     o.payment_method, o.payment_status,
+     o.total_price, o.created_at,
+     u.name  AS customer_name,
+     u.email AS customer_email,
+     COUNT(oi.id)::int AS item_count
+   FROM orders o
+   LEFT JOIN users       u  ON u.id  = o.user_id
+   LEFT JOIN order_items oi ON oi.order_id = o.id
+   WHERE DATE(o.created_at) BETWEEN $1 AND $2
+   GROUP BY o.id, u.name, u.email
+   ORDER BY o.created_at DESC
+   LIMIT 5`,
+  [start, end]
+),
 
     // ── Top 5 clients ─────────────────────────────────────
-    database.query(
-      `SELECT
-         u.id, u.name, u.email,
-         COUNT(DISTINCT o.id)::int AS total_orders,
-         COALESCE(SUM(o.total_price), 0)::float AS total_spent
-       FROM orders o
-       LEFT JOIN users u ON u.id = o.user_id
-       WHERE o.status != 'cancelled'
-       GROUP BY u.id, u.name, u.email
-       ORDER BY total_spent DESC
-       LIMIT 5`
-    ),
+database.query(
+  `SELECT
+     u.id, u.name, u.email,
+     COUNT(DISTINCT o.id)::int AS total_orders,
+     COALESCE(SUM(o.total_price), 0)::float AS total_spent
+   FROM orders o
+   LEFT JOIN users u ON u.id = o.user_id
+   WHERE o.status != 'cancelled'
+   AND DATE(o.created_at) BETWEEN $1 AND $2
+   GROUP BY u.id, u.name, u.email
+   ORDER BY total_spent DESC
+   LIMIT 5`,
+  [start, end]
+),
 
-    // ── Trafic (views) vs Ventes par mois ─────────────────
-    database.query(
-      `SELECT
-         TO_CHAR(DATE_TRUNC('month', o.created_at), 'Mon') AS month,
-         COUNT(DISTINCT o.id)::int AS orders,
-         COALESCE(SUM(p.views_count), 0)::int AS total_views
-       FROM orders o
-       LEFT JOIN order_items oi ON oi.order_id = o.id
-       LEFT JOIN product_variants pv ON pv.id = oi.variant_id
-       LEFT JOIN products p ON p.id = pv.product_id
-       WHERE o.created_at >= NOW() - INTERVAL '6 months'
-       GROUP BY DATE_TRUNC('month', o.created_at)
-       ORDER BY DATE_TRUNC('month', o.created_at) ASC`
-    ),
+
   ]);
 
   // ── Calcul des KPIs avec croissance ──────────────────────
@@ -351,11 +403,6 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
   const currentUsers   = usersResult.rows[0].count;
   const prevUsers      = prevUsersResult.rows[0].count;
 
-  // ── Taux de conversion ────────────────────────────────────
-  const totalViews = await database.query(`SELECT COALESCE(SUM(views_count), 0)::int AS total FROM products`);
-  const conversionRate  = totalViews.rows[0].total > 0
-    ? parseFloat(((currentOrders / totalViews.rows[0].total) * 100).toFixed(2))
-    : 0;
 
   return {
     period: { label, start, end },
@@ -377,7 +424,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
         previous: prevUsers,
         growth:   calcGrowth(currentUsers, prevUsers),
       },
-      conversionRate,
+     
     },
 
     // ── Stats globales ────────────────────────────────────
@@ -401,7 +448,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
       ordersByStatus:    ordersByStatusResult.rows,
       salesByCategory:   salesByCategoryResult.rows,
       topProducts:       topProductsResult.rows,
-      trafficVsSales:    trafficVsSalesResult.rows,
+    
     },
 
     // ── Tableaux ──────────────────────────────────────────
@@ -409,7 +456,30 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
       recentOrders:  recentOrdersResult.rows,
       topCustomers:  topCustomersResult.rows,
     },
-  };
+ 
+// APRÈS ✅
+reclamations: {
+  total: {
+    current:  reclamationsTotalResult.rows[0].total,
+    previous: prevReclamationsTotalResult.rows[0].total,
+    growth:   calcGrowth(
+                reclamationsTotalResult.rows[0].total,
+                prevReclamationsTotalResult.rows[0].total
+              ),
+  },
+  pending: {
+    current:  reclamationsPendingResult.rows[0].count,
+    previous: prevReclamationsPendingResult.rows[0].count,
+    growth:   calcGrowth(
+                reclamationsPendingResult.rows[0].count,
+                prevReclamationsPendingResult.rows[0].count
+              ),
+  },
+  resolved: reclamationsResolvedResult.rows[0].count,
+  byType:   reclamationsByTypeResult.rows,
+  recent:   recentReclamationsResult.rows,
+},
+};
 };
 
 // ═══════════════════════════════════════════════════════════
