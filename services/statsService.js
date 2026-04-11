@@ -16,10 +16,9 @@ const buildDateFilter = (period, month, year) => {
   const now = new Date();
 
   if (month && year) {
-    // Filtre par mois/année spécifique
     const start = `${year}-${String(month).padStart(2, '0')}-01`;
-const end   = new Date(year, month, 0).toISOString().split('T')[0];
-return { start, end, label: `${month}/${year}` };
+    const end   = new Date(year, month, 0).toISOString().split('T')[0];
+    return { start, end, label: `${month}/${year}` };
   }
 
   switch (period) {
@@ -47,7 +46,7 @@ return { start, end, label: `${month}/${year}` };
         end:   `${now.getFullYear()}-12-31`,
         label: `Année ${now.getFullYear()}`,
       };
-    default: // 30days par défaut
+    default:
       return {
         start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         end:   now.toISOString().split('T')[0],
@@ -73,49 +72,51 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
   const prevStartStr = prevStart.toISOString().split('T')[0];
   const prevEndStr   = prevEnd.toISOString().split('T')[0];
 
+  // ⚠️  L'ordre du destructuring DOIT correspondre exactement à l'ordre dans Promise.all
   const [
-    // KPIs période actuelle
+    // 0–2  KPIs période actuelle
     revenueResult,
     ordersResult,
     usersResult,
-    
 
-    // KPIs période précédente (pour comparaison)
+    // 3–5  KPIs période précédente
     prevRevenueResult,
     prevOrdersResult,
     prevUsersResult,
 
-    // Stats globales
+    // 6–7  Stats globales
     totalProductsResult,
     totalUsersResult,
 
-    // Alertes
+    // 8–11 Alertes
     lowStockResult,
     pendingOrdersResult,
     cancelledTodayResult,
     newUsersTodayResult,
 
-    // Graphiques
+    // 12–14 Graphiques temporels / statuts
     revenueByDayResult,
     revenueByMonthResult,
     ordersByStatusResult,
+
+    // 15–21 Réclamations
+    reclamationsTotalResult,
+    reclamationsPendingResult,
+    reclamationsResolvedResult,
+    reclamationsByTypeResult,
+    recentReclamationsResult,
+    prevReclamationsTotalResult,
+    prevReclamationsPendingResult,
+
+    // 22–25 Ventes & tableaux
     salesByCategoryResult,
     topProductsResult,
     recentOrdersResult,
     topCustomersResult,
 
-    // Trafic vs Ventes
-    trafficVsSalesResult,
-     reclamationsTotalResult,
-  reclamationsPendingResult,
-  reclamationsResolvedResult,
-  reclamationsByTypeResult,
-  recentReclamationsResult,
-  prevReclamationsTotalResult,    // ← AJOUTER
-prevReclamationsPendingResult,
   ] = await Promise.all([
 
-    // ── CA période actuelle ───────────────────────────────
+    // 0 — CA période actuelle
     database.query(
       `SELECT COALESCE(SUM(total_price), 0)::float AS revenue,
               COUNT(*)::int AS orders_count
@@ -125,7 +126,7 @@ prevReclamationsPendingResult,
       [start, end]
     ),
 
-    // ── Commandes période actuelle ────────────────────────
+    // 1 — Commandes période actuelle
     database.query(
       `SELECT COUNT(*)::int AS count
        FROM orders
@@ -133,7 +134,7 @@ prevReclamationsPendingResult,
       [start, end]
     ),
 
-    // ── Nouveaux users période actuelle ───────────────────
+    // 2 — Nouveaux users période actuelle
     database.query(
       `SELECT COUNT(*)::int AS count
        FROM users
@@ -141,8 +142,7 @@ prevReclamationsPendingResult,
       [start, end]
     ),
 
-
-    // ── CA période précédente ─────────────────────────────
+    // 3 — CA période précédente
     database.query(
       `SELECT COALESCE(SUM(total_price), 0)::float AS revenue
        FROM orders
@@ -151,7 +151,7 @@ prevReclamationsPendingResult,
       [prevStartStr, prevEndStr]
     ),
 
-    // ── Commandes période précédente ──────────────────────
+    // 4 — Commandes période précédente
     database.query(
       `SELECT COUNT(*)::int AS count
        FROM orders
@@ -159,7 +159,7 @@ prevReclamationsPendingResult,
       [prevStartStr, prevEndStr]
     ),
 
-    // ── Users période précédente ──────────────────────────
+    // 5 — Users période précédente
     database.query(
       `SELECT COUNT(*)::int AS count
        FROM users
@@ -167,18 +167,17 @@ prevReclamationsPendingResult,
       [prevStartStr, prevEndStr]
     ),
 
-    // ── Total produits actifs ─────────────────────────────
+    // 6 — Total produits actifs
     database.query(
-        `SELECT COUNT(*)::int AS count FROM products WHERE is_active = true`
-),
+      `SELECT COUNT(*)::int AS count FROM products WHERE is_active = true`
+    ),
 
-    // ── Total users ───────────────────────────────────────
+    // 7 — Total users
     database.query(
-        `SELECT COUNT(*)::int AS count FROM users`
-),
+      `SELECT COUNT(*)::int AS count FROM users`
+    ),
 
-
-    // ── Produits en rupture/stock faible ──────────────────
+    // 8 — Produits en rupture/stock faible
     database.query(
       `SELECT
          p.id, p.name_fr, p.slug,
@@ -194,7 +193,7 @@ prevReclamationsPendingResult,
        LIMIT 10`
     ),
 
-    // ── Commandes en attente depuis +48h ──────────────────
+    // 9 — Commandes en attente depuis +48h
     database.query(
       `SELECT o.id, o.order_number, o.total_price, o.created_at,
               u.name AS customer_name
@@ -206,7 +205,7 @@ prevReclamationsPendingResult,
        LIMIT 10`
     ),
 
-    // ── Commandes annulées aujourd'hui ────────────────────
+    // 10 — Commandes annulées aujourd'hui
     database.query(
       `SELECT COUNT(*)::int AS count
        FROM orders
@@ -214,14 +213,14 @@ prevReclamationsPendingResult,
        AND DATE(updated_at) = CURRENT_DATE`
     ),
 
-    // ── Nouveaux users aujourd'hui ────────────────────────
+    // 11 — Nouveaux users aujourd'hui
     database.query(
       `SELECT COUNT(*)::int AS count
        FROM users
        WHERE DATE(created_at) = CURRENT_DATE`
     ),
 
-    // ── CA journalier (courbe évolution) ──────────────────
+    // 12 — CA journalier
     database.query(
       `SELECT
          DATE(created_at) AS date,
@@ -235,90 +234,96 @@ prevReclamationsPendingResult,
       [start, end]
     ),
 
-    // ── CA mensuel (6 derniers mois) ──────────────────────
-   database.query(
-  `SELECT
-     TO_CHAR(DATE_TRUNC('month', created_at), 'Mon YYYY') AS month,
-     TO_CHAR(DATE_TRUNC('month', created_at), 'MM/YYYY')  AS month_key,
-     COALESCE(SUM(total_price), 0)::float AS revenue,
-     COUNT(*)::int AS orders
-   FROM orders
-   WHERE status != 'cancelled'
-   AND DATE(created_at) BETWEEN $1 AND $2
-   GROUP BY DATE_TRUNC('month', created_at)
-   ORDER BY DATE_TRUNC('month', created_at) ASC`,
-  [start, end]
-),
+    // 13 — CA mensuel
+    database.query(
+      `SELECT
+         TO_CHAR(DATE_TRUNC('month', created_at), 'Mon YYYY') AS month,
+         TO_CHAR(DATE_TRUNC('month', created_at), 'MM/YYYY')  AS month_key,
+         COALESCE(SUM(total_price), 0)::float AS revenue,
+         COUNT(*)::int AS orders
+       FROM orders
+       WHERE status != 'cancelled'
+       AND DATE(created_at) BETWEEN $1 AND $2
+       GROUP BY DATE_TRUNC('month', created_at)
+       ORDER BY DATE_TRUNC('month', created_at) ASC`,
+      [start, end]
+    ),
 
-    // ── Commandes par statut ──────────────────────────────
-  database.query(
-  `SELECT status, COUNT(*)::int AS count
-   FROM orders
-   WHERE DATE(created_at) BETWEEN $1 AND $2
-   GROUP BY status
-   ORDER BY count DESC`,
-  [start, end]
-),
-// ── Stats réclamations ────────────────────────────────────
-database.query(
-  `SELECT COUNT(*)::int AS total
-   FROM reclamations
-   WHERE DATE(created_at) BETWEEN $1 AND $2`,
-  [start, end]
-),
+    // 14 — Commandes par statut
+    database.query(
+      `SELECT status, COUNT(*)::int AS count
+       FROM orders
+       WHERE DATE(created_at) BETWEEN $1 AND $2
+       GROUP BY status
+       ORDER BY count DESC`,
+      [start, end]
+    ),
 
-database.query(
-  `SELECT COUNT(*)::int AS count
-   FROM reclamations
-   WHERE status = 'en_attente'
-   AND DATE(created_at) BETWEEN $1 AND $2`,
-  [start, end]
-),
+    // 15 — Réclamations total période actuelle
+    database.query(
+      `SELECT COUNT(*)::int AS total
+       FROM reclamations
+       WHERE DATE(created_at) BETWEEN $1 AND $2`,
+      [start, end]
+    ),
 
-database.query(
-  `SELECT COUNT(*)::int AS count
-   FROM reclamations
-   WHERE status = 'resolue'
-   AND DATE(created_at) BETWEEN $1 AND $2`,
-  [start, end]
-),
+    // 16 — Réclamations en attente
+    database.query(
+      `SELECT COUNT(*)::int AS count
+       FROM reclamations
+       WHERE status = 'en_attente'
+       AND DATE(created_at) BETWEEN $1 AND $2`,
+      [start, end]
+    ),
 
-// ── Réclamations par type ─────────────────────────────────
-database.query(
-  `SELECT reclamation_type, COUNT(*)::int AS count
-   FROM reclamations
-   WHERE DATE(created_at) BETWEEN $1 AND $2
-   GROUP BY reclamation_type
-   ORDER BY count DESC`,
-  [start, end]
-),
+    // 17 — Réclamations résolues
+    database.query(
+      `SELECT COUNT(*)::int AS count
+       FROM reclamations
+       WHERE status = 'resolue'
+       AND DATE(created_at) BETWEEN $1 AND $2`,
+      [start, end]
+    ),
 
-// ── Réclamations non résolues récentes (pour le dashboard) ─
-database.query(
-  `SELECT id, user_name, user_email, user_phone,
-          order_number, reclamation_type, message,
-          status, created_at
-   FROM reclamations
-   WHERE status = 'en_attente'
-   ORDER BY created_at DESC
-   LIMIT 10`
-),
-// ── Réclamations période précédente (comparaison) ─────
-database.query(
-  `SELECT COUNT(*)::int AS total
-   FROM reclamations
-   WHERE DATE(created_at) BETWEEN $1 AND $2`,
-  [prevStartStr, prevEndStr]
-),
+    // 18 — Réclamations par type
+    database.query(
+      `SELECT reclamation_type, COUNT(*)::int AS count
+       FROM reclamations
+       WHERE DATE(created_at) BETWEEN $1 AND $2
+       GROUP BY reclamation_type
+       ORDER BY count DESC`,
+      [start, end]
+    ),
 
-database.query(
-  `SELECT COUNT(*)::int AS count
-   FROM reclamations
-   WHERE status = 'en_attente'
-   AND DATE(created_at) BETWEEN $1 AND $2`,
-  [prevStartStr, prevEndStr]
-),
-    // ── Ventes par catégorie (Donut Chart) ────────────────
+    // 19 — Réclamations récentes non résolues
+    database.query(
+      `SELECT id, user_name, user_email, user_phone,
+              order_number, reclamation_type, message,
+              status, created_at
+       FROM reclamations
+       WHERE status = 'en_attente'
+       ORDER BY created_at DESC
+       LIMIT 10`
+    ),
+
+    // 20 — Réclamations total période précédente
+    database.query(
+      `SELECT COUNT(*)::int AS total
+       FROM reclamations
+       WHERE DATE(created_at) BETWEEN $1 AND $2`,
+      [prevStartStr, prevEndStr]
+    ),
+
+    // 21 — Réclamations en attente période précédente
+    database.query(
+      `SELECT COUNT(*)::int AS count
+       FROM reclamations
+       WHERE status = 'en_attente'
+       AND DATE(created_at) BETWEEN $1 AND $2`,
+      [prevStartStr, prevEndStr]
+    ),
+
+    // 22 — Ventes par catégorie
     database.query(
       `SELECT
          c.name_fr AS category,
@@ -337,7 +342,7 @@ database.query(
       [start, end]
     ),
 
-    // ── Top 5 produits vendus ─────────────────────────────
+    // 23 — Top 5 produits
     database.query(
       `SELECT
          p.name_fr,
@@ -357,45 +362,44 @@ database.query(
       [start, end]
     ),
 
-    // ── 5 dernières commandes ─────────────────────────────
- database.query(
-  `SELECT
-     o.id, o.order_number, o.status,
-     o.payment_method, o.payment_status,
-     o.total_price, o.created_at,
-     u.name  AS customer_name,
-     u.email AS customer_email,
-     COUNT(oi.id)::int AS item_count
-   FROM orders o
-   LEFT JOIN users       u  ON u.id  = o.user_id
-   LEFT JOIN order_items oi ON oi.order_id = o.id
-   WHERE DATE(o.created_at) BETWEEN $1 AND $2
-   GROUP BY o.id, u.name, u.email
-   ORDER BY o.created_at DESC
-   LIMIT 5`,
-  [start, end]
-),
+    // 24 — 5 dernières commandes
+    database.query(
+      `SELECT
+         o.id, o.order_number, o.status,
+         o.payment_method, o.payment_status,
+         o.total_price, o.created_at,
+         u.name  AS customer_name,
+         u.email AS customer_email,
+         COUNT(oi.id)::int AS item_count
+       FROM orders o
+       LEFT JOIN users       u  ON u.id  = o.user_id
+       LEFT JOIN order_items oi ON oi.order_id = o.id
+       WHERE DATE(o.created_at) BETWEEN $1 AND $2
+       GROUP BY o.id, u.name, u.email
+       ORDER BY o.created_at DESC
+       LIMIT 5`,
+      [start, end]
+    ),
 
-    // ── Top 5 clients ─────────────────────────────────────
-database.query(
-  `SELECT
-     u.id, u.name, u.email,
-     COUNT(DISTINCT o.id)::int AS total_orders,
-     COALESCE(SUM(o.total_price), 0)::float AS total_spent
-   FROM orders o
-   LEFT JOIN users u ON u.id = o.user_id
-   WHERE o.status != 'cancelled'
-   AND DATE(o.created_at) BETWEEN $1 AND $2
-   GROUP BY u.id, u.name, u.email
-   ORDER BY total_spent DESC
-   LIMIT 5`,
-  [start, end]
-),
-
+    // 25 — Top 5 clients
+    database.query(
+      `SELECT
+         u.id, u.name, u.email,
+         COUNT(DISTINCT o.id)::int AS total_orders,
+         COALESCE(SUM(o.total_price), 0)::float AS total_spent
+       FROM orders o
+       LEFT JOIN users u ON u.id = o.user_id
+       WHERE o.status != 'cancelled'
+       AND DATE(o.created_at) BETWEEN $1 AND $2
+       GROUP BY u.id, u.name, u.email
+       ORDER BY total_spent DESC
+       LIMIT 5`,
+      [start, end]
+    ),
 
   ]);
 
-  // ── Calcul des KPIs avec croissance ──────────────────────
+  // ── Calcul KPIs avec croissance ───────────────────────
   const currentRevenue = revenueResult.rows[0].revenue;
   const prevRevenue    = prevRevenueResult.rows[0].revenue;
   const currentOrders  = ordersResult.rows[0].count;
@@ -403,11 +407,9 @@ database.query(
   const currentUsers   = usersResult.rows[0].count;
   const prevUsers      = prevUsersResult.rows[0].count;
 
-
   return {
     period: { label, start, end },
 
-    // ── KPIs principaux ───────────────────────────────────
     kpis: {
       revenue: {
         current:  currentRevenue,
@@ -424,73 +426,67 @@ database.query(
         previous: prevUsers,
         growth:   calcGrowth(currentUsers, prevUsers),
       },
-     
     },
 
-    // ── Stats globales ────────────────────────────────────
     globals: {
       totalProducts: totalProductsResult.rows[0].count,
       totalUsers:    totalUsersResult.rows[0].count,
     },
 
-    // ── Alertes ───────────────────────────────────────────
     alerts: {
-      lowStockProducts:     lowStockResult.rows,
-      pendingOrders48h:     pendingOrdersResult.rows,
-      cancelledToday:       cancelledTodayResult.rows[0].count,
-      newUsersToday:        newUsersTodayResult.rows[0].count,
+      lowStockProducts: lowStockResult.rows,
+      pendingOrders48h: pendingOrdersResult.rows,
+      cancelledToday:   cancelledTodayResult.rows[0].count,
+      newUsersToday:    newUsersTodayResult.rows[0].count,
     },
 
-    // ── Graphiques ────────────────────────────────────────
     charts: {
-      revenueByDay:      revenueByDayResult.rows,
-      revenueByMonth:    revenueByMonthResult.rows,
-      ordersByStatus:    ordersByStatusResult.rows,
-      salesByCategory:   salesByCategoryResult.rows,
-      topProducts:       topProductsResult.rows,
-    
+      revenueByDay:    revenueByDayResult.rows,
+      revenueByMonth:  revenueByMonthResult.rows,
+      ordersByStatus:  ordersByStatusResult.rows,
+      salesByCategory: salesByCategoryResult.rows,
+      topProducts:     topProductsResult.rows,
     },
 
-    // ── Tableaux ──────────────────────────────────────────
     tables: {
-      recentOrders:  recentOrdersResult.rows,
-      topCustomers:  topCustomersResult.rows,
+      recentOrders: recentOrdersResult.rows,
+      topCustomers: topCustomersResult.rows,
     },
- 
-// APRÈS ✅
-reclamations: {
-  total: {
-    current:  reclamationsTotalResult.rows[0].total,
-    previous: prevReclamationsTotalResult.rows[0].total,
-    growth:   calcGrowth(
-                reclamationsTotalResult.rows[0].total,
-                prevReclamationsTotalResult.rows[0].total
-              ),
-  },
-  pending: {
-    current:  reclamationsPendingResult.rows[0].count,
-    previous: prevReclamationsPendingResult.rows[0].count,
-    growth:   calcGrowth(
-                reclamationsPendingResult.rows[0].count,
-                prevReclamationsPendingResult.rows[0].count
-              ),
-  },
-  resolved: reclamationsResolvedResult.rows[0].count,
-  byType:   reclamationsByTypeResult.rows,
-  recent:   recentReclamationsResult.rows,
-},
+
+    reclamations: {
+      total: {
+        current:  reclamationsTotalResult.rows[0].total,
+        previous: prevReclamationsTotalResult.rows[0].total,
+        growth:   calcGrowth(
+                    reclamationsTotalResult.rows[0].total,
+                    prevReclamationsTotalResult.rows[0].total
+                  ),
+      },
+      pending: {
+        current:  reclamationsPendingResult.rows[0].count,
+        previous: prevReclamationsPendingResult.rows[0].count,
+        growth:   calcGrowth(
+                    reclamationsPendingResult.rows[0].count,
+                    prevReclamationsPendingResult.rows[0].count
+                  ),
+      },
+      resolved: reclamationsResolvedResult.rows[0].count,
+      byType:   reclamationsByTypeResult.rows,
+      recent:   recentReclamationsResult.rows,
+    },
+  };
 };
-};
+
 
 // ═══════════════════════════════════════════════════════════
 // EXPORT STATS (CSV)
 // ═══════════════════════════════════════════════════════════
 export const exportStatsService = async ({ period, month, year, type }) => {
-  const { start, end, label } = buildDateFilter(period, month, year);
+  const { start, end } = buildDateFilter(period, month, year);
 
-  let rows = [];
+  let rows     = [];
   let filename = '';
-  let headers = [];
+  let headers  = [];
 
   switch (type) {
 
@@ -508,7 +504,7 @@ export const exportStatsService = async ({ period, month, year, type }) => {
       headers  = ['N° commande','Statut','Paiement','Statut paiement','Total','Date','Client','Email'];
       rows     = result.rows.map(r => [
         r.order_number, r.status, r.payment_method, r.payment_status,
-        r.total_price, r.created_at, r.customer_name, r.customer_email,
+        r.total_price,  r.created_at, r.customer_name, r.customer_email,
       ]);
       filename = `commandes_${start}_${end}.csv`;
       break;
@@ -553,10 +549,9 @@ export const exportStatsService = async ({ period, month, year, type }) => {
     }
 
     default:
-      throw new Error('Type d\'export invalide. Valeurs acceptées : orders, products, customers');
+      throw new Error("Type d'export invalide. Valeurs acceptées : orders, products, customers");
   }
 
-  // Construire le CSV
   const escape = v => {
     if (v === null || v === undefined) return '';
     const str = String(v).replace(/"/g, '""');
