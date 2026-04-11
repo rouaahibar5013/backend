@@ -908,15 +908,29 @@ export const getMyOrdersService = async (userId) => {
     `SELECT
        o.id, o.order_number, o.status, o.payment_method,
        o.payment_status, o.subtotal, o.discount_amount,
-       o.total_price, o.shipping_city, o.created_at,
+       o.total_price, o.shipping_address, o.shipping_city, o.created_at,
        d.status          AS delivery_status,
        d.tracking_number,
        d.carrier,
        d.estimated_date,
-       COUNT(oi.id)      AS item_count
+       COUNT(oi.id)      AS item_count,
+       COALESCE(
+         json_agg(
+           json_build_object(
+             'id',            oi.id,
+             'product_name',  oi.product_name_fr,
+             'variant_name',  oi.variant_details,
+             'quantity',      oi.quantity,
+             'unit_price',    oi.price_at_order,
+             'product_image', p.images->0->>'url'
+           )
+         ) FILTER (WHERE oi.id IS NOT NULL), '[]'
+       ) AS items
      FROM orders o
-     LEFT JOIN deliveries  d  ON d.order_id  = o.id
-     LEFT JOIN order_items oi ON oi.order_id = o.id
+     LEFT JOIN deliveries        d  ON d.order_id  = o.id
+     LEFT JOIN order_items       oi ON oi.order_id = o.id
+     LEFT JOIN product_variants  pv ON pv.id       = oi.variant_id
+     LEFT JOIN products          p  ON p.id        = pv.product_id
      WHERE o.user_id = $1
      GROUP BY o.id, d.status, d.tracking_number, d.carrier, d.estimated_date
      ORDER BY o.created_at DESC`,
@@ -949,9 +963,15 @@ export const getSingleOrderService = async ({ orderId, userId, role }) => {
        WHERE ${condition}`,
       values
     ),
-    database.query(
-      "SELECT * FROM order_items WHERE order_id=$1", [orderId]
-    ),
+    // APRÈS
+database.query(
+    `SELECT oi.*, p.images->0->>'url' AS product_image
+     FROM order_items oi
+     LEFT JOIN product_variants pv ON pv.id = oi.variant_id
+     LEFT JOIN products p ON p.id = pv.product_id
+     WHERE oi.order_id = $1`,
+    [orderId]
+),
   ]);
 
   if (orderResult.rows.length === 0)
