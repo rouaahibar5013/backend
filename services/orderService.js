@@ -787,15 +787,101 @@ export const handleStripeWebhookService = async (payload, signature) => {
       break;
     }
 
-    case 'payment_intent.payment_failed': {
-      const paymentIntent = event.data.object;
-      await database.query(
-        "UPDATE orders SET payment_status='failed' WHERE payment_id=$1",
-        [paymentIntent.id]
+ case 'payment_intent.payment_failed': {
+  const paymentIntent = event.data.object;
+
+  // 1. Mettre à jour commande → failed + cancelled
+  const updateResult = await database.query(
+    `UPDATE orders 
+     SET payment_status='failed', status='cancelled' 
+     WHERE payment_id=$1 
+     RETURNING *`,
+    [paymentIntent.id]
+  );
+
+  const order = updateResult.rows[0];
+
+  if (order) {
+    // 2. Annuler la livraison
+    await database.query(
+      "UPDATE deliveries SET status='returned' WHERE order_id=$1",
+      [order.id]
+    );
+
+    // 3. Restaurer le stock
+    const settings = await database.query(
+      "SELECT stock_managed_by FROM odoo_settings LIMIT 1"
+    );
+    const stockManagedBy = settings.rows[0]?.stock_managed_by || 'backend';
+
+    if (stockManagedBy === 'backend') {
+      const items = await database.query(
+        "SELECT * FROM order_items WHERE order_id=$1",
+        [order.id]
       );
-      console.log(`❌ Stripe payment failed: ${paymentIntent.id}`);
-      break;
+      for (const item of items.rows) {
+        if (item.variant_id) {
+          await database.query(
+            "UPDATE product_variants SET stock = stock + $1 WHERE id=$2",
+            [item.quantity, item.variant_id]
+          );
+        }
+      }
     }
+
+    // 4. Email client
+    const userResult = await database.query(
+      "SELECT email, name FROM users WHERE id=$1",
+      [order.user_id]
+    );
+    const user = userResult.rows[0];
+
+    if (user) {
+      await sendEmail({
+        to:      user.email,
+        subject: `❌ Échec du paiement — Commande #${order.order_number} — GOFFA 🧺`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #dc2626; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+              <h1 style="color: white; margin: 0;">🧺 GOFFA</h1>
+              <p style="color: #fecaca; margin: 5px 0 0;">artisanat tunisien</p>
+            </div>
+            <div style="padding: 30px; background: #f9fafb; border-radius: 0 0 10px 10px;">
+              <h2 style="color: #dc2626;">❌ Paiement échoué</h2>
+              <p>Bonjour ${user.name},</p>
+              <p>Votre paiement pour la commande <strong>#${order.order_number}</strong>
+                 d'un montant de <strong>${order.total_price} DT</strong>
+                 n'a pas pu être traité.</p>
+              <div style="background: white; padding: 20px; border-radius: 8px;
+                          margin: 20px 0; border-left: 4px solid #dc2626;">
+                <p style="margin: 0; color: #374151;">
+                  Raisons possibles : carte refusée, fonds insuffisants, délai expiré, 
+                  ou 3D Secure non complété.
+                </p>
+              </div>
+              <p style="color: #6b7280; font-size: 13px;">
+                Votre commande a été annulée et votre stock a été libéré. 
+                Vous pouvez repasser une commande à tout moment.
+              </p>
+              <div style="text-align: center; margin-top: 24px;">
+                <a href="${process.env.FRONTEND_URL}/panier"
+                   style="background: #166534; color: white; padding: 12px 28px;
+                          border-radius: 6px; text-decoration: none;
+                          font-weight: bold; display: inline-block;">
+                  Réessayer ma commande →
+                </a>
+              </div>
+            </div>
+          </div>
+        `,
+      }).catch(err => console.error("Échec email paiement raté :", err.message));
+
+      console.log(`❌ Paiement échoué + email envoyé pour commande ${order.order_number}`);
+    }
+  }
+
+  break;
+}
 
     case 'charge.refunded': {
       const charge = event.data.object;
