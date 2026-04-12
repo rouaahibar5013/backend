@@ -268,7 +268,7 @@ export const getUserById = async (id) => {
 // ═══════════════════════════════════════════════════════════
 // UPDATE PROFILE
 // ═══════════════════════════════════════════════════════════
-export const updateUserProfile = async ({ userId, name, phone, address, city, avatarFile }) => {
+export const updateUserProfile = async ({ userId, name, phone, address, city, avatarFile, deleteAvatar  }) => {
   const userResult = await database.query(
     "SELECT * FROM users WHERE id = $1", [userId]
   );
@@ -276,9 +276,26 @@ export const updateUserProfile = async ({ userId, name, phone, address, city, av
 
   let avatarUrl = currentUser.avatar;
 
+
+  // ✅ Suppression de l'avatar
+  if (deleteAvatar === 'true' || deleteAvatar === true) {
+    if (currentUser.avatar) {
+      // Supprimer de Cloudinary
+      const matches = currentUser.avatar.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z]+$/i);
+      if (matches) {
+        await cloudinary.uploader.destroy(matches[1]).catch(err =>
+          console.error("Cloudinary delete error:", err.message)
+        );
+      }
+    }
+    avatarUrl = null; // ← avatar = null en DB → photo par défaut
+  }
+
+
+
   if (avatarFile) {
-    if (avatarUrl) {
-      const matches = avatarUrl.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z]+$/i);
+   if (currentUser.avatar) {
+      const matches =currentUser.avatar.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z]+$/i);
       if (matches) await cloudinary.uploader.destroy(matches[1]);
     }
     const result = await cloudinary.uploader.upload(

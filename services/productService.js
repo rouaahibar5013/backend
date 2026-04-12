@@ -544,6 +544,22 @@ export const updateVariantService = async ({
     throw new ErrorHandler("Variant not found.", 404);
 
   const v = existing.rows[0];
+ // ✅ Convertir les champs numériques — chaîne vide devient null → fallback sur valeur actuelle
+  const safeNum = (val) => {
+    if (val === '' || val === null || val === undefined) return null;
+    const n = parseFloat(val);
+    return isNaN(n) ? null : n;
+  };
+
+  const newPrice        = safeNum(price)        ?? v.price;
+  const newComparePrice = safeNum(compare_price) ?? v.compare_price;
+  const newCostPrice    = safeNum(cost_price)    ?? v.cost_price;
+  const newStock        = safeNum(stock)         ?? v.stock;        // ← le coupable
+  const newWeightGrams  = safeNum(weight_grams)  ?? v.weight_grams;
+
+  // ✅ Valider que stock n'est pas négatif
+  if (newStock < 0)
+    throw new ErrorHandler("Le stock ne peut pas être négatif.", 400);
 
   const result = await database.query(
     `UPDATE product_variants SET
@@ -552,13 +568,13 @@ export const updateVariantService = async ({
        updated_at=now()
      WHERE id=$8 RETURNING *`,
     [
-      price         ?? v.price,
-      compare_price ?? v.compare_price,
-      cost_price    ?? v.cost_price,
-      stock         ?? v.stock,
-      sku           ?? v.sku,
-      weight_grams  ?? v.weight_grams,
-      is_active     ?? v.is_active,
+      newPrice,
+      newComparePrice,
+      newCostPrice,
+      newStock,
+      sku          ?? v.sku,
+      newWeightGrams,
+      is_active    ?? v.is_active,
       variantId,
     ]
   );
