@@ -148,7 +148,8 @@ export const updateProfile = catchAsyncErrors(async (req, res, next) => {
   const user = await authService.updateUserProfile({
     userId: req.user.id,
     name, phone, address, city,
-    avatarFile: req.files?.avatar,
+    avatarFile: req.files?.avatar || null,
+    deleteAvatar: req.body.deleteAvatar,
   });
 
   res.status(200).json({
