@@ -82,7 +82,7 @@ export const forgotPassword = catchAsyncErrors(async (req, res, next) => {
   // Toujours répondre pareil — sécurité (ne pas révéler si l'email existe)
   res.status(200).json({
     success: true,
-    message: "If this email exists, a reset link has been sent.",
+    message: "Si cet email existe, un lien de réinitialisation a été envoyé.",
   });
 });
 
