@@ -42,7 +42,7 @@ const uploadCategoryImages = async (imageFiles) => {
 // CREATE CATEGORY
 // ═══════════════════════════════════════════════════════════
 export const createCategoryService = async ({
-  name_fr, name_ar, description_fr, description_ar, parent_id, files,
+  name_fr,  description_fr,  parent_id, files,
 }) => {
   // Check duplicate
   const existing = await database.query(
@@ -70,12 +70,12 @@ export const createCategoryService = async ({
 
   const result = await database.query(
     `INSERT INTO categories
-      (name_fr, name_ar, slug, description_fr, description_ar, images, parent_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
+      (name_fr,  slug, description_fr, images, parent_id)
+     VALUES ($1,$2,$3,$4,$5)
      RETURNING *`,
     [
-      name_fr, name_ar || null, slug,
-      description_fr || null, description_ar || null,
+      name_fr, slug,
+      description_fr || null, 
       JSON.stringify(images), parent_id || null,
     ]
   );
@@ -92,10 +92,8 @@ export const fetchAllCategoriesService = async () => {
     `SELECT
        c.id,
        c.name_fr,
-       c.name_ar,
        c.slug,
        c.description_fr,
-       c.description_ar,
        c.images,
        c.parent_id,
        c.sort_order,
@@ -142,7 +140,6 @@ export const fetchSingleCategoryService = async (categoryId) => {
          json_agg(DISTINCT jsonb_build_object(
            'id',      sub.id,
            'name_fr', sub.name_fr,
-           'name_ar', sub.name_ar,
            'slug',    sub.slug,
            'images',  sub.images
          )) FILTER (WHERE sub.id IS NOT NULL AND sub.is_active = true),
@@ -166,8 +163,8 @@ export const fetchSingleCategoryService = async (categoryId) => {
 // UPDATE CATEGORY
 // ═══════════════════════════════════════════════════════════
 export const updateCategoryService = async ({
-  categoryId, name_fr, name_ar,
-  description_fr, description_ar,
+  categoryId, name_fr, 
+  description_fr,
   parent_id, is_active, sort_order, files,
 }) => {
   const existing = await database.query(
@@ -201,18 +198,16 @@ export const updateCategoryService = async ({
 
   const result = await database.query(
     `UPDATE categories SET
-       name_fr=$1, name_ar=$2,
-       description_fr=$3, description_ar=$4,
-       parent_id=$5, images=$6,
-       is_active=$7, sort_order=$8,
+       name_fr=$1, 
+       description_fr=$2, 
+       parent_id=$3, images=$4,
+       is_active=$5, sort_order=$6,
        updated_at=now()
-     WHERE id=$9
+     WHERE id=$7
      RETURNING *`,
     [
       name_fr        ?? c.name_fr,
-      name_ar        ?? c.name_ar,
       description_fr ?? c.description_fr,
-      description_ar ?? c.description_ar,
       parent_id      ?? c.parent_id,
       JSON.stringify(images),
       is_active      !== undefined ? is_active === 'true' || is_active === true : c.is_active,

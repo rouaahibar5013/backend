@@ -21,18 +21,20 @@ const uploadProductImages = async (imageFiles) => {
 
 // ═══════════════════════════════════════════════════════════
 // HELPER — upsert attribute type + value (bi-langue)
-// Uses name_fr / value_fr columns (DB schema)
 // ═══════════════════════════════════════════════════════════
-const upsertAttribute = async (attribute_type_fr, value_fr, attribute_type_ar = null, value_ar = null) => {
+// HELPER — upsert attribute type + value (Version sans arabe)
+// ═══════════════════════════════════════════════════════════
+const upsertAttribute = async (attribute_type_fr, value_fr) => {
   // Find or create attribute type
   let typeResult = await database.query(
     "SELECT id FROM attribute_types WHERE name_fr ILIKE $1",
     [attribute_type_fr]
   );
+
   if (typeResult.rows.length === 0) {
     typeResult = await database.query(
-      "INSERT INTO attribute_types (name_fr, name_ar) VALUES ($1, $2) RETURNING id",
-      [attribute_type_fr, attribute_type_ar || null]
+      "INSERT INTO attribute_types (name_fr) VALUES ($1) RETURNING id",
+      [attribute_type_fr]
     );
   }
   const typeId = typeResult.rows[0].id;
@@ -42,10 +44,11 @@ const upsertAttribute = async (attribute_type_fr, value_fr, attribute_type_ar = 
     "SELECT id FROM attribute_values WHERE attribute_type_id = $1 AND value_fr ILIKE $2",
     [typeId, value_fr]
   );
+
   if (valueResult.rows.length === 0) {
     valueResult = await database.query(
-      "INSERT INTO attribute_values (attribute_type_id, value_fr, value_ar) VALUES ($1, $2, $3) RETURNING id",
-      [typeId, value_fr, value_ar || null]
+      "INSERT INTO attribute_values (attribute_type_id, value_fr) VALUES ($1, $2) RETURNING id",
+      [typeId, value_fr]
     );
   }
 
@@ -56,10 +59,10 @@ const upsertAttribute = async (attribute_type_fr, value_fr, attribute_type_ar = 
 // CREATE PRODUCT
 // ═══════════════════════════════════════════════════════════
 export const createProductService = async ({
-  name_fr, name_ar, description_fr, description_ar,
-  ethical_info_fr, ethical_info_ar, origin,
-  usage_fr, usage_ar, ingredients_fr, ingredients_ar,
-  precautions_fr, precautions_ar,
+  name_fr, description_fr, 
+  ethical_info_fr,  origin,
+  usage_fr,  ingredients_fr, 
+  precautions_fr, 
   certifications, supplier_id, category_id,
   slug, variants, userId, files,
 }) => {
@@ -94,63 +97,62 @@ export const createProductService = async ({
   }
 
   // Insert product
-  const productResult = await database.query(
-    `INSERT INTO products
-      (name_fr, name_ar, description_fr, description_ar,
-       ethical_info_fr, ethical_info_ar, origin, certifications,
-       usage_fr, usage_ar, ingredients_fr, ingredients_ar,
-       precautions_fr, precautions_ar,
-       supplier_id, category_id, created_by, images, slug, is_new)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19, true)
-     RETURNING *`,
-    [
-      name_fr, name_ar || null,
-      description_fr, description_ar || null,
-      ethical_info_fr || null, ethical_info_ar || null,
-      origin || null,
-      certifications ? JSON.stringify(certifications) : null,
-      usage_fr || null, usage_ar || null,
-      ingredients_fr || null, ingredients_ar || null,
-      precautions_fr || null, precautions_ar || null,
-      supplier_id || null, category_id,
-      userId, JSON.stringify(uploadedImages),
-      finalSlug,
-    ]
-  );
+const productResult = await database.query(
+  `INSERT INTO products
+    (name_fr, description_fr, ethical_info_fr, origin, certifications,
+     usage_fr, ingredients_fr, precautions_fr,
+     supplier_id, category_id, created_by, images, slug, is_new)
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, true)
+   RETURNING *`,
+  [
+    name_fr,
+    description_fr,
+    ethical_info_fr || null,
+    origin || null,
+    certifications ? JSON.stringify(certifications) : null,
+    usage_fr || null,
+    ingredients_fr || null,
+    precautions_fr || null,
+    supplier_id || null,
+    category_id,
+    userId,
+    JSON.stringify(uploadedImages),
+    finalSlug
+  ]
+);
 
   const product         = productResult.rows[0];
   const createdVariants = [];
 
-  // Create variants + their attributes
-  for (const variant of variants) {
-    const {
-      price, compare_price, cost_price,
-      stock, sku, weight_grams, barcode,
-      attributes,
-    } = variant;
+  // Create variants + their attributes// ✅ APRÈS
+for (const variant of variants) {
+  const {
+    price, cost_price,
+    stock, sku, weight_grams, barcode,
+    low_stock_threshold,   // ← ajouté
+    attributes,
+  } = variant;
 
-    if (!price || price < 0)
-      throw new ErrorHandler("Each variant must have a valid price.", 400);
-
-    const variantResult = await database.query(
-      `INSERT INTO product_variants
-        (product_id, sku, price, compare_price, cost_price,
-         stock, weight_grams, barcode)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       RETURNING *`,
-      [
-        product.id, sku || null,
-        price, compare_price || null, cost_price || null,
-        stock || 0, weight_grams || null, barcode || null,
-      ]
-    );
+  const variantResult = await database.query(
+    `INSERT INTO product_variants
+      (product_id, sku, price, cost_price,
+       stock, low_stock_threshold, weight_grams, barcode)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     RETURNING *`,
+    [
+      product.id, sku || null,
+      price, cost_price || null,
+      stock || 0, low_stock_threshold || 5,  // ← 5 = valeur par défaut
+      weight_grams || null, barcode || null,
+    ]
+  );
     const newVariant = variantResult.rows[0];
 
     // Link attributes via product_variant_attributes
     if (attributes && attributes.length > 0) {
       for (const attr of attributes) {
-        const { type_fr, value_fr, type_ar, value_ar } = attr;
-        const valueId = await upsertAttribute(type_fr, value_fr, type_ar, value_ar);
+        const { type_fr, value_fr} = attr;
+        const valueId = await upsertAttribute(type_fr, value_fr);
         await database.query(
           "INSERT INTO product_variant_attributes (variant_id, attribute_value_id) VALUES ($1, $2)",
           [newVariant.id, valueId]
@@ -197,7 +199,7 @@ export const fetchAllProductsService = async ({
   }
   if (search) {
     conditions.push(
-      `(p.name_fr ILIKE $${i} OR p.name_ar ILIKE $${i} OR p.description_fr ILIKE $${i})`
+      `(p.name_fr ILIKE $${i} OR p.description_fr ILIKE $${i})`
     );
     values.push(`%${search}%`); i++;
   }
@@ -230,7 +232,6 @@ export const fetchAllProductsService = async ({
       `SELECT DISTINCT ON (p.id)
          p.id,
          p.name_fr,
-         p.name_ar,
          p.slug,
          p.images,
          p.rating_avg,
@@ -292,12 +293,10 @@ export const fetchSingleProductService = async (productId, admin = false, alread
          p.*,
          c.id          AS category_id,
          c.name_fr     AS category_name,
-         c.name_ar     AS category_name_ar,
          c.slug        AS category_slug,
          pc.name_fr    AS parent_category_name,
          pc.slug       AS parent_category_slug,
          s.name        AS supplier_name,
-         s.name_ar     AS supplier_name_ar,
          s.slug        AS supplier_slug,
          s.description_fr  AS supplier_description,
          s.region      AS supplier_region,
@@ -328,9 +327,9 @@ export const fetchSingleProductService = async (productId, admin = false, alread
        LEFT JOIN reviews    r  ON r.product_id = p.id
        LEFT JOIN users      u  ON u.id  = r.user_id
        WHERE p.id = $1 ${admin ? "" : "AND p.is_active = true"}
-       GROUP BY p.id, c.id, c.name_fr, c.name_ar, c.slug,
+       GROUP BY p.id, c.id, c.name_fr, c.slug,
                 pc.name_fr, pc.slug,
-                s.name, s.name_ar, s.slug, s.description_fr,
+                s.name,  s.slug, s.description_fr,
                 s.region, s.is_certified_bio`,
       [productId]
     ),
@@ -341,10 +340,8 @@ export const fetchSingleProductService = async (productId, admin = false, alread
            json_agg(
              json_build_object(
                'type_fr',    at.name_fr,
-               'type_ar',    at.name_ar,
                'unit',       at.unit,
                'value_fr',   av.value_fr,
-               'value_ar',   av.value_ar,
                'sort_order', av.sort_order
              )
              ORDER BY av.sort_order
@@ -380,7 +377,6 @@ export const fetchFeaturedProductsService = async (limit = 8) => {
     `SELECT DISTINCT ON (p.id)
        p.id,
        p.name_fr,
-       p.name_ar,
        p.slug,
        p.images,
        p.rating_avg,
@@ -417,10 +413,10 @@ export const fetchFeaturedProductsService = async (limit = 8) => {
 // UPDATE PRODUCT
 // ═══════════════════════════════════════════════════════════
 export const updateProductService = async ({
-  productId, name_fr, name_ar, description_fr, description_ar,
-  ethical_info_fr, ethical_info_ar, origin, certifications,
-  usage_fr, usage_ar, ingredients_fr, ingredients_ar,
-  precautions_fr, precautions_ar,
+  productId, name_fr,description_fr, 
+  ethical_info_fr, origin, certifications,
+  usage_fr, ingredients_fr, 
+  precautions_fr, 
   supplier_id, category_id, slug, is_active, is_featured, files,
 }) => {
   const existing = await database.query(
@@ -451,32 +447,26 @@ export const updateProductService = async ({
 
   const result = await database.query(
     `UPDATE products SET
-       name_fr=$1, name_ar=$2,
-       description_fr=$3, description_ar=$4,
-       ethical_info_fr=$5, ethical_info_ar=$6,
-       origin=$7, certifications=$8,
-       usage_fr=$9, usage_ar=$10,
-       ingredients_fr=$11, ingredients_ar=$12,
-       precautions_fr=$13, precautions_ar=$14,
-       supplier_id=$15, category_id=$16,
-       slug=$17, is_active=$18, is_featured=$19, images=$20,
+       name_fr=$1, 
+       description_fr=$2, 
+       ethical_info_fr=$3, 
+       origin=$4, certifications=$5,
+       usage_fr=$6, 
+       ingredients_fr=$7, 
+       precautions_fr=$8, 
+       supplier_id=$9, category_id=$10,
+       slug=$11, is_active=$12, is_featured=$13, images=$14,
        updated_at=now()
-     WHERE id=$21 RETURNING *`,
+     WHERE id=$15 RETURNING *`,
     [
       name_fr          ?? p.name_fr,
-      name_ar          ?? p.name_ar,
       description_fr   ?? p.description_fr,
-      description_ar   ?? p.description_ar,
       ethical_info_fr  ?? p.ethical_info_fr,
-      ethical_info_ar  ?? p.ethical_info_ar,
       origin           ?? p.origin,
       certifications   ? JSON.stringify(certifications) : p.certifications,
       usage_fr         ?? p.usage_fr,
-      usage_ar         ?? p.usage_ar,
       ingredients_fr   ?? p.ingredients_fr,
-      ingredients_ar   ?? p.ingredients_ar,
       precautions_fr   ?? p.precautions_fr,
-      precautions_ar   ?? p.precautions_ar,
       supplier_id      ?? p.supplier_id,
       category_id      ?? p.category_id,
       slug             ?? p.slug,
@@ -494,8 +484,8 @@ export const updateProductService = async ({
 // ADD VARIANT
 // ═══════════════════════════════════════════════════════════
 export const addVariantService = async ({
-  productId, price, compare_price, cost_price,
-  stock, sku, weight_grams, barcode, attributes,
+  productId, price,  cost_price,
+  stock, sku, weight_grams, barcode, low_stock_threshold ,attributes,
 }) => {
   const product = await database.query(
     "SELECT id FROM products WHERE id = $1", [productId]
@@ -508,18 +498,18 @@ export const addVariantService = async ({
 
   const variantResult = await database.query(
     `INSERT INTO product_variants
-      (product_id, sku, price, compare_price, cost_price, stock, weight_grams, barcode)
+      (product_id, sku, price,  cost_price, stock,low_stock_threshold, weight_grams, barcode)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
      RETURNING *`,
-    [productId, sku || null, price, compare_price || null, cost_price || null,
-     stock || 0, weight_grams || null, barcode || null]
+    [productId, sku || null, price, cost_price || null,
+     stock || 0,  low_stock_threshold || 5, weight_grams || null, barcode || null]
   );
   const variant = variantResult.rows[0];
 
   const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : attributes;
   if (parsedAttrs && parsedAttrs.length > 0) {
     for (const attr of parsedAttrs) {
-      const valueId = await upsertAttribute(attr.type_fr, attr.value_fr, attr.type_ar, attr.value_ar);
+      const valueId = await upsertAttribute(attr.type_fr, attr.value_fr);
       await database.query(
         "INSERT INTO product_variant_attributes (variant_id, attribute_value_id) VALUES ($1,$2)",
         [variant.id, valueId]
@@ -534,8 +524,8 @@ export const addVariantService = async ({
 // UPDATE VARIANT
 // ═══════════════════════════════════════════════════════════
 export const updateVariantService = async ({
-  variantId, price, compare_price, cost_price,
-  stock, sku, weight_grams, is_active,
+  variantId, price,  cost_price,
+  stock, sku,low_stock_threshold ,weight_grams, is_active,
 }) => {
   const existing = await database.query(
     "SELECT * FROM product_variants WHERE id = $1", [variantId]
@@ -552,7 +542,6 @@ export const updateVariantService = async ({
   };
 
   const newPrice        = safeNum(price)        ?? v.price;
-  const newComparePrice = safeNum(compare_price) ?? v.compare_price;
   const newCostPrice    = safeNum(cost_price)    ?? v.cost_price;
   const newStock        = safeNum(stock)         ?? v.stock;        // ← le coupable
   const newWeightGrams  = safeNum(weight_grams)  ?? v.weight_grams;
@@ -563,16 +552,16 @@ export const updateVariantService = async ({
 
   const result = await database.query(
     `UPDATE product_variants SET
-       price=$1, compare_price=$2, cost_price=$3,
-       stock=$4, sku=$5, weight_grams=$6, is_active=$7,
+       price=$1,  cost_price=$2,
+       stock=$3, sku=$4,low_stock_threshold=$5, weight_grams=$6, is_active=$7,
        updated_at=now()
      WHERE id=$8 RETURNING *`,
     [
       newPrice,
-      newComparePrice,
       newCostPrice,
       newStock,
       sku          ?? v.sku,
+      low_stock_threshold ?? v.low_stock_threshold,
       newWeightGrams,
       is_active    ?? v.is_active,
       variantId,
