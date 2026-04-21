@@ -7,12 +7,13 @@ import {
   getAllCampaigns,
   getAllSubscribers,
 } from "../controllers/emailcampaignController.js";
-import { isAuthenticated, isAdmin } from "../middlewares/auth.js";
+import { isAuthenticated, isAdmin, optionalAuth } from "../middlewares/auth.js";
+
 
 const router = express.Router();
 
 // ── Public ───────────────────────────────────────────────
-router.post("/subscribe",   subscribe);
+router.post("/subscribe", optionalAuth, subscribe);
 router.post("/unsubscribe", unsubscribe);
 
 // ── Admin only ───────────────────────────────────────────

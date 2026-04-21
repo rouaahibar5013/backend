@@ -5,6 +5,7 @@ import { v2 as cloudinary } from "cloudinary";
 import database from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import sendEmail from "../utils/sendEmail.js";
+import { linkSubscriptionToUserService } from "./emailcampaignService.js";
 
 // ═══════════════════════════════════════════════════════════
 // REGISTER
@@ -66,6 +67,8 @@ export const registerUser = async ({ name, email, password, phone, address, city
       </div>
     `,
   });
+ // ✅ Relier l'abonnement newsletter si email déjà inscrit anonymement
+  await linkSubscriptionToUserService({ userId: user.id, email });
 
   return user;
 };
@@ -142,6 +145,8 @@ if (!user.password) {
     throw new ErrorHandler("Email ou mot de passe incorrect.", 401);
 
   const { password: _, ...userWithoutPassword } = user;
+  await linkSubscriptionToUserService({ userId: user.id, email });
+
   return userWithoutPassword;
 };
 
@@ -440,7 +445,7 @@ export const completeUserAccount = async ({ token, password }) => {
      RETURNING id, name, email, avatar, role, is_verified, phone, address, city, created_at`,
     [hashedPassword, user.id]
   );
-
+ await linkSubscriptionToUserService({ userId: user.id, email: user.email });
   return updatedUser.rows[0];
 };
 

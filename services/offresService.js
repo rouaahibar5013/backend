@@ -163,3 +163,4 @@ export const validatePromoCodeService = async (code) => {
   if (result.rows.length === 0) return null;
   return result.rows[0];
 };
+
