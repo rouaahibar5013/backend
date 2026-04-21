@@ -357,7 +357,6 @@ const calculateOrderItems = async (items) => {
       `SELECT
          pv.*,
          p.name_fr AS product_name_fr,
-         p.name_ar AS product_name_ar,
          COALESCE(
            json_agg(
              json_build_object(

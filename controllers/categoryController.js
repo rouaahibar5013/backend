@@ -5,7 +5,7 @@ import * as categoryService from "../services/categoryService.js";
 // ═══════════════════════════════════════════════════════════
 // CREATE CATEGORY
 // POST /api/categories  (admin only)
-// Body: { name_fr, name_ar?, description_fr?, description_ar?, parent_id? }
+// Body: { name_fr, description_fr?,  parent_id? }
 // Files: images
 // ═══════════════════════════════════════════════════════════
 export const createCategory = catchAsyncErrors(async (req, res, next) => {

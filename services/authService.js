@@ -32,13 +32,15 @@ export const registerUser = async ({ name, email, password, phone, address, city
   const rawToken          = crypto.randomBytes(32).toString("hex");
   const verificationToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
+  const verificationExpire = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+
   const result = await database.query(
     `INSERT INTO users
-      (name, email, password, avatar, role, is_verified, verification_token, phone, address, city)
-     VALUES ($1, $2, $3, $4, 'user', false, $5, $6, $7, $8)
-     RETURNING id, name, email, avatar, role, is_verified, phone, address, city`,
-    [name, email, hashedPassword, avatarUrl, verificationToken,
-     phone || null, address || null, city || null]
+      (name, email, password, avatar, role, is_verified, verification_token, verification_token_expire, phone, address, city)
+    VALUES ($1, $2, $3, $4, 'user', false, $5, $6, $7, $8, $9)
+    RETURNING id, name, email, avatar, role, is_verified, phone, address, city`,
+    [name, email, hashedPassword, avatarUrl, verificationToken, verificationExpire,
+    phone || null, address || null, city || null]
   );
 
   const user = result.rows[0];
@@ -79,12 +81,15 @@ export const registerUser = async ({ name, email, password, phone, address, city
 // ═══════════════════════════════════════════════════════════
 export const verifyUserEmail = async (token) => {
   const hashedToken = crypto
-    .createHash("sha256")
-    .update(decodeURIComponent(token))
-    .digest("hex");
+  .createHash("sha256")
+  .update(token)
+  .digest("hex");
 
   const result = await database.query(
-    "SELECT * FROM users WHERE verification_token = $1", [hashedToken]
+    `SELECT * FROM users 
+    WHERE verification_token = $1 
+    AND verification_token_expire > NOW()`,
+    [hashedToken]
   );
 
   if (result.rows.length === 0)
@@ -226,7 +231,7 @@ export const forgotUserPassword = async (email) => {
 export const resetUserPassword = async ({ token, password }) => {
   const hashedToken = crypto
     .createHash("sha256")
-    .update(decodeURIComponent(token))
+    .update(token)
     .digest("hex");
 
   const result = await database.query(
@@ -354,7 +359,6 @@ export const updateUserPassword = async ({ userId, currentPassword, newPassword 
 
 // ═══════════════════════════════════════════════════════════
 // CREATE GUEST ACCOUNT SERVICE
-// ✅ Nom correct pour l'import dans orderService.js
 // Appelé automatiquement quand un guest passe une commande
 // ═══════════════════════════════════════════════════════════
 export const createGuestAccountService = async ({ name, email, phone, shipping_address, shipping_city }) => {
@@ -421,7 +425,7 @@ export const createGuestAccountService = async ({ name, email, phone, shipping_a
 export const completeUserAccount = async ({ token, password }) => {
   const hashedToken = crypto
     .createHash("sha256")
-    .update(decodeURIComponent(token))
+    .update(token)
     .digest("hex");
 
   const result = await database.query(

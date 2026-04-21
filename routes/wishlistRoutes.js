@@ -12,7 +12,7 @@ const router = express.Router();
 // Toutes les routes wishlist nécessitent d'être connecté
 router.get("/",                   isAuthenticated, getWishlist);
 router.post("/:productId",        isAuthenticated, addToWishlist);
-router.delete("/:productId",      isAuthenticated, removeFromWishlist);
-router.delete("/",                isAuthenticated, clearWishlist);
+router.delete("/",           isAuthenticated, clearWishlist);
+router.delete("/:productId", isAuthenticated, removeFromWishlist);
 
 export default router;
