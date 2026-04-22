@@ -7,7 +7,7 @@ import generateSlug from "../utils/generateSlug.js";
 // CREATE RECIPE (admin)
 // ═══════════════════════════════════════════════════════════
 export const createRecipeService = async ({
-  title_fr, title_ar, description_fr, description_ar,
+  title_fr, description_fr,
   prep_time, cook_time, servings, difficulty,
   category, is_published, is_featured,
   ingredients, steps, userId, coverImageFile,
@@ -35,19 +35,25 @@ export const createRecipeService = async ({
   // Créer la recette
   const recipeResult = await database.query(
     `INSERT INTO recipes
-      (title_fr, title_ar, slug, description_fr, description_ar,
-       cover_image, prep_time, cook_time, servings, difficulty,
-       category, is_published, is_featured, created_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-     RETURNING *`,
-    [
-      title_fr, title_ar || null, slug,
-      description_fr || null, description_ar || null,
-      coverImageUrl, prep_time || null, cook_time || null,
-      servings || 4, difficulty || 'facile',
-      category || null, is_published || false,
-      is_featured || false, userId,
-    ]
+  (title_fr, slug, description_fr,
+   cover_image, prep_time, cook_time, servings, difficulty,
+   category, is_published, is_featured, created_by)
+ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+ RETURNING *`,
+[
+  title_fr,
+  slug,
+  description_fr || null,
+  coverImageUrl,
+  prep_time,
+  cook_time,
+  servings || 4,
+  difficulty || 'facile',
+  category || null,
+  is_published || false,
+  is_featured || false,
+  userId,
+]
   );
 
   const recipe = recipeResult.rows[0];
@@ -55,12 +61,12 @@ export const createRecipeService = async ({
   // Ajouter les ingrédients
   if (ingredients && ingredients.length > 0) {
     for (let i = 0; i < ingredients.length; i++) {
-      const { name_fr, name_ar, quantity, product_id, is_bio } = ingredients[i];
+      const { name_fr, quantity, product_id, is_bio } = ingredients[i];
       await database.query(
         `INSERT INTO recipe_ingredients
-          (recipe_id, product_id, name_fr, name_ar, quantity, is_bio, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [recipe.id, product_id || null, name_fr, name_ar || null,
+          (recipe_id, product_id, name_fr,  quantity, is_bio, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [recipe.id, product_id || null, name_fr,
          quantity || null, is_bio !== false, i]
       );
     }
@@ -69,12 +75,12 @@ export const createRecipeService = async ({
   // Ajouter les étapes
   if (steps && steps.length > 0) {
     for (let i = 0; i < steps.length; i++) {
-      const { instruction_fr, instruction_ar, duration } = steps[i];
+      const { instruction_fr, duration } = steps[i];
       await database.query(
         `INSERT INTO recipe_steps
-          (recipe_id, step_number, instruction_fr, instruction_ar, duration)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [recipe.id, i + 1, instruction_fr, instruction_ar || null, duration || null]
+          (recipe_id, step_number, instruction_fr, duration)
+         VALUES ($1,$2,$3,$4)`,
+        [recipe.id, i + 1, instruction_fr || null , duration || null]
       );
     }
   }
@@ -121,7 +127,7 @@ export const fetchAllRecipesService = async ({
     ),
     database.query(
       `SELECT
-         r.id, r.title_fr, r.title_ar, r.slug,
+         r.id, r.title_fr,  r.slug,
          r.description_fr, r.cover_image,
          r.prep_time, r.cook_time, r.servings,
          r.difficulty, r.category,
@@ -210,7 +216,7 @@ export const fetchSingleRecipeService = async (slug) => {
 export const fetchFeaturedRecipesService = async () => {
   const result = await database.query(
     `SELECT
-       id, title_fr, title_ar, slug, cover_image,
+       id, title_fr,  slug, cover_image,
        prep_time, cook_time, difficulty, category,
        views_count, created_at,
        (SELECT COUNT(*) FROM recipe_ingredients ri
@@ -230,7 +236,7 @@ export const fetchFeaturedRecipesService = async () => {
 // UPDATE RECIPE (admin)
 // ═══════════════════════════════════════════════════════════
 export const updateRecipeService = async ({
-  recipeId, title_fr, title_ar, description_fr, description_ar,
+  recipeId, title_fr,  description_fr, 
   prep_time, cook_time, servings, difficulty, category,
   is_published, is_featured, coverImageFile,
 }) => {
@@ -257,16 +263,14 @@ export const updateRecipeService = async ({
 
   const current = recipe.rows[0];
   const result  = await database.query(
-    `UPDATE recipes
-     SET title_fr=$1, title_ar=$2, description_fr=$3, description_ar=$4,
-         cover_image=$5, prep_time=$6, cook_time=$7, servings=$8,
-         difficulty=$9, category=$10, is_published=$11, is_featured=$12
-     WHERE id=$13 RETURNING *`,
+   `UPDATE recipes
+ SET title_fr=$1, description_fr=$2,
+     cover_image=$3, prep_time=$4, cook_time=$5, servings=$6,
+     difficulty=$7, category=$8, is_published=$9, is_featured=$10
+ WHERE id=$11 RETURNING *`,
     [
       title_fr       || current.title_fr,
-      title_ar       ?? current.title_ar,
       description_fr ?? current.description_fr,
-      description_ar ?? current.description_ar,
       coverImageUrl,
       prep_time      ?? current.prep_time,
       cook_time      ?? current.cook_time,
