@@ -31,7 +31,7 @@ const generateSlug = async (name, excludeId = null) => {
 };
 
 export const createSupplierService = async ({
-  name, name_ar, description_fr, description_ar,
+  name,  description_fr, 
   region, address, contact, email, website,
   is_certified_bio, files,
 }) => {
@@ -48,13 +48,13 @@ export const createSupplierService = async ({
 
   const result = await database.query(
     `INSERT INTO suppliers
-      (name, name_ar, slug, description_fr, description_ar,
+      (name, slug, description_fr, 
        region, address, contact, email, website, is_certified_bio, logo_url)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      RETURNING *`,
     [
-      name, name_ar || null, slug,
-      description_fr || null, description_ar || null,
+      name, slug,
+      description_fr || null,
       region || null, address || null,
       contact || null, email || null, website || null,
       is_certified_bio === 'true' || is_certified_bio === true,
@@ -67,8 +67,8 @@ export const createSupplierService = async ({
 export const fetchAllSuppliersService = async () => {
   const result = await database.query(
     `SELECT
-       s.id, s.name, s.name_ar, s.slug,
-       s.description_fr, s.description_ar,
+       s.id, s.name,  s.slug,
+       s.description_fr, 
        s.region, s.address, s.contact,
        s.email, s.website, s.logo_url,
        s.is_certified_bio, s.is_active,
@@ -104,7 +104,7 @@ export const fetchSupplierBySlugService = async (slug) => {
 
   const productsResult = await database.query(
     `SELECT
-       p.id, p.name_fr, p.name_ar, p.slug,
+       p.id, p.name_fr,  p.slug,
        p.images, p.rating_avg, p.rating_count, p.is_featured,
        (SELECT MIN(pv.price) FROM product_variants pv
         WHERE pv.product_id = p.id) AS min_price,
@@ -126,7 +126,7 @@ export const fetchSupplierBySlugService = async (slug) => {
 };
 
 export const updateSupplierService = async ({
-  supplierId, name, name_ar, description_fr, description_ar,
+  supplierId, name,  description_fr, 
   region, address, contact, email, website,
   is_certified_bio, is_active, files,
 }) => {
@@ -158,13 +158,13 @@ export const updateSupplierService = async ({
 
   const result = await database.query(
     `UPDATE suppliers SET
-       name=$1, name_ar=$2, description_fr=$3, description_ar=$4,
-       region=$5, address=$6, contact=$7, email=$8, website=$9,
-       is_certified_bio=$10, is_active=$11, logo_url=$12, updated_at=now()
+       name=$1,  description_fr=$2, 
+       region=$3, address=$4, contact=$5, email=$6, website=$7,
+       is_certified_bio=$8, is_active=$9, logo_url=$10, updated_at=now()
      WHERE id=$13 RETURNING *`,
     [
-      name ?? s.name, name_ar ?? s.name_ar,
-      description_fr ?? s.description_fr, description_ar ?? s.description_ar,
+      name ?? s.name,
+      description_fr ?? s.description_fr,
       region ?? s.region, address ?? s.address, contact ?? s.contact,
       email ?? s.email, website ?? s.website,
       is_certified_bio !== undefined

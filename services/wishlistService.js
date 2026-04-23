@@ -11,7 +11,6 @@ export const getWishlistService = async (userId) => {
        w.created_at,
        p.id            AS product_id,
        p.name_fr       AS product_name_fr,
-       p.name_ar       AS product_name_ar,
        p.slug          AS product_slug,
        p.images,
        p.rating_avg,

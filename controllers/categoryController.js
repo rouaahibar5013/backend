@@ -5,17 +5,17 @@ import * as categoryService from "../services/categoryService.js";
 // ═══════════════════════════════════════════════════════════
 // CREATE CATEGORY
 // POST /api/categories  (admin only)
-// Body: { name_fr, name_ar?, description_fr?, description_ar?, parent_id? }
+// Body: { name_fr, description_fr?,  parent_id? }
 // Files: images
 // ═══════════════════════════════════════════════════════════
 export const createCategory = catchAsyncErrors(async (req, res, next) => {
-  const { name_fr, name_ar, description_fr, description_ar, parent_id } = req.body;
+  const { name_fr,  description_fr,  parent_id } = req.body;
 
   if (!name_fr)
     return next(new ErrorHandler("name_fr est obligatoire.", 400));
 
   const category = await categoryService.createCategoryService({
-    name_fr, name_ar, description_fr, description_ar,
+    name_fr,  description_fr, 
     parent_id: parent_id || null,
     files: req.files,
   });
@@ -57,9 +57,7 @@ export const fetchSingleCategory = catchAsyncErrors(async (req, res) => {
 export const updateCategory = catchAsyncErrors(async (req, res) => {
   const {
     name_fr,
-    name_ar,
     description_fr,
-    description_ar,
     parent_id,
     is_active,
     sort_order
@@ -67,7 +65,7 @@ export const updateCategory = catchAsyncErrors(async (req, res) => {
 
   const category = await categoryService.updateCategoryService({
     categoryId: req.params.categoryId,
-    name_fr, name_ar, description_fr, description_ar,
+    name_fr,  description_fr, 
     parent_id, is_active, sort_order,
     files: req.files,
   });

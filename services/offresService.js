@@ -1,12 +1,11 @@
 import database from "../database/db.js";
 
 // ═══════════════════════════════════════════════════════════
-// HELPER — sélection commune des colonnes produit
+// HELPER — colonnes communes
 // ═══════════════════════════════════════════════════════════
 const productColumns = `
   p.id,
   p.name_fr,
-  p.name_ar,
   p.slug,
   p.images,
   p.rating_avg,
@@ -16,25 +15,58 @@ const productColumns = `
   p.origin,
   s.name AS supplier_name,
   s.slug AS supplier_slug,
-  (SELECT pv.price FROM product_variants pv
-   WHERE pv.product_id = p.id
-   AND   pv.is_active  = true
-   ORDER BY pv.created_at ASC LIMIT 1) AS price,
-  (SELECT pv.compare_price FROM product_variants pv
-   WHERE pv.product_id = p.id
-   AND   pv.is_active  = true
-   ORDER BY pv.created_at ASC LIMIT 1) AS compare_price,
-  (SELECT pv.id FROM product_variants pv
-   WHERE pv.product_id = p.id
-   AND   pv.is_active  = true
-   ORDER BY pv.created_at ASC LIMIT 1) AS variant_id
+
+  pv_main.id    AS cheapest_variant_id,
+  pv_main.price AS price,
+
+  vp_active.discount_type  AS promo_type,
+  vp_active.discount_value AS promo_value,
+  vp_active.expires_at     AS promo_expires_at,
+
+  CASE
+    WHEN vp_active.discount_type = 'percent' THEN
+      ROUND((pv_main.price - (pv_main.price * vp_active.discount_value / 100))::numeric, 3)
+    WHEN vp_active.discount_type = 'fixed' THEN
+      GREATEST(ROUND((pv_main.price - vp_active.discount_value)::numeric, 3), 0)
+    ELSE pv_main.price
+  END AS min_price,
+
+  CASE
+    WHEN vp_active.discount_type = 'percent' THEN
+      ROUND(vp_active.discount_value::numeric, 0)
+    WHEN vp_active.discount_type = 'fixed' THEN
+      ROUND((vp_active.discount_value / pv_main.price * 100)::numeric, 0)
+    ELSE NULL
+  END AS discount_percent
 `;
 
+// ═══════════════════════════════════════════════════════════
+// HELPER — jointures communes
+// ═══════════════════════════════════════════════════════════
+const productJoins = `
+  LEFT JOIN suppliers s ON s.id = p.supplier_id
+
+  LEFT JOIN LATERAL (
+    SELECT id, price
+    FROM product_variants
+    WHERE product_id = p.id
+    AND   is_active  = true
+    ORDER BY created_at ASC LIMIT 1
+  ) pv_main ON true
+
+  LEFT JOIN LATERAL (
+    SELECT discount_type, discount_value, expires_at
+    FROM variant_promotions
+    WHERE variant_id  = pv_main.id
+    AND   is_active   = true
+    AND   starts_at  <= NOW()
+    AND   expires_at >= NOW()
+    ORDER BY created_at DESC LIMIT 1
+  ) vp_active ON true
+`;
 
 // ═══════════════════════════════════════════════════════════
 // GET OFFRES DATA
-// Retourne tout ce dont la page offres a besoin
-// en une seule requête parallèle
 // ═══════════════════════════════════════════════════════════
 export const getOffresDataService = async () => {
 
@@ -45,69 +77,52 @@ export const getOffresDataService = async () => {
     activePromosResult,
   ] = await Promise.all([
 
-    // ── Offres Flash — produits avec prix barré ───────────
-    // Triés par % de réduction (le plus grand en premier)
+    // ── Offres Flash ───────────────────────────────────────
     database.query(
-      `SELECT
-         ${productColumns},
-         ROUND(
-           ((pv_main.compare_price - pv_main.price) / pv_main.compare_price * 100)::numeric, 0
-         ) AS discount_percent
+      `SELECT ${productColumns}
        FROM products p
-       LEFT JOIN suppliers s ON s.id = p.supplier_id
-       LEFT JOIN LATERAL (
-         SELECT price, compare_price
-         FROM product_variants
-         WHERE product_id = p.id
-         AND   is_active  = true
-         AND   compare_price IS NOT NULL
-         AND   compare_price > price
-         ORDER BY created_at ASC LIMIT 1
-       ) pv_main ON true
-       WHERE p.is_active       = true
-       AND   pv_main.price     IS NOT NULL
+       ${productJoins}
+       WHERE p.is_active                = true
+       AND   pv_main.id               IS NOT NULL
+       AND   vp_active.discount_value IS NOT NULL
        ORDER BY discount_percent DESC
        LIMIT 8`
     ),
 
-    // ── Nouveautés — is_new = true OU créés dans les 30 derniers jours
+    // ── Nouveautés ─────────────────────────────────────────
     database.query(
       `SELECT ${productColumns}
        FROM products p
-       LEFT JOIN suppliers s ON s.id = p.supplier_id
+       ${productJoins}
        WHERE p.is_active = true
+       AND   pv_main.id IS NOT NULL
        AND (
-         p.is_new = true
+         p.is_new    = true
          OR p.created_at >= NOW() - INTERVAL '30 days'
        )
        ORDER BY p.created_at DESC
        LIMIT 6`
     ),
 
-    // ── Produits vedettes avec prix barré ─────────────────
+    // ── Produits vedettes ──────────────────────────────────
     database.query(
       `SELECT ${productColumns}
        FROM products p
-       LEFT JOIN suppliers s ON s.id = p.supplier_id
+       ${productJoins}
        WHERE p.is_active   = true
        AND   p.is_featured = true
+       AND   pv_main.id   IS NOT NULL
        ORDER BY p.rating_avg DESC
        LIMIT 6`
     ),
 
-    // ── Codes promo actifs publics ────────────────────────
+    // ── Codes promo actifs ─────────────────────────────────
     database.query(
       `SELECT
-         id,
-         code,
-         description_fr,
-         description_ar,
-         discount_type,
-         discount_value,
-         min_order_amount,
-         expires_at,
-         max_uses,
-         used_count
+         id, code, description_fr,
+         discount_type, discount_value,
+         min_order_amount, expires_at,
+         max_uses, used_count
        FROM promotions
        WHERE is_active  = true
        AND   starts_at <= NOW()
@@ -127,28 +142,25 @@ export const getOffresDataService = async () => {
   };
 };
 
-
 // ═══════════════════════════════════════════════════════════
 // VALIDATE PROMO CODE
-// Vérifie si un code promo est valide
 // ═══════════════════════════════════════════════════════════
 export const validatePromoCodeService = async (code) => {
   const result = await database.query(
     `SELECT
-       id, code, description_fr, description_ar,
+       id, code, description_fr,
        discount_type, discount_value, min_order_amount,
        expires_at, max_uses, used_count
      FROM promotions
-     WHERE UPPER(code)  = UPPER($1)
-     AND   is_active    = true
-     AND   starts_at   <= NOW()
-     AND   expires_at  >= NOW()
+     WHERE UPPER(code) = UPPER($1)
+     AND   is_active   = true
+     AND   starts_at  <= NOW()
+     AND   expires_at >= NOW()
      AND   (max_uses IS NULL OR used_count < max_uses)`,
     [code]
   );
 
-  if (result.rows.length === 0)
-    return null;
-
+  if (result.rows.length === 0) return null;
   return result.rows[0];
 };
+

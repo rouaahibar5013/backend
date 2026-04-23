@@ -8,8 +8,13 @@ import * as recipeService from "../services/recipeService.js";
 // Requires: isAuthenticated + isAdmin
 // ═══════════════════════════════════════════════════════════
 export const createRecipe = catchAsyncErrors(async (req, res, next) => {
+ const toInt = (val) => {
+  if (val === "" || val === null || val === undefined) return null;
+  const n = parseInt(val);
+  return isNaN(n) ? null : n;
+};
   const {
-    title_fr, title_ar, description_fr, description_ar,
+    title_fr,  description_fr, 
     prep_time, cook_time, servings, difficulty,
     category, is_published, is_featured,
     ingredients, steps,
@@ -28,14 +33,20 @@ export const createRecipe = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler("Veuillez fournir au moins une étape.", 400));
 
   const recipe = await recipeService.createRecipeService({
-    title_fr, title_ar, description_fr, description_ar,
-    prep_time, cook_time, servings, difficulty,
-    category, is_published, is_featured,
-    ingredients: parsedIngredients || [],
-    steps:       parsedSteps,
-    userId:      req.user.id,
-    coverImageFile: req.files?.cover_image || null,
-  });
+   title_fr,
+  description_fr,
+  prep_time:  toInt(prep_time),   // ✅
+  cook_time:  toInt(cook_time),   // ✅
+  servings:   toInt(servings),    // ✅
+  difficulty,
+  category,
+  is_published,
+  is_featured,
+  ingredients: parsedIngredients || [],
+  steps:       parsedSteps,
+  userId:      req.user.id,
+  coverImageFile: req.files?.cover_image || null,
+});
 
   res.status(201).json({
     success: true,
@@ -86,19 +97,31 @@ export const fetchFeaturedRecipes = catchAsyncErrors(async (req, res, next) => {
 // PUT /api/recipes/:recipeId
 // ═══════════════════════════════════════════════════════════
 export const updateRecipe = catchAsyncErrors(async (req, res, next) => {
+  const toInt = (val) => {
+  if (val === "" || val === null || val === undefined) return null;
+  const n = parseInt(val);
+  return isNaN(n) ? null : n;
+};
   const {
-    title_fr, title_ar, description_fr, description_ar,
+    title_fr, description_fr, 
     prep_time, cook_time, servings, difficulty,
     category, is_published, is_featured,
   } = req.body;
 
-  const recipe = await recipeService.updateRecipeService({
-    recipeId: req.params.recipeId,
-    title_fr, title_ar, description_fr, description_ar,
-    prep_time, cook_time, servings, difficulty,
-    category, is_published, is_featured,
-    coverImageFile: req.files?.cover_image || null,
-  });
+// updateRecipe
+const recipe = await recipeService.updateRecipeService({
+  recipeId: req.params.recipeId,
+  title_fr,
+  description_fr,
+  prep_time:  toInt(prep_time),   // ✅
+  cook_time:  toInt(cook_time),   // ✅
+  servings:   toInt(servings),    // ✅
+  difficulty,
+  category,
+  is_published,
+  is_featured,
+  coverImageFile: req.files?.cover_image || null,
+});
 
   res.status(200).json({
     success: true,

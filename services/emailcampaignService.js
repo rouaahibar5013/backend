@@ -275,7 +275,7 @@ export const autoSendPromoEmailService = async ({ promoCode, type, title, descri
   const campaign = await database.query(
     `INSERT INTO email_campaigns
       (title, subject, type, content_fr, status)
-     VALUES ($1, $2, $3, $4, 'sent') RETURNING *`,
+     VALUES ($1, $2, $3, $4, 'draft') RETURNING *`,
     [
       title,
       `🎉 ${title} — GOFFA`,
@@ -289,4 +289,15 @@ export const autoSendPromoEmailService = async ({ promoCode, type, title, descri
     campaignId: campaign.rows[0].id,
     promoCode,
   });
+};
+// ═══════════════════════════════════════════════════════════
+// LINK SUBSCRIPTION TO USER — appelé après register et login
+// ═══════════════════════════════════════════════════════════
+export const linkSubscriptionToUserService = async ({ userId, email }) => {
+  await database.query(
+    `UPDATE email_subscriptions
+     SET user_id = $1
+     WHERE email = $2 AND user_id IS NULL`,
+    [userId, email]
+  );
 };

@@ -4,7 +4,7 @@ import * as supplierService from "../services/supplierService.js";
 
 export const createSupplier = catchAsyncErrors(async (req, res, next) => {
   const {
-    name, name_ar, description_fr, description_ar,
+    name,  description_fr, 
     region, address, contact, email, website, is_certified_bio,
   } = req.body;
 
@@ -12,7 +12,7 @@ export const createSupplier = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler("Le nom du fournisseur est obligatoire.", 400));
 
   const supplier = await supplierService.createSupplierService({
-    name, name_ar, description_fr, description_ar,
+    name, description_fr, 
     region, address, contact, email, website,
     is_certified_bio, files: req.files,
   });
@@ -33,14 +33,14 @@ export const fetchSupplierBySlug = catchAsyncErrors(async (req, res) => {
 
 export const updateSupplier = catchAsyncErrors(async (req, res) => {
   const {
-    name, name_ar, description_fr, description_ar,
+    name,  description_fr, 
     region, address, contact, email, website,
     is_certified_bio, is_active,
   } = req.body;
 
   const supplier = await supplierService.updateSupplierService({
     supplierId: req.params.supplierId,
-    name, name_ar, description_fr, description_ar,
+    name,  description_fr, 
     region, address, contact, email, website,
     is_certified_bio, is_active, files: req.files,
   });
