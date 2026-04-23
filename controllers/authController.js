@@ -1,155 +1,172 @@
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
-import ErrorHandler from "../middlewares/errorMiddleware.js";
+import ErrorHandler         from "../middlewares/errorMiddleware.js";
+import * as authService     from "../services/authService.js";
 import { sendToken } from "../utils/jwtToken.js";
-import * as authService from "../services/authService.js";
-import database from "../database/db.js";
 
-// ═══════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════
 // REGISTER
 // POST /api/auth/register
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const register = catchAsyncErrors(async (req, res, next) => {
   const { name, email, password, phone, address, city } = req.body;
-
-  if (!name || !email || !password)
-    return next(new ErrorHandler("Veuillez fournir un nom, un email et un mot de passe.", 400));
-
-  if (password.length < 6)
-    return next(new ErrorHandler("Le mot de passe doit contenir au moins 6 caractères.", 400));
+  const avatarFile = req.files?.avatar || null;
 
   const user = await authService.registerUser({
-    name, email, password, phone, address, city,
-    avatarFile: req.files?.avatar,
+    name, email, password, phone, address, city, avatarFile,
   });
 
   res.status(201).json({
     success: true,
-    message: `Account created. Please check ${email} to verify your account.`,
+    message:
+      "Compte créé avec succès. Un email de vérification a été envoyé à votre adresse.",
     user,
   });
 });
 
-// ═══════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════
+// RESEND VERIFICATION EMAIL  ← NOUVEAU
+// POST /api/auth/resend-verification
+// ══════════════════════════════════════════════════════════════════════════
+export const resendVerification = catchAsyncErrors(async (req, res, next) => {
+  const { email } = req.body;
+
+  await authService.resendVerificationEmailService(email);
+
+  // ✅ Réponse toujours identique (pas d'énumération)
+  res.status(200).json({
+    success: true,
+    message:
+      "Si cet email existe et n'est pas encore vérifié, un nouveau lien a été envoyé.",
+  });
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════
 // VERIFY EMAIL
 // GET /api/auth/verify-email/:token
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const verifyEmail = catchAsyncErrors(async (req, res, next) => {
-  const updatedUser = await authService.verifyUserEmail(req.params.token);
-  sendToken(updatedUser, 200, "Email verified successfully. You are now logged in.", res);
+  const user = await authService.verifyUserEmail(req.params.token);
+
+  res.status(200).json({
+    success: true,
+    message: "Email vérifié avec succès. Vous pouvez maintenant vous connecter.",
+    user,
+  });
 });
 
-// ═══════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════
 // LOGIN
 // POST /api/auth/login
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const login = catchAsyncErrors(async (req, res, next) => {
   const { email, password } = req.body;
-
-  if (!email || !password)
-    return next(new ErrorHandler("Veuillez fournir un email et un mot de passe.", 400));
-
   const user = await authService.loginUser({ email, password });
-  sendToken(user, 200, "Logged in successfully.", res);
+  sendToken(user, 200, "Connexion réussie.", res);
 });
 
-// ═══════════════════════════════════════════════════════════
-// GOOGLE AUTH CALLBACK
+
+// ══════════════════════════════════════════════════════════════════════════
+// LOGOUT
+// POST /api/auth/logout
+// ══════════════════════════════════════════════════════════════════════════
+export const logout = catchAsyncErrors(async (req, res, next) => {
+  // ✅ Effacer le cookie côté serveur
+  res.cookie("token", "", {
+    httpOnly: true,
+    expires:  new Date(0),      // expiration immédiate
+    secure:   process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
+  });
+
+  res.status(200).json({ success: true, message: "Déconnexion réussie." });
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// GOOGLE CALLBACK
 // GET /api/auth/google/callback
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const googleCallback = catchAsyncErrors(async (req, res, next) => {
   const token = authService.googleCallbackToken(req.user);
 
-  res
-    .cookie("token", token, {
-      expires:  new Date(Date.now() + process.env.COOKIES_EXPIRES_IN * 24 * 60 * 60 * 1000),
-      httpOnly: true,
-    })
-    .redirect(`${process.env.FRONTEND_URL}/login/success`);
+  const isProduction = process.env.NODE_ENV === "production";
+
+  // ✅ Mettre le token dans un cookie sécurisé (même logique que login)
+  res.cookie("token", token, {
+    httpOnly: true,
+    secure:   isProduction,
+    sameSite: isProduction ? "None" : "Lax",
+    maxAge:   7 * 24 * 60 * 60 * 1000,
+  });
+
+  // Rediriger vers le frontend
+ res.redirect(`${process.env.FRONTEND_URL}/login/success`);
 });
 
-// ═══════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════
 // FORGOT PASSWORD
 // POST /api/auth/forgot-password
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const forgotPassword = catchAsyncErrors(async (req, res, next) => {
   const { email } = req.body;
 
-  if (!email)
-    return next(new ErrorHandler("Veuillez fournir votre email.", 400));
-
   await authService.forgotUserPassword(email);
 
-  // Toujours répondre pareil — sécurité (ne pas révéler si l'email existe)
+  // ✅ Toujours retourner le même message (évite l'énumération)
   res.status(200).json({
     success: true,
-    message: "Si cet email existe, un lien de réinitialisation a été envoyé.",
+    message:
+      "Si cet email est associé à un compte, un lien de réinitialisation a été envoyé.",
   });
 });
 
-// ═══════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════
 // RESET PASSWORD
 // POST /api/auth/reset-password/:token
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const resetPassword = catchAsyncErrors(async (req, res, next) => {
-  const { token }    = req.params;
   const { password } = req.body;
 
-  if (!password)
-    return next(new ErrorHandler("Veuillez fournir un nouveau mot de passe.", 400));
-
-  if (password.length < 6)
-    return next(new ErrorHandler("Le mot de passe doit contenir au moins 6 caractères.", 400));
-
-  await authService.resetUserPassword({ token, password });
+  await authService.resetUserPassword({
+    token:    req.params.token,
+    password,
+  });
 
   res.status(200).json({
     success: true,
-    message: "Mot de passe réinitialisé avec succès. Vous pouvez maintenant vous connecter.",
+    message: "Mot de passe réinitialisé avec succès. Vous pouvez vous connecter.",
   });
 });
 
-// ═══════════════════════════════════════════════════════════
-// LOGOUT
-// POST /api/auth/logout
-// ═══════════════════════════════════════════════════════════
-export const logout = catchAsyncErrors(async (req, res, next) => {
-  res
-    .status(200)
-    .cookie("token", "", {
-      expires:  new Date(Date.now()),
-      httpOnly: true,
-    })
-    .json({
-      success: true,
-      message: "Déconnexion réussie.",
-    });
-});
 
-// ═══════════════════════════════════════════════════════════
-// GET MY PROFILE
+// ══════════════════════════════════════════════════════════════════════════
+// GET ME
 // GET /api/auth/me
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const getMe = catchAsyncErrors(async (req, res, next) => {
   const user = await authService.getUserById(req.user.id);
 
-  res.status(200).json({
-    success: true,
-    user,
-  });
+  res.status(200).json({ success: true, user });
 });
 
-// ═══════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════
 // UPDATE PROFILE
 // PUT /api/auth/me
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const updateProfile = catchAsyncErrors(async (req, res, next) => {
-  const { name, phone, address, city } = req.body;
+  const avatarFile = req.files?.avatar || null;
 
   const user = await authService.updateUserProfile({
-    userId: req.user.id,
-    name, phone, address, city,
-    avatarFile: req.files?.avatar || null,
-    deleteAvatar: req.body.deleteAvatar,
+    userId:      req.user.id,
+    ...req.body,
+    avatarFile,
   });
 
   res.status(200).json({
@@ -159,133 +176,149 @@ export const updateProfile = catchAsyncErrors(async (req, res, next) => {
   });
 });
 
-// ═══════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════
 // UPDATE PASSWORD
 // PUT /api/auth/password
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const updatePassword = catchAsyncErrors(async (req, res, next) => {
   const { currentPassword, newPassword } = req.body;
 
   if (!currentPassword || !newPassword)
-    return next(new ErrorHandler("Veuillez fournir le mot de passe actuel et le nouveau.", 400));
-
-  if (newPassword.length < 6)
-    return next(new ErrorHandler("Le nouveau mot de passe doit contenir au moins 6 caractères.", 400));
+    return next(
+      new ErrorHandler("L'ancien et le nouveau mot de passe sont requis.", 400)
+    );
 
   await authService.updateUserPassword({
-    userId: req.user.id,
+    userId:          req.user.id,
     currentPassword,
     newPassword,
   });
 
+  // ✅ Après changement de mot de passe → forcer la reconnexion
+  res.cookie("token", "", {
+    httpOnly: true,
+    expires:  new Date(0),
+    secure:   process.env.NODE_ENV === "production",
+    sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
+  });
+
   res.status(200).json({
     success: true,
-    message: "Mot de passe modifié avec succès.",
+    message:
+      "Mot de passe modifié avec succès. Veuillez vous reconnecter.",
   });
 });
 
-// ═══════════════════════════════════════════════════════════
-// COMPLETE ACCOUNT
+
+// ══════════════════════════════════════════════════════════════════════════
+// COMPLETE ACCOUNT (guest)
 // POST /api/auth/complete-account/:token
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const completeAccount = catchAsyncErrors(async (req, res, next) => {
-  const { token }                     = req.params;
-  const { password, confirmPassword } = req.body;
-
-  if (!password || !confirmPassword)
-    return next(new ErrorHandler("Please provide password and confirmPassword.", 400));
-
-  if (password !== confirmPassword)
-    return next(new ErrorHandler("Passwords do not match.", 400));
-
-  if (password.length < 6)
-    return next(new ErrorHandler("Password must be at least 6 characters.", 400));
-
-  const user = await authService.completeUserAccount({ token, password });
-
-  sendToken(user, 200, "Account completed successfully. You are now logged in.", res);
+  const { password } = req.body;
+  const user = await authService.completeUserAccount({
+    token:    req.params.token,
+    password,
+  });
+  sendToken(user, 200, "Compte complété avec succès. Vous êtes maintenant connecté.", res);
 });
 
 
-// ═══════════════════════════════════════════════════════════
-// GET ALL USERS (admin)
-// GET /api/auth/users
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
+// ADMIN — GET ALL USERS (avec pagination)
+// GET /api/auth/users?page=1&limit=20&search=
+// ══════════════════════════════════════════════════════════════════════════
 export const getAllUsers = catchAsyncErrors(async (req, res, next) => {
-    const { search } = req.query;
-    let query = `SELECT id, name, email, avatar, role, is_verified, is_active,
-                        phone, address, city, created_at
-                 FROM users`;
-    const values = [];
-    if (search) {
-        query += ` WHERE name ILIKE $1 OR email ILIKE $1`;
-        values.push(`%${search}%`);
-    }
-    query += ` ORDER BY created_at DESC`;
-    const result = await database.query(query, values);
-    res.status(200).json({ success: true, users: result.rows });
+  const page   = parseInt(req.query.page)  || 1;
+  const limit  = parseInt(req.query.limit) || 20;
+  const search = req.query.search          || "";
+
+  // ✅ Limiter le max de résultats par requête
+  if (limit > 100)
+    return next(new ErrorHandler("La limite maximale par page est 100.", 400));
+
+  const data = await authService.getAllUsersService({ page, limit, search });
+
+  res.status(200).json({ success: true, ...data });
 });
 
+
+// ══════════════════════════════════════════════════════════════════════════
+// ADMIN — DELETE USER
+// DELETE /api/auth/users/:userId
+// ══════════════════════════════════════════════════════════════════════════
 export const deleteUser = catchAsyncErrors(async (req, res, next) => {
-    const { userId } = req.params;
-    await database.query("DELETE FROM users WHERE id = $1", [userId]);
-    res.status(200).json({ success: true, message: "Utilisateur supprimé." });
+  await authService.deleteUserService({
+    userId:             req.params.userId,
+    requestingAdminId:  req.user.id, // ✅ pour empêcher l'auto-suppression
+  });
+
+  res.status(200).json({ success: true, message: "Utilisateur supprimé." });
 });
 
+
+// ══════════════════════════════════════════════════════════════════════════
+// ADMIN — UPDATE USER ROLE
+// PATCH /api/auth/users/:userId/role
+// ══════════════════════════════════════════════════════════════════════════
 export const updateUserRole = catchAsyncErrors(async (req, res, next) => {
-    const { userId } = req.params;
-    const { role } = req.body;
-    if (!['user', 'admin'].includes(role))
-        return next(new ErrorHandler("Rôle invalide.", 400));
-    const result = await database.query(
-        "UPDATE users SET role=$1 WHERE id=$2 RETURNING id, name, email, role",
-        [role, userId]
-    );
-    res.status(200).json({ success: true, user: result.rows[0] });
-});
-// Ajoute ces 2 fonctions dans authController.js
+  const { role } = req.body;
 
+  if (!role)
+    return next(new ErrorHandler("Le rôle est requis.", 400));
+
+  const user = await authService.updateUserRoleService({
+    userId:            req.params.userId,
+    role,
+    requestingAdminId: req.user.id,
+  });
+
+  res.status(200).json({ success: true, message: "Rôle mis à jour.", user });
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// ADMIN — SUSPEND USER
+// PATCH /api/auth/users/:userId/suspend
+// ══════════════════════════════════════════════════════════════════════════
 export const suspendUser = catchAsyncErrors(async (req, res, next) => {
-  const { userId } = req.params;
-  if (userId === req.user.id)
-    return next(new ErrorHandler("Vous ne pouvez pas suspendre votre propre compte.", 400));
-  const result = await database.query(
-    "UPDATE users SET is_active=false WHERE id=$1 RETURNING id, name, email, is_active",
-    [userId]
-  );
-  if (result.rows.length === 0)
-    return next(new ErrorHandler("Utilisateur introuvable.", 404));
-  res.status(200).json({ success: true, message: "Compte suspendu.", user: result.rows[0] });
+  const user = await authService.suspendUserService({
+    userId:            req.params.userId,
+    requestingAdminId: req.user.id,
+  });
+
+  res.status(200).json({ success: true, message: "Utilisateur suspendu.", user });
 });
 
+
+// ══════════════════════════════════════════════════════════════════════════
+// ADMIN — ACTIVATE USER
+// PATCH /api/auth/users/:userId/activate
+// ══════════════════════════════════════════════════════════════════════════
 export const activateUser = catchAsyncErrors(async (req, res, next) => {
-  const { userId } = req.params;
-  const result = await database.query(
-    "UPDATE users SET is_active=true WHERE id=$1 RETURNING id, name, email, is_active",
-    [userId]
-  );
-  if (result.rows.length === 0)
-    return next(new ErrorHandler("Utilisateur introuvable.", 404));
-  res.status(200).json({ success: true, message: "Compte activé.", user: result.rows[0] });
+  const user = await authService.activateUserService(req.params.userId);
+
+  res.status(200).json({ success: true, message: "Utilisateur activé.", user });
 });
 
-// ═══════════════════════════════════════════════════════════
-// ADMIN UPDATE USER
-// PUT /api/auth/users/:userId
-// Admin peut modifier toutes les infos d'un user
-// ═══════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════════════════
+// ADMIN — UPDATE USER (toutes infos)
+// PUT /api/auth/users/:userId
+// ══════════════════════════════════════════════════════════════════════════
 export const adminUpdateUser = catchAsyncErrors(async (req, res, next) => {
-  const { userId } = req.params;
+  const {
+    name, email, phone, address, city,
+    role, is_verified, is_active, newPassword,
+  } = req.body;
 
   const user = await authService.adminUpdateUserService({
-    userId,
-    ...req.body
+    userId:            req.params.userId,
+    requestingAdminId: req.user.id,
+    name, email, phone, address, city,
+    role, is_verified, is_active, newPassword,
   });
 
-  res.status(200).json({
-    success: true,
-    message: "Utilisateur mis à jour avec succès.",
-    user,
-  });
+  res.status(200).json({ success: true, message: "Utilisateur mis à jour.", user });
 });
