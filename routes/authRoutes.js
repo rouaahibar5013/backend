@@ -51,7 +51,7 @@ router.get(
 // Step 2: Google redirects back here with the user info
 router.get(
   "/google/callback",
-  passport.authenticate("google", { failureRedirect: `${process.env.FRONTEND_URL}/login`, session: false }),
+  passport.authenticate("google", { failureRedirect: `${process.env.FRONTEND_URL}/connexion`, session: false }),
   googleCallback
 );
 
