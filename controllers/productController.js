@@ -44,6 +44,9 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
     variants: parsedVariants,
     userId: req.user.id,
     files: req.files,
+    is_active:   req.body.is_active   !== undefined ? req.body.is_active   === 'true' : true,
+    is_featured: req.body.is_featured !== undefined ? req.body.is_featured === 'true' : false,
+    is_new:      req.body.is_new      !== undefined ? req.body.is_new      === 'true' : true,
   });
 
   res.status(201).json({
@@ -135,6 +138,7 @@ export const updateProduct = catchAsyncErrors(async (req, res) => {
     slug, 
     is_active, 
     is_featured,
+    is_new,
     certifications,
   } = req.body;
 
@@ -153,6 +157,7 @@ export const updateProduct = catchAsyncErrors(async (req, res) => {
     slug,
     is_active: is_active !== undefined ? is_active === "true" : undefined,
     is_featured: is_featured !== undefined ? is_featured === "true" : undefined,
+    is_new: is_new !== undefined ? is_new === "true" : undefined,
     files: req.files,
   });
 
@@ -171,14 +176,14 @@ export const deleteProduct = catchAsyncErrors(async (req, res) => {
 
 export const addVariant = catchAsyncErrors(async (req, res, next) => {
   const {
-    price, compare_price, cost_price, stock, sku, weight_grams, barcode, attributes,
+    price, cost_price, stock, sku, weight_grams, barcode, attributes,
   } = req.body;
 
   if (!price) return next(new ErrorHandler("Price is required.", 400));
 
   const variant = await productService.addVariantService({
     productId: req.params.productId,
-    price, compare_price, cost_price, stock, sku, weight_grams, barcode,
+    price, cost_price, stock, sku, weight_grams, barcode,
     attributes: typeof attributes === "string" ? JSON.parse(attributes) : attributes,
   });
 
@@ -186,11 +191,11 @@ export const addVariant = catchAsyncErrors(async (req, res, next) => {
 });
 
 export const updateVariant = catchAsyncErrors(async (req, res) => {
-  const { price, compare_price, cost_price, stock, sku, weight_grams, is_active } = req.body;
+  const { price, cost_price, stock, sku, weight_grams, is_active } = req.body;
 
   const variant = await productService.updateVariantService({
     variantId: req.params.variantId,
-    price, compare_price, cost_price, stock, sku, weight_grams,
+    price, cost_price, stock, sku, weight_grams,
     is_active: is_active !== undefined ? is_active === "true" : undefined,
   });
 

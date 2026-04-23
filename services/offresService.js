@@ -16,7 +16,7 @@ const productColumns = `
   s.name AS supplier_name,
   s.slug AS supplier_slug,
 
-  pv_main.id    AS variant_id,
+  pv_main.id    AS cheapest_variant_id,
   pv_main.price AS price,
 
   vp_active.discount_type  AS promo_type,
@@ -29,7 +29,7 @@ const productColumns = `
     WHEN vp_active.discount_type = 'fixed' THEN
       GREATEST(ROUND((pv_main.price - vp_active.discount_value)::numeric, 3), 0)
     ELSE pv_main.price
-  END AS final_price,
+  END AS min_price,
 
   CASE
     WHEN vp_active.discount_type = 'percent' THEN

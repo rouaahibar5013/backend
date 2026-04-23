@@ -65,6 +65,7 @@ export const createProductService = async ({
   precautions_fr, 
   certifications, supplier_id, category_id,
   slug, variants, userId, files,
+  is_active, is_featured, is_new, 
 }) => {
   // Validate category
   const category = await database.query(
@@ -99,10 +100,11 @@ export const createProductService = async ({
   // Insert product
 const productResult = await database.query(
   `INSERT INTO products
-    (name_fr, description_fr, ethical_info_fr, origin, certifications,
-     usage_fr, ingredients_fr, precautions_fr,
-     supplier_id, category_id, created_by, images, slug, is_new)
-   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, true)
+      (name_fr, description_fr, ethical_info_fr, origin, certifications,
+      usage_fr, ingredients_fr, precautions_fr,
+      supplier_id, category_id, created_by, images, slug,
+      is_active, is_featured, is_new)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
    RETURNING *`,
   [
     name_fr,
@@ -117,7 +119,10 @@ const productResult = await database.query(
     category_id,
     userId,
     JSON.stringify(uploadedImages),
-    finalSlug
+    finalSlug,
+    is_active  ?? true,                 
+    is_featured ?? false,                
+    is_new      ?? true,  
   ]
 );
 
@@ -169,7 +174,6 @@ for (const variant of variants) {
 // ═══════════════════════════════════════════════════════════
 // FETCH ALL PRODUCTS
 // ✅ Uses name_fr, rating_avg, product_variant_attributes
-// ✅ Returns min_price from cheapest variant
 // ═══════════════════════════════════════════════════════════
 export const fetchAllProductsService = async ({
   search, category_id, min_rating, min_price, max_price, page = 1,
@@ -204,16 +208,52 @@ export const fetchAllProductsService = async ({
     values.push(`%${search}%`); i++;
   }
   if (min_price) {
-    conditions.push(
-      `(SELECT MIN(pv2.price) FROM product_variants pv2 WHERE pv2.product_id = p.id AND pv2.is_active = true) >= $${i}`
-    );
-    values.push(min_price); i++;
+      conditions.push(
+        `(SELECT MIN(
+            CASE
+              WHEN vp.discount_type = 'percent' THEN pv2.price * (1 - vp.discount_value / 100)
+              WHEN vp.discount_type = 'fixed'   THEN GREATEST(0, pv2.price - vp.discount_value)
+              ELSE pv2.price
+            END
+          )
+          FROM product_variants pv2
+          LEFT JOIN LATERAL (
+            SELECT discount_type, discount_value
+            FROM variant_promotions vp2
+            WHERE vp2.variant_id = pv2.id
+              AND vp2.is_active = true
+              AND vp2.starts_at <= NOW()
+              AND vp2.expires_at > NOW()
+            ORDER BY vp2.created_at DESC LIMIT 1
+          ) vp ON true
+          WHERE pv2.product_id = p.id AND pv2.is_active = true
+        ) >= $${i}`
+      );
+      values.push(min_price); i++;
   }
   if (max_price) {
-    conditions.push(
-      `(SELECT MIN(pv2.price) FROM product_variants pv2 WHERE pv2.product_id = p.id AND pv2.is_active = true) <= $${i}`
-    );
-    values.push(max_price); i++;
+      conditions.push(
+        `(SELECT MIN(
+            CASE
+              WHEN vp.discount_type = 'percent' THEN pv2.price * (1 - vp.discount_value / 100)
+              WHEN vp.discount_type = 'fixed'   THEN GREATEST(0, pv2.price - vp.discount_value)
+              ELSE pv2.price
+            END
+          )
+          FROM product_variants pv2
+          LEFT JOIN LATERAL (
+            SELECT discount_type, discount_value
+            FROM variant_promotions vp2
+            WHERE vp2.variant_id = pv2.id
+              AND vp2.is_active = true
+              AND vp2.starts_at <= NOW()
+              AND vp2.expires_at > NOW()
+            ORDER BY vp2.created_at DESC LIMIT 1
+          ) vp ON true
+          WHERE pv2.product_id = p.id AND pv2.is_active = true
+        ) <= $${i}`
+      );
+      values.push(max_price); i++;
   }
 
   const WHERE        = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -238,6 +278,7 @@ export const fetchAllProductsService = async ({
          p.rating_count,
          p.is_featured,
          p.is_active,
+         p.is_new, 
          p.created_at,
          c.id        AS category_id,
          c.name_fr   AS category_name,
@@ -246,10 +287,33 @@ export const fetchAllProductsService = async ({
          s.name      AS supplier_name,
          s.slug      AS supplier_slug,
          s.is_certified_bio,
-         (SELECT MIN(pv2.price)
+         (SELECT MIN(
+            CASE
+              WHEN vp.discount_type = 'percent'
+                THEN pv2.price * (1 - vp.discount_value / 100)
+              WHEN vp.discount_type = 'fixed'
+                THEN GREATEST(0, pv2.price - vp.discount_value)
+              ELSE pv2.price
+            END
+          )  
           FROM product_variants pv2
+          LEFT JOIN LATERAL (
+            SELECT discount_type, discount_value
+            FROM variant_promotions vp2
+            WHERE vp2.variant_id = pv2.id
+              AND vp2.is_active = true
+              AND vp2.starts_at <= NOW()
+              AND vp2.expires_at > NOW()
+            ORDER BY vp2.created_at DESC
+            LIMIT 1
+          ) vp ON true
           WHERE pv2.product_id = p.id AND pv2.is_active = true
-         ) AS min_price,
+          ) AS min_price,
+           (SELECT pv2.id
+            FROM product_variants pv2
+            WHERE pv2.product_id = p.id AND pv2.is_active = true
+            ORDER BY pv2.price ASC LIMIT 1
+          ) AS cheapest_variant_id,
          (SELECT COALESCE(SUM(pv2.stock), 0)
           FROM product_variants pv2
           WHERE pv2.product_id = p.id AND pv2.is_active = true
@@ -335,26 +399,39 @@ export const fetchSingleProductService = async (productId, admin = false, alread
     ),
     database.query(
       `SELECT
-         pv.*,
-         COALESCE(
-           json_agg(
-             json_build_object(
-               'type_fr',    at.name_fr,
-               'unit',       at.unit,
-               'value_fr',   av.value_fr,
-               'sort_order', av.sort_order
-             )
-             ORDER BY av.sort_order
-           ) FILTER (WHERE at.id IS NOT NULL),
-           '[]'
-         ) AS attributes
-       FROM product_variants pv
-       LEFT JOIN product_variant_attributes pva ON pva.variant_id        = pv.id
-       LEFT JOIN attribute_values           av  ON av.id                 = pva.attribute_value_id
-       LEFT JOIN attribute_types            at  ON at.id                 = av.attribute_type_id
-       WHERE pv.product_id = $1 AND pv.is_active = true
-       GROUP BY pv.id
-       ORDER BY pv.price ASC`,
+        pv.*,
+        active_promo.discount_type  AS promo_type,
+        active_promo.discount_value AS promo_value,
+        active_promo.expires_at     AS promo_expires_at,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'type_fr',    at.name_fr,
+              'unit',       at.unit,
+              'value_fr',   av.value_fr,
+              'sort_order', av.sort_order
+            )
+            ORDER BY av.sort_order
+          ) FILTER (WHERE at.id IS NOT NULL),
+          '[]'
+        ) AS attributes
+      FROM product_variants pv
+      LEFT JOIN product_variant_attributes pva ON pva.variant_id        = pv.id
+      LEFT JOIN attribute_values           av  ON av.id                 = pva.attribute_value_id
+      LEFT JOIN attribute_types            at  ON at.id                 = av.attribute_type_id
+      LEFT JOIN LATERAL (
+        SELECT discount_type, discount_value, expires_at
+        FROM variant_promotions vp
+        WHERE vp.variant_id = pv.id
+          AND vp.is_active = true
+          AND vp.starts_at <= NOW()
+          AND vp.expires_at > NOW()
+        ORDER BY vp.created_at DESC
+        LIMIT 1
+      ) active_promo ON true
+      WHERE pv.product_id = $1 AND pv.is_active = true
+      GROUP BY pv.id, active_promo.discount_type, active_promo.discount_value, active_promo.expires_at
+      ORDER BY pv.price ASC`,
       [productId]
     ),
   ]);
@@ -370,7 +447,6 @@ export const fetchSingleProductService = async (productId, admin = false, alread
 
 // ═══════════════════════════════════════════════════════════
 // FETCH FEATURED PRODUCTS (homepage)
-// FIX 2: ORDER BY must start with p.id to satisfy DISTINCT ON
 // ═══════════════════════════════════════════════════════════
 export const fetchFeaturedProductsService = async (limit = 8) => {
   const result = await database.query(
@@ -382,6 +458,7 @@ export const fetchFeaturedProductsService = async (limit = 8) => {
        p.rating_avg,
        p.rating_count,
        p.is_featured,
+       p.is_new, 
        p.created_at,
        c.id        AS category_id,
        c.name_fr   AS category_name,
@@ -390,10 +467,33 @@ export const fetchFeaturedProductsService = async (limit = 8) => {
        s.name      AS supplier_name,
        s.slug      AS supplier_slug,
        s.is_certified_bio,
-       (SELECT MIN(pv2.price)
+       (SELECT MIN(
+          CASE
+            WHEN vp.discount_type = 'percent'
+              THEN pv2.price * (1 - vp.discount_value / 100)
+            WHEN vp.discount_type = 'fixed'
+              THEN GREATEST(0, pv2.price - vp.discount_value)
+            ELSE pv2.price
+          END
+        )
         FROM product_variants pv2
+        LEFT JOIN LATERAL (
+          SELECT discount_type, discount_value
+          FROM variant_promotions vp2
+          WHERE vp2.variant_id = pv2.id
+            AND vp2.is_active = true
+            AND vp2.starts_at <= NOW()
+            AND vp2.expires_at > NOW()
+          ORDER BY vp2.created_at DESC
+          LIMIT 1
+        ) vp ON true
         WHERE pv2.product_id = p.id AND pv2.is_active = true
-       ) AS min_price,
+        ) AS min_price,
+         (SELECT pv2.id
+          FROM product_variants pv2
+          WHERE pv2.product_id = p.id AND pv2.is_active = true
+          ORDER BY pv2.price ASC LIMIT 1
+        ) AS cheapest_variant_id,
        (SELECT COALESCE(SUM(pv2.stock), 0)
         FROM product_variants pv2
         WHERE pv2.product_id = p.id AND pv2.is_active = true
@@ -417,7 +517,8 @@ export const updateProductService = async ({
   ethical_info_fr, origin, certifications,
   usage_fr, ingredients_fr, 
   precautions_fr, 
-  supplier_id, category_id, slug, is_active, is_featured, files,
+  supplier_id, category_id, slug, is_active, is_featured, is_new, low_stock_threshold,
+  files,
 }) => {
   const existing = await database.query(
     "SELECT * FROM products WHERE id = $1", [productId]
@@ -456,7 +557,7 @@ export const updateProductService = async ({
        precautions_fr=$8, 
        supplier_id=$9, category_id=$10,
        slug=$11, is_active=$12, is_featured=$13, images=$14,
-       updated_at=now()
+       is_new=$16 , updated_at=now()
      WHERE id=$15 RETURNING *`,
     [
       name_fr          ?? p.name_fr,
@@ -474,6 +575,7 @@ export const updateProductService = async ({
       is_featured      ?? p.is_featured,
       JSON.stringify(images),
       productId,
+      is_new ?? p.is_new,
     ]
   );
 

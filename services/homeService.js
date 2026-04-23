@@ -29,7 +29,7 @@ export const getHomeDataService = async () => {
          s.name AS supplier_name,
          s.slug AS supplier_slug,
 
-         pv_main.id    AS variant_id,
+         pv_main.id    AS cheapest_variant_id,
          pv_main.price AS price,
 
          vp_active.discount_type  AS promo_type,
@@ -42,7 +42,7 @@ export const getHomeDataService = async () => {
            WHEN vp_active.discount_type = 'fixed' THEN
              GREATEST(ROUND((pv_main.price - vp_active.discount_value)::numeric, 3), 0)
            ELSE pv_main.price
-         END AS final_price,
+         END AS min_price,
 
          CASE
            WHEN vp_active.discount_type = 'percent' THEN
@@ -73,8 +73,10 @@ export const getHomeDataService = async () => {
        ) vp_active ON true
 
        WHERE p.is_active = true
-       ORDER BY p.created_at DESC
-       LIMIT 6`
+      AND (p.is_new = true OR p.created_at >= NOW() - INTERVAL '30 days')
+      ORDER BY p.is_new DESC, p.created_at DESC
+      LIMIT 6
+      `
     ),
 
     // ── Tendances ──────────────────────────────────────────
@@ -88,7 +90,7 @@ export const getHomeDataService = async () => {
          COUNT(pv_views.id) AS views_this_week,
          p.views_count,
 
-         pv_main.id    AS variant_id,
+         pv_main.id    AS cheapest_variant_id,
          pv_main.price AS price,
 
          vp_active.discount_type  AS promo_type,
@@ -101,7 +103,7 @@ export const getHomeDataService = async () => {
            WHEN vp_active.discount_type = 'fixed' THEN
              GREATEST(ROUND((pv_main.price - vp_active.discount_value)::numeric, 3), 0)
            ELSE pv_main.price
-         END AS final_price,
+         END AS min_price,
 
          CASE
            WHEN vp_active.discount_type = 'percent' THEN

@@ -11,6 +11,12 @@ import {
   deleteVariant,
 } from "../controllers/productController.js";
 import { isAuthenticated, isAdmin } from "../middlewares/auth.js";
+import {
+  getVariantPromotions,
+  createVariantPromotion,
+  toggleVariantPromotion,
+  deleteVariantPromotion,
+} from "../controllers/variantPromotionController.js";
 
 const router = express.Router();
 
@@ -28,5 +34,11 @@ router.delete("/:productId",   isAuthenticated, isAdmin, deleteProduct);
 router.post("/:productId/variants",                 isAuthenticated, isAdmin, addVariant);
 router.put("/:productId/variants/:variantId",       isAuthenticated, isAdmin, updateVariant);
 router.delete("/:productId/variants/:variantId",    isAuthenticated, isAdmin, deleteVariant);
+
+// Variant promotions (admin)
+router.get(   "/:productId/variants/:variantId/promotions",            isAuthenticated, isAdmin, getVariantPromotions);
+router.post(  "/:productId/variants/:variantId/promotions",            isAuthenticated, isAdmin, createVariantPromotion);
+router.put(   "/:productId/variants/:variantId/promotions/:promoId",   isAuthenticated, isAdmin, toggleVariantPromotion);
+router.delete("/:productId/variants/:variantId/promotions/:promoId",   isAuthenticated, isAdmin, deleteVariantPromotion);
 
 export default router;
