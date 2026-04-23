@@ -1,94 +1,259 @@
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import jwt from "jsonwebtoken";
+import jwt    from "jsonwebtoken";
 import { v2 as cloudinary } from "cloudinary";
-import database from "../database/db.js";
-import ErrorHandler from "../middlewares/errorMiddleware.js";
-import sendEmail from "../utils/sendEmail.js";
+import database      from "../database/db.js";
+import ErrorHandler  from "../middlewares/errorMiddleware.js";
+import sendEmail     from "../utils/sendEmail.js";
 import { linkSubscriptionToUserService } from "./emailcampaignService.js";
 
-// ═══════════════════════════════════════════════════════════
-// REGISTER
-// ═══════════════════════════════════════════════════════════
-export const registerUser = async ({ name, email, password, phone, address, city, avatarFile }) => {
-  const existingUser = await database.query(
-    "SELECT id FROM users WHERE email = $1", [email]
-  );
-  if (existingUser.rows.length > 0)
-    throw new ErrorHandler("Cet email est déjà utilisé.", 409);
 
+// ══════════════════════════════════════════════════════════════════════════
+// HELPERS INTERNES
+// ══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Valide la force du mot de passe.
+ * Règles : 8+ caractères, 1 minuscule, 1 majuscule, 1 chiffre, 1 caractère spécial.
+ */
+export const validatePassword = (password) => {
+  if (!password || typeof password !== "string")
+    throw new ErrorHandler("Le mot de passe est requis.", 400);
+
+  if (password.length < 8)
+    throw new ErrorHandler(
+      "Le mot de passe doit contenir au moins 8 caractères.", 400
+    );
+
+  if (!/[a-z]/.test(password))
+    throw new ErrorHandler(
+      "Le mot de passe doit contenir au moins une lettre minuscule.", 400
+    );
+
+  if (!/[A-Z]/.test(password))
+    throw new ErrorHandler(
+      "Le mot de passe doit contenir au moins une lettre majuscule.", 400
+    );
+
+  if (!/[0-9]/.test(password))
+    throw new ErrorHandler(
+      "Le mot de passe doit contenir au moins un chiffre.", 400
+    );
+
+  if (!/[!@#$%^&*()\-_=+\[\]{};':",.<>/?`~\\|]/.test(password))
+    throw new ErrorHandler(
+      "Le mot de passe doit contenir au moins un caractère spécial (!@#$%^&*…).", 400
+    );
+};
+
+/**
+ * Valide le format d'un email.
+ */
+export const validateEmail = (email) => {
+  if (!email || typeof email !== "string")
+    throw new ErrorHandler("L'email est requis.", 400);
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  if (!emailRegex.test(email.trim()))
+    throw new ErrorHandler("Format d'email invalide.", 400);
+};
+
+/**
+ * Génère un couple rawToken (pour l'email) / hashedToken (pour la DB).
+ */
+const generateTokenPair = () => {
+  const rawToken    = crypto.randomBytes(32).toString("hex");
+  const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+  return { rawToken, hashedToken };
+};
+
+/**
+ * Supprime un avatar Cloudinary à partir de son URL.
+ */
+const destroyCloudinaryAvatar = async (url) => {
+  if (!url) return;
+  const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z]+$/i);
+  if (matches) {
+    await cloudinary.uploader.destroy(matches[1]).catch((err) =>
+      console.error("[Cloudinary] delete error:", err.message)
+    );
+  }
+};
+
+// ── Email templates ──────────────────────────────────────────────────────
+
+const wrapEmail = (bodyHtml) => `
+  <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+    <div style="background:#166534;padding:30px;text-align:center;border-radius:10px 10px 0 0;">
+      <h1 style="color:white;margin:0;">🧺 GOFFA</h1>
+      <p style="color:#86efac;margin:5px 0 0;">artisanat tunisien</p>
+    </div>
+    <div style="padding:30px;background:#f9fafb;border-radius:0 0 10px 10px;">
+      ${bodyHtml}
+    </div>
+  </div>`;
+
+const ctaButton = (url, label) =>
+  `<a href="${url}"
+      style="background:#166534;color:white;padding:12px 24px;
+             text-decoration:none;border-radius:6px;display:inline-block;margin:16px 0;">
+     ${label}
+   </a>`;
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// REGISTER
+// ══════════════════════════════════════════════════════════════════════════
+export const registerUser = async ({
+  name, email, password, phone, address, city, avatarFile,
+}) => {
+  // 1. Validation des inputs
+  validateEmail(email);
+  validatePassword(password);
+
+  if (!name || name.trim().length < 2)
+    throw new ErrorHandler("Le nom doit contenir au moins 2 caractères.", 400);
+
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // 2. Vérifier si l'email est déjà utilisé
+  const existingUser = await database.query(
+    "SELECT id, google_id FROM users WHERE email = $1",
+    [normalizedEmail]
+  );
+
+  if (existingUser.rows.length > 0) {
+    // ✅ FIX : distinguer compte Google du compte classique
+    if (existingUser.rows[0].google_id) {
+      throw new ErrorHandler(
+        "Ce compte utilise la connexion Google. Cliquez sur 'Se connecter avec Google'.",
+        409
+      );
+    }
+    throw new ErrorHandler("Cet email est déjà utilisé.", 409);
+  }
+
+  // 3. Upload avatar (optionnel)
   let avatarUrl = null;
   if (avatarFile) {
-    const result = await cloudinary.uploader.upload(
-      avatarFile.tempFilePath,
-      { folder: "Ecommerce_Avatars", width: 200, crop: "scale" }
-    );
+    const result = await cloudinary.uploader.upload(avatarFile.tempFilePath, {
+      folder: "Ecommerce_Avatars",
+      width:  200,
+      crop:   "scale",
+    });
     avatarUrl = result.secure_url;
   }
 
-  const hashedPassword = await bcrypt.hash(password, 10);
+  // 4. Hash du mot de passe (bcrypt, 12 rounds — plus sûr que 10)
+  const hashedPassword = await bcrypt.hash(password, 12);
 
-  // ✅ rawToken dans l'email, hashedToken en DB
-  const rawToken          = crypto.randomBytes(32).toString("hex");
-  const verificationToken = crypto.createHash("sha256").update(rawToken).digest("hex");
+  // 5. Token de vérification d'email (24h)
+  const { rawToken, hashedToken } = generateTokenPair();
+  const verificationExpire        = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-  const verificationExpire = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
-
+  // 6. Insertion en DB
   const result = await database.query(
     `INSERT INTO users
-      (name, email, password, avatar, role, is_verified, verification_token, verification_token_expire, phone, address, city)
-    VALUES ($1, $2, $3, $4, 'user', false, $5, $6, $7, $8, $9)
-    RETURNING id, name, email, avatar, role, is_verified, phone, address, city`,
-    [name, email, hashedPassword, avatarUrl, verificationToken, verificationExpire,
-    phone || null, address || null, city || null]
+       (name, email, password, avatar, role, is_verified,
+        verification_token, verification_token_expire,
+        phone, address, city)
+     VALUES ($1,$2,$3,$4,'user',false,$5,$6,$7,$8,$9)
+     RETURNING id, name, email, avatar, role, is_verified, phone, address, city`,
+    [
+      name.trim(), normalizedEmail, hashedPassword, avatarUrl,
+      hashedToken, verificationExpire,
+      phone || null, address || null, city || null,
+    ]
   );
 
   const user = result.rows[0];
 
+  // 7. Email de vérification
   const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${encodeURIComponent(rawToken)}`;
 
   await sendEmail({
-    to:      email,
+    to:      normalizedEmail,
     subject: "Vérifiez votre email — GOFFA 🧺",
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #166534; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-          <h1 style="color: white; margin: 0;">🧺 GOFFA</h1>
-          <p style="color: #86efac; margin: 5px 0 0;">artisanat tunisien</p>
-        </div>
-        <div style="padding: 30px; background: #f9fafb; border-radius: 0 0 10px 10px;">
-          <h2>Bienvenue ${name} !</h2>
-          <p>Cliquez sur le bouton ci-dessous pour vérifier votre adresse email.</p>
-          <a href="${verificationUrl}"
-             style="background: #166534; color: white; padding: 12px 24px;
-                    text-decoration: none; border-radius: 6px; display: inline-block; margin: 16px 0;">
-            Vérifier mon email →
-          </a>
-          <p style="color: #666; font-size: 14px;">Ce lien expire dans <strong>24 heures</strong>.</p>
-        </div>
-      </div>
-    `,
+    html: wrapEmail(`
+      <h2>Bienvenue ${name.trim()} !</h2>
+      <p>Merci de vous être inscrit sur GOFFA. Cliquez sur le bouton ci-dessous
+         pour activer votre compte.</p>
+      ${ctaButton(verificationUrl, "Vérifier mon email →")}
+      <p style="color:#666;font-size:14px;">
+        Ce lien expire dans <strong>24 heures</strong>.<br/>
+        Si vous n'avez pas créé de compte, ignorez cet email.
+      </p>
+    `),
   });
- // ✅ Relier l'abonnement newsletter si email déjà inscrit anonymement
-  await linkSubscriptionToUserService({ userId: user.id, email });
+
+  // 8. Relier abonnement newsletter si email déjà inscrit anonymement
+  await linkSubscriptionToUserService({ userId: user.id, email: normalizedEmail });
 
   return user;
 };
 
 
-// ═══════════════════════════════════════════════════════════
-// VERIFY EMAIL
-// ═══════════════════════════════════════════════════════════
-export const verifyUserEmail = async (token) => {
-  const hashedToken = crypto
-  .createHash("sha256")
-  .update(token)
-  .digest("hex");
+// ══════════════════════════════════════════════════════════════════════════
+// RESEND VERIFICATION EMAIL  ← NOUVEAU
+// ══════════════════════════════════════════════════════════════════════════
+export const resendVerificationEmailService = async (email) => {
+  validateEmail(email);
+  const normalizedEmail = email.trim().toLowerCase();
 
   const result = await database.query(
-    `SELECT * FROM users 
-    WHERE verification_token = $1 
-    AND verification_token_expire > NOW()`,
+    "SELECT * FROM users WHERE email = $1",
+    [normalizedEmail]
+  );
+
+  // Réponse silencieuse si email inconnu (évite l'énumération)
+  if (result.rows.length === 0) return true;
+
+  const user = result.rows[0];
+
+  // Déjà vérifié → pas besoin de renvoyer
+  if (user.is_verified)
+    throw new ErrorHandler("Ce compte est déjà vérifié. Connectez-vous.", 400);
+
+  // Génère un nouveau token
+  const { rawToken, hashedToken } = generateTokenPair();
+  const expire = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+  await database.query(
+    `UPDATE users
+     SET verification_token=$1, verification_token_expire=$2
+     WHERE id=$3`,
+    [hashedToken, expire, user.id]
+  );
+
+  const verificationUrl = `${process.env.FRONTEND_URL}/verify-email/${encodeURIComponent(rawToken)}`;
+
+  await sendEmail({
+    to:      normalizedEmail,
+    subject: "Nouveau lien de vérification — GOFFA 🧺",
+    html: wrapEmail(`
+      <h2>Renvoi du lien de vérification</h2>
+      <p>Voici un nouveau lien pour activer votre compte :</p>
+      ${ctaButton(verificationUrl, "Vérifier mon email →")}
+      <p style="color:#666;font-size:14px;">Ce lien expire dans <strong>24 heures</strong>.</p>
+    `),
+  });
+
+  return true;
+};
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// VERIFY EMAIL
+// ══════════════════════════════════════════════════════════════════════════
+export const verifyUserEmail = async (token) => {
+  if (!token) throw new ErrorHandler("Token manquant.", 400);
+
+  const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
+
+  const result = await database.query(
+    `SELECT * FROM users
+     WHERE verification_token = $1
+       AND verification_token_expire > NOW()`,
     [hashedToken]
   );
 
@@ -98,67 +263,87 @@ export const verifyUserEmail = async (token) => {
   const user = result.rows[0];
 
   if (user.is_verified)
-    throw new ErrorHandler("Email déjà vérifié.", 400);
+    throw new ErrorHandler("Email déjà vérifié. Vous pouvez vous connecter.", 400);
 
-  const updatedResult = await database.query(
+  const updated = await database.query(
     `UPDATE users
-     SET is_verified = true, verification_token = NULL
+     SET is_verified = true,
+         verification_token = NULL,
+         verification_token_expire = NULL,
+         updated_at = NOW()
      WHERE id = $1
      RETURNING id, name, email, avatar, role, is_verified, created_at`,
     [user.id]
   );
 
-  return updatedResult.rows[0];
+  return updated.rows[0];
 };
 
 
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 // LOGIN
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const loginUser = async ({ email, password }) => {
+  validateEmail(email);
+
+  if (!password) throw new ErrorHandler("Le mot de passe est requis.", 400);
+
+  const normalizedEmail = email.trim().toLowerCase();
+
   const result = await database.query(
-    "SELECT * FROM users WHERE email = $1", [email]
+    "SELECT * FROM users WHERE email = $1",
+    [normalizedEmail]
   );
 
+  // ✅ Message générique pour éviter l'énumération d'emails
   if (result.rows.length === 0)
     throw new ErrorHandler("Email ou mot de passe incorrect.", 401);
 
   const user = result.rows[0];
 
+  // Compte suspendu
   if (user.is_active === false)
-    throw new ErrorHandler("Votre compte a été suspendu. Contactez le support.", 403);
-
-  // ✅ Guest users (sans password) ne peuvent pas se connecter par email/password
-
-// ✅ Nouveau
-if (!user.password) {
-  if (user.google_id) {
     throw new ErrorHandler(
-      "Ce compte utilise la connexion Google. Cliquez sur 'Se connecter avec Google'.", 401
+      "Votre compte a été suspendu. Contactez le support.", 403
+    );
+
+  // ✅ Compte Google (sans password)
+  if (!user.password) {
+    if (user.google_id) {
+      throw new ErrorHandler(
+        "Ce compte utilise la connexion Google. Cliquez sur 'Se connecter avec Google'.",
+        401
+      );
+    }
+    // Compte guest sans password (lien complete-account)
+    throw new ErrorHandler(
+      "Veuillez compléter votre compte via le lien reçu par email.", 401
     );
   }
-  throw new ErrorHandler(
-    "Veuillez compléter votre compte via le lien reçu par email.", 401
-  );
-}
 
+  // Email non vérifié
   if (!user.is_verified)
-    throw new ErrorHandler("Veuillez vérifier votre email avant de vous connecter.", 401);
+    throw new ErrorHandler(
+      "Veuillez vérifier votre email avant de vous connecter.", 401
+    );
 
+  // Vérification du mot de passe
   const isPasswordCorrect = await bcrypt.compare(password, user.password);
   if (!isPasswordCorrect)
     throw new ErrorHandler("Email ou mot de passe incorrect.", 401);
 
+  // Retourner user sans password
   const { password: _, ...userWithoutPassword } = user;
-  await linkSubscriptionToUserService({ userId: user.id, email });
+
+  await linkSubscriptionToUserService({ userId: user.id, email: normalizedEmail });
 
   return userWithoutPassword;
 };
 
 
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 // GOOGLE CALLBACK
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const googleCallbackToken = (user) => {
   if (!user)
     throw new ErrorHandler("Authentification Google échouée.", 401);
@@ -173,71 +358,72 @@ export const googleCallbackToken = (user) => {
 };
 
 
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 // FORGOT PASSWORD
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const forgotUserPassword = async (email) => {
+  validateEmail(email);
+  const normalizedEmail = email.trim().toLowerCase();
+
   const result = await database.query(
-    "SELECT * FROM users WHERE email = $1", [email]
+    "SELECT * FROM users WHERE email = $1",
+    [normalizedEmail]
   );
 
-  if (result.rows.length === 0) return false;
+  // ✅ Toujours retourner true pour éviter l'énumération d'emails
+  if (result.rows.length === 0) return true;
 
   const user = result.rows[0];
 
-  const rawToken    = crypto.randomBytes(32).toString("hex");
-  const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
-  const expireTime  = new Date(Date.now() + 15 * 60 * 1000);
+  // Compte Google sans password → pas de reset possible
+  if (!user.password && user.google_id) return true;
+
+  const { rawToken, hashedToken } = generateTokenPair();
+  const expireTime = new Date(Date.now() + 15 * 60 * 1000); // 15 min
 
   await database.query(
-    `UPDATE users SET reset_password_token=$1, reset_password_expire=$2 WHERE id=$3`,
+    `UPDATE users
+     SET reset_password_token=$1, reset_password_expire=$2, updated_at=NOW()
+     WHERE id=$3`,
     [hashedToken, expireTime, user.id]
   );
 
   const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${encodeURIComponent(rawToken)}`;
 
   await sendEmail({
-    to:      email,
+    to:      normalizedEmail,
     subject: "Réinitialisation de mot de passe — GOFFA 🧺",
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #166534; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-          <h1 style="color: white; margin: 0;">🧺 GOFFA</h1>
-        </div>
-        <div style="padding: 30px; background: #f9fafb; border-radius: 0 0 10px 10px;">
-          <h2>Réinitialisation de mot de passe</h2>
-          <p>Cliquez sur le bouton ci-dessous pour réinitialiser votre mot de passe :</p>
-          <a href="${resetUrl}"
-             style="background: #166534; color: white; padding: 12px 24px;
-                    text-decoration: none; border-radius: 6px; display: inline-block; margin: 16px 0;">
-            Réinitialiser mon mot de passe →
-          </a>
-          <p style="color: #666; font-size: 14px;">
-            Ce lien expire dans <strong>15 minutes</strong>.
-            Si vous n'avez pas demandé cette réinitialisation, ignorez cet email.
-          </p>
-        </div>
-      </div>
-    `,
+    html: wrapEmail(`
+      <h2>Réinitialisation de mot de passe</h2>
+      <p>Vous avez demandé la réinitialisation de votre mot de passe.</p>
+      ${ctaButton(resetUrl, "Réinitialiser mon mot de passe →")}
+      <p style="color:#666;font-size:14px;">
+        Ce lien expire dans <strong>15 minutes</strong>.<br/>
+        Si vous n'avez pas fait cette demande, ignorez cet email —
+        votre mot de passe restera inchangé.
+      </p>
+    `),
   });
 
   return true;
 };
 
 
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 // RESET PASSWORD
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const resetUserPassword = async ({ token, password }) => {
-  const hashedToken = crypto
-    .createHash("sha256")
-    .update(token)
-    .digest("hex");
+  if (!token) throw new ErrorHandler("Token manquant.", 400);
+
+  // ✅ Validation force du password
+  validatePassword(password);
+
+  const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
 
   const result = await database.query(
     `SELECT * FROM users
      WHERE reset_password_token = $1
-     AND reset_password_expire > NOW()`,
+       AND reset_password_expire > NOW()`,
     [hashedToken]
   );
 
@@ -245,11 +431,24 @@ export const resetUserPassword = async ({ token, password }) => {
     throw new ErrorHandler("Lien de réinitialisation invalide ou expiré.", 400);
 
   const user = result.rows[0];
-  const hashedPassword = await bcrypt.hash(password, 10);
+
+  // Empêcher la réutilisation du même mot de passe
+  if (user.password) {
+    const isSame = await bcrypt.compare(password, user.password);
+    if (isSame)
+      throw new ErrorHandler(
+        "Le nouveau mot de passe doit être différent de l'ancien.", 400
+      );
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 12);
 
   await database.query(
     `UPDATE users
-     SET password=$1, reset_password_token=NULL, reset_password_expire=NULL
+     SET password=$1,
+         reset_password_token=NULL,
+         reset_password_expire=NULL,
+         updated_at=NOW()
      WHERE id=$2`,
     [hashedPassword, user.id]
   );
@@ -258,12 +457,19 @@ export const resetUserPassword = async ({ token, password }) => {
 };
 
 
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 // GET USER BY ID
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const getUserById = async (id) => {
   const result = await database.query(
-    `SELECT id, name, email, avatar, role, is_verified, phone, address, city, created_at
+    `SELECT id, name, email, avatar, role, is_verified, is_active,
+            phone, address, city,
+            billing_full_name, billing_phone, billing_address,
+            billing_city, billing_governorate, billing_postal_code, billing_country,
+            shipping_full_name, shipping_phone, shipping_address,
+            shipping_city, shipping_governorate, shipping_postal_code, shipping_country,
+            google_id IS NOT NULL AS has_google,
+            created_at, updated_at
      FROM users WHERE id = $1`,
     [id]
   );
@@ -275,56 +481,80 @@ export const getUserById = async (id) => {
 };
 
 
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 // UPDATE PROFILE
-// ═══════════════════════════════════════════════════════════
-export const updateUserProfile = async ({ userId, name, phone, address, city, avatarFile, deleteAvatar  }) => {
+// ══════════════════════════════════════════════════════════════════════════
+export const updateUserProfile = async ({
+  userId, name, phone, address, city,
+  avatarFile, deleteAvatar,
+  billing_full_name, billing_phone, billing_address,
+  billing_city, billing_governorate, billing_postal_code, billing_country,
+  shipping_full_name, shipping_phone, shipping_address,
+  shipping_city, shipping_governorate, shipping_postal_code, shipping_country,
+}) => {
   const userResult = await database.query(
     "SELECT * FROM users WHERE id = $1", [userId]
   );
-  const currentUser = userResult.rows[0];
 
-  let avatarUrl = currentUser.avatar;
+  if (userResult.rows.length === 0)
+    throw new ErrorHandler("Utilisateur introuvable.", 404);
 
+  const cu = userResult.rows[0]; // current user
+  let avatarUrl = cu.avatar;
 
-  // ✅ Suppression de l'avatar
-  if (deleteAvatar === 'true' || deleteAvatar === true) {
-    if (currentUser.avatar) {
-      // Supprimer de Cloudinary
-      const matches = currentUser.avatar.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z]+$/i);
-      if (matches) {
-        await cloudinary.uploader.destroy(matches[1]).catch(err =>
-          console.error("Cloudinary delete error:", err.message)
-        );
-      }
-    }
-    avatarUrl = null; // ← avatar = null en DB → photo par défaut
+  // Suppression avatar
+  if (deleteAvatar === "true" || deleteAvatar === true) {
+    await destroyCloudinaryAvatar(cu.avatar);
+    avatarUrl = null;
   }
 
-
-
+  // Remplacement avatar
   if (avatarFile) {
-   if (currentUser.avatar) {
-      const matches =currentUser.avatar.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z]+$/i);
-      if (matches) await cloudinary.uploader.destroy(matches[1]);
-    }
-    const result = await cloudinary.uploader.upload(
-      avatarFile.tempFilePath,
-      { folder: "Ecommerce_Avatars", width: 200, crop: "scale" }
-    );
-    avatarUrl = result.secure_url;
+    await destroyCloudinaryAvatar(cu.avatar);
+    const upload = await cloudinary.uploader.upload(avatarFile.tempFilePath, {
+      folder: "Ecommerce_Avatars",
+      width:  200,
+      crop:   "scale",
+    });
+    avatarUrl = upload.secure_url;
   }
 
   const result = await database.query(
-    `UPDATE users SET name=$1, avatar=$2, phone=$3, address=$4, city=$5
-     WHERE id=$6
-     RETURNING id, name, email, avatar, role, is_verified, phone, address, city, created_at`,
+    `UPDATE users
+     SET name=$1, avatar=$2, phone=$3, address=$4, city=$5,
+         billing_full_name=$6, billing_phone=$7, billing_address=$8,
+         billing_city=$9, billing_governorate=$10, billing_postal_code=$11, billing_country=$12,
+         shipping_full_name=$13, shipping_phone=$14, shipping_address=$15,
+         shipping_city=$16, shipping_governorate=$17, shipping_postal_code=$18, shipping_country=$19,
+         updated_at=NOW()
+     WHERE id=$20
+     RETURNING id, name, email, avatar, role, is_verified, is_active,
+               phone, address, city,
+               billing_full_name, billing_phone, billing_address,
+               billing_city, billing_governorate, billing_postal_code, billing_country,
+               shipping_full_name, shipping_phone, shipping_address,
+               shipping_city, shipping_governorate, shipping_postal_code, shipping_country,
+               created_at, updated_at`,
     [
-      name    || currentUser.name,
+      name?.trim()        || cu.name,
       avatarUrl,
-      phone   ?? currentUser.phone,
-      address ?? currentUser.address,
-      city    ?? currentUser.city,
+      phone               ?? cu.phone,
+      address             ?? cu.address,
+      city                ?? cu.city,
+      billing_full_name   ?? cu.billing_full_name,
+      billing_phone       ?? cu.billing_phone,
+      billing_address     ?? cu.billing_address,
+      billing_city        ?? cu.billing_city,
+      billing_governorate ?? cu.billing_governorate,
+      billing_postal_code ?? cu.billing_postal_code,
+      billing_country     ?? cu.billing_country,
+      shipping_full_name  ?? cu.shipping_full_name,
+      shipping_phone      ?? cu.shipping_phone,
+      shipping_address    ?? cu.shipping_address,
+      shipping_city       ?? cu.shipping_city,
+      shipping_governorate ?? cu.shipping_governorate,
+      shipping_postal_code ?? cu.shipping_postal_code,
+      shipping_country    ?? cu.shipping_country,
       userId,
     ]
   );
@@ -333,23 +563,50 @@ export const updateUserProfile = async ({ userId, name, phone, address, city, av
 };
 
 
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 // UPDATE PASSWORD
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 export const updateUserPassword = async ({ userId, currentPassword, newPassword }) => {
   const result = await database.query(
     "SELECT * FROM users WHERE id = $1", [userId]
   );
+
+  if (result.rows.length === 0)
+    throw new ErrorHandler("Utilisateur introuvable.", 404);
+
   const user = result.rows[0];
 
+  // ✅ FIX : compte Google sans password
+  if (!user.password) {
+    if (user.google_id) {
+      throw new ErrorHandler(
+        "Ce compte utilise Google. Vous ne pouvez pas modifier de mot de passe ici.", 400
+      );
+    }
+    throw new ErrorHandler(
+      "Veuillez d'abord compléter votre compte via le lien reçu par email.", 400
+    );
+  }
+
+  // Vérifier l'ancien mot de passe
   const isCorrect = await bcrypt.compare(currentPassword, user.password);
   if (!isCorrect)
     throw new ErrorHandler("Le mot de passe actuel est incorrect.", 401);
 
-  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  // ✅ Valider la force du nouveau mot de passe
+  validatePassword(newPassword);
+
+  // ✅ Empêcher la réutilisation du même mot de passe
+  const isSame = await bcrypt.compare(newPassword, user.password);
+  if (isSame)
+    throw new ErrorHandler(
+      "Le nouveau mot de passe doit être différent de l'ancien.", 400
+    );
+
+  const hashedPassword = await bcrypt.hash(newPassword, 12);
 
   await database.query(
-    "UPDATE users SET password=$1 WHERE id=$2",
+    "UPDATE users SET password=$1, updated_at=NOW() WHERE id=$2",
     [hashedPassword, userId]
   );
 
@@ -357,81 +614,108 @@ export const updateUserPassword = async ({ userId, currentPassword, newPassword 
 };
 
 
-// ═══════════════════════════════════════════════════════════
-// CREATE GUEST ACCOUNT SERVICE
+// ══════════════════════════════════════════════════════════════════════════
+// CREATE GUEST ACCOUNT
 // Appelé automatiquement quand un guest passe une commande
-// ═══════════════════════════════════════════════════════════
-export const createGuestAccountService = async ({ name, email, phone, shipping_address, shipping_city }) => {
-  // User existe déjà → retourner son compte
-  const existingUser = await database.query(
-    "SELECT * FROM users WHERE email=$1", [email]
-  );
-  if (existingUser.rows.length > 0)
-    return existingUser.rows[0];
+// ══════════════════════════════════════════════════════════════════════════
+export const createGuestAccountService = async ({
+  name, email, phone, shipping_address, shipping_city,
+}) => {
+  validateEmail(email);
+  const normalizedEmail = email.trim().toLowerCase();
 
-  // ✅ Créer compte guest avec token pour compléter le compte
-  const rawToken             = crypto.randomBytes(32).toString("hex");
-  const completeAccountToken = crypto.createHash("sha256").update(rawToken).digest("hex");
-  const expireTime           = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 jours
+  // ✅ FIX : si l'user existe déjà, vérifier si son compte est complet
+  const existingUser = await database.query(
+    "SELECT * FROM users WHERE email = $1", [normalizedEmail]
+  );
+
+  if (existingUser.rows.length > 0) {
+    const user = existingUser.rows[0];
+
+    // Compte déjà complet (a un password) → retourner le compte existant
+    if (user.password) return user;
+
+    // ✅ FIX : compte guest sans password (lien expiré ou jamais cliqué)
+    // → regénérer un nouveau lien complete-account
+    const { rawToken, hashedToken } = generateTokenPair();
+    const expireTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    await database.query(
+      `UPDATE users
+       SET complete_account_token=$1, complete_account_expire=$2, updated_at=NOW()
+       WHERE id=$3`,
+      [hashedToken, expireTime, user.id]
+    );
+
+    const completeUrl = `${process.env.FRONTEND_URL}/complete-account/${encodeURIComponent(rawToken)}`;
+
+    await sendEmail({
+      to:      normalizedEmail,
+      subject: "Votre lien pour créer votre mot de passe — GOFFA 🧺",
+      html: wrapEmail(`
+        <h2>Bonjour ${user.name} !</h2>
+        <p>Une nouvelle commande a été passée. Voici un nouveau lien pour créer votre mot de passe :</p>
+        ${ctaButton(completeUrl, "Créer mon mot de passe →")}
+        <p style="color:#666;font-size:14px;">Ce lien expire dans <strong>7 jours</strong>.</p>
+      `),
+    });
+
+    return user;
+  }
+
+  // Nouveau guest → créer le compte
+  const { rawToken, hashedToken } = generateTokenPair();
+  const expireTime = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
   const newUser = await database.query(
     `INSERT INTO users
-      (name, email, phone, address, city, role, is_verified,
-       complete_account_token, complete_account_expire)
-     VALUES ($1, $2, $3, $4, $5, 'user', false, $6, $7)
+       (name, email, phone, shipping_address, shipping_city,
+        role, is_verified, complete_account_token, complete_account_expire)
+     VALUES ($1,$2,$3,$4,$5,'user',false,$6,$7)
      RETURNING *`,
-    [name, email, phone || null, shipping_address, shipping_city,
-     completeAccountToken, expireTime]
+    [
+      name.trim(), normalizedEmail, phone || null,
+      shipping_address, shipping_city,
+      hashedToken, expireTime,
+    ]
   );
 
   const user = newUser.rows[0];
 
-  // ✅ Email pour compléter le compte (pas de vérification email)
   const completeUrl = `${process.env.FRONTEND_URL}/complete-account/${encodeURIComponent(rawToken)}`;
 
   await sendEmail({
-    to:      email,
+    to:      normalizedEmail,
     subject: "Complétez votre compte — GOFFA 🧺",
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: #166534; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
-          <h1 style="color: white; margin: 0;">🧺 GOFFA</h1>
-          <p style="color: #86efac; margin: 5px 0 0;">artisanat tunisien</p>
-        </div>
-        <div style="padding: 30px; background: #f9fafb; border-radius: 0 0 10px 10px;">
-          <h2>Bienvenue ${name} ! 🎉</h2>
-          <p>Votre commande a été passée avec succès.</p>
-          <p>Nous avons créé un compte pour vous. Cliquez ci-dessous pour définir votre mot de passe
-             et accéder à votre historique de commandes :</p>
-          <a href="${completeUrl}"
-             style="background: #166534; color: white; padding: 12px 24px;
-                    text-decoration: none; border-radius: 6px; display: inline-block; margin: 16px 0;">
-            Créer mon mot de passe →
-          </a>
-          <p style="color: #666; font-size: 14px;">Ce lien expire dans <strong>7 jours</strong>.</p>
-        </div>
-      </div>
-    `,
+    html: wrapEmail(`
+      <h2>Bienvenue ${name.trim()} ! 🎉</h2>
+      <p>Votre commande a été passée avec succès.</p>
+      <p>Nous avons créé un compte pour vous. Cliquez ci-dessous pour définir votre mot de passe
+         et accéder à votre historique de commandes :</p>
+      ${ctaButton(completeUrl, "Créer mon mot de passe →")}
+      <p style="color:#666;font-size:14px;">Ce lien expire dans <strong>7 jours</strong>.</p>
+    `),
   });
 
   return user;
 };
 
 
-// ═══════════════════════════════════════════════════════════
-// COMPLETE ACCOUNT
-// Guest définit son mot de passe après commande
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
+// COMPLETE ACCOUNT (guest → compte complet)
+// ══════════════════════════════════════════════════════════════════════════
 export const completeUserAccount = async ({ token, password }) => {
-  const hashedToken = crypto
-    .createHash("sha256")
-    .update(token)
-    .digest("hex");
+  if (!token) throw new ErrorHandler("Token manquant.", 400);
+
+  // ✅ Valider la force du password
+  validatePassword(password);
+
+  const hashedToken = crypto.createHash("sha256").update(token).digest("hex");
 
   const result = await database.query(
     `SELECT * FROM users
      WHERE complete_account_token=$1
-     AND complete_account_expire > NOW()`,
+       AND complete_account_expire > NOW()`,
     [hashedToken]
   );
 
@@ -439,80 +723,222 @@ export const completeUserAccount = async ({ token, password }) => {
     throw new ErrorHandler("Lien invalide ou expiré.", 400);
 
   const user = result.rows[0];
-  const hashedPassword = await bcrypt.hash(password, 10);
+  const hashedPassword = await bcrypt.hash(password, 12);
 
-  const updatedUser = await database.query(
+  const updated = await database.query(
     `UPDATE users
      SET password=$1, is_verified=true,
-         complete_account_token=NULL, complete_account_expire=NULL
+         complete_account_token=NULL, complete_account_expire=NULL,
+         updated_at=NOW()
      WHERE id=$2
-     RETURNING id, name, email, avatar, role, is_verified, phone, address, city, created_at`,
+     RETURNING id, name, email, avatar, role, is_verified,
+               phone, address, city, created_at`,
     [hashedPassword, user.id]
   );
- await linkSubscriptionToUserService({ userId: user.id, email: user.email });
-  return updatedUser.rows[0];
+
+  await linkSubscriptionToUserService({ userId: user.id, email: user.email });
+
+  return updated.rows[0];
 };
 
 
+// ══════════════════════════════════════════════════════════════════════════
+// ADMIN — GET ALL USERS (avec pagination)
+// ══════════════════════════════════════════════════════════════════════════
+export const getAllUsersService = async ({ page = 1, limit = 20, search = "" }) => {
+  const offset = (page - 1) * limit;
 
-// ═══════════════════════════════════════════════════════════
-// ADMIN UPDATE USER
-// PUT /api/auth/users/:userId
-// Admin peut modifier toutes les infos d'un user
-// ═══════════════════════════════════════════════════════════
+  if (search) {
+    // Query principale : LIMIT=$1, OFFSET=$2, search=$3
+    const [usersResult, countResult] = await Promise.all([
+      database.query(
+        `SELECT id, name, email, avatar, role, is_verified, is_active,
+                phone, city, google_id IS NOT NULL AS has_google,
+                created_at, updated_at
+         FROM users
+         WHERE name ILIKE $3 OR email ILIKE $3
+         ORDER BY created_at DESC
+         LIMIT $1 OFFSET $2`,
+        [limit, offset, `%${search}%`]
+      ),
+      database.query(
+        // ✅ COUNT séparée : search=$1 uniquement
+        `SELECT COUNT(*) FROM users WHERE name ILIKE $1 OR email ILIKE $1`,
+        [`%${search}%`]
+      ),
+    ]);
 
+    const total = parseInt(countResult.rows[0].count);
+    return { users: usersResult.rows, total, page, totalPages: Math.ceil(total / limit) };
+  }
+  
+
+  // Sans search
+  const [usersResult, countResult] = await Promise.all([
+    database.query(
+      `SELECT id, name, email, avatar, role, is_verified, is_active,
+              phone, city, google_id IS NOT NULL AS has_google,
+              created_at, updated_at
+       FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    ),
+    database.query(`SELECT COUNT(*) FROM users`),
+  ]);
+
+  const total = parseInt(countResult.rows[0].count);
+  return { users: usersResult.rows, total, page, totalPages: Math.ceil(total / limit) };
+};
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// ADMIN — DELETE USER
+// ══════════════════════════════════════════════════════════════════════════
+export const deleteUserService = async ({ userId, requestingAdminId }) => {
+  // ✅ Un admin ne peut pas se supprimer lui-même
+  if (userId === requestingAdminId)
+    throw new ErrorHandler("Vous ne pouvez pas supprimer votre propre compte.", 400);
+
+  const userResult = await database.query(
+    "SELECT id, role FROM users WHERE id = $1", [userId]
+  );
+
+  if (userResult.rows.length === 0)
+    throw new ErrorHandler("Utilisateur introuvable.", 404);
+
+  // ✅ Optionnel : empêcher la suppression d'un autre admin
+  if (userResult.rows[0].role === "admin")
+    throw new ErrorHandler(
+      "Impossible de supprimer un administrateur. Révoquez son rôle d'abord.", 403
+    );
+
+  await database.query("DELETE FROM users WHERE id = $1", [userId]);
+
+  return true;
+};
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// ADMIN — UPDATE USER ROLE
+// ══════════════════════════════════════════════════════════════════════════
+export const updateUserRoleService = async ({ userId, role, requestingAdminId }) => {
+  if (!["user", "admin"].includes(role))
+    throw new ErrorHandler("Rôle invalide. Valeurs acceptées : 'user', 'admin'.", 400);
+
+  // ✅ Empêcher un admin de se dégrader lui-même
+  if (userId === requestingAdminId)
+    throw new ErrorHandler("Vous ne pouvez pas modifier votre propre rôle.", 400);
+
+  const result = await database.query(
+    `UPDATE users SET role=$1, updated_at=NOW()
+     WHERE id=$2
+     RETURNING id, name, email, role, is_verified, is_active, created_at`,
+    [role, userId]
+  );
+
+  if (result.rows.length === 0)
+    throw new ErrorHandler("Utilisateur introuvable.", 404);
+
+  return result.rows[0];
+};
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// ADMIN — SUSPEND / ACTIVATE USER
+// ══════════════════════════════════════════════════════════════════════════
+export const suspendUserService = async ({ userId, requestingAdminId }) => {
+  if (userId === requestingAdminId)
+    throw new ErrorHandler("Vous ne pouvez pas suspendre votre propre compte.", 400);
+
+  const result = await database.query(
+    `UPDATE users SET is_active=false, updated_at=NOW()
+     WHERE id=$1
+     RETURNING id, name, email, role, is_active`,
+    [userId]
+  );
+
+  if (result.rows.length === 0)
+    throw new ErrorHandler("Utilisateur introuvable.", 404);
+
+  return result.rows[0];
+};
+
+export const activateUserService = async (userId) => {
+  const result = await database.query(
+    `UPDATE users SET is_active=true, updated_at=NOW()
+     WHERE id=$1
+     RETURNING id, name, email, role, is_active`,
+    [userId]
+  );
+
+  if (result.rows.length === 0)
+    throw new ErrorHandler("Utilisateur introuvable.", 404);
+
+  return result.rows[0];
+};
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// ADMIN — UPDATE USER (toutes infos)
+// ══════════════════════════════════════════════════════════════════════════
 export const adminUpdateUserService = async ({
-  userId,
+  userId, requestingAdminId,
   name, email, phone, address, city,
-  role, is_verified, is_active, newPassword
+  role, is_verified, is_active, newPassword,
 }) => {
-
-  // Vérifier que le user existe
   const userResult = await database.query(
     "SELECT * FROM users WHERE id=$1", [userId]
   );
+
   if (userResult.rows.length === 0)
     throw new ErrorHandler("Utilisateur introuvable.", 404);
 
   const current = userResult.rows[0];
 
-  // Vérifier email unique
-  if (email && email !== current.email) {
+  // Vérifier l'unicité de l'email
+  if (email && email.trim().toLowerCase() !== current.email) {
+    validateEmail(email);
     const emailExists = await database.query(
-      "SELECT id FROM users WHERE email=$1 AND id!=$2", [email, userId]
+      "SELECT id FROM users WHERE email=$1 AND id!=$2",
+      [email.trim().toLowerCase(), userId]
     );
     if (emailExists.rows.length > 0)
       throw new ErrorHandler("Cet email est déjà utilisé.", 409);
   }
 
-  // Valider rôle
-  if (role && !['user', 'admin'].includes(role))
+  // Valider le rôle
+  if (role && !["user", "admin"].includes(role))
     throw new ErrorHandler("Rôle invalide.", 400);
 
-  // hasher le nouveau Password
+  // ✅ Empêcher un admin de se rétrograder lui-même
+  if (userId === requestingAdminId && role && role !== "admin")
+    throw new ErrorHandler("Vous ne pouvez pas modifier votre propre rôle.", 400);
+
+  // Hash du nouveau password si fourni
   let hashedPassword = current.password;
   if (newPassword) {
-    if (newPassword.length < 6)
-      throw new ErrorHandler("Le mot de passe doit contenir au moins 6 caractères.", 400);
-    hashedPassword = await bcrypt.hash(newPassword, 10);
+    validatePassword(newPassword); // ✅ même règles partout
+    hashedPassword = await bcrypt.hash(newPassword, 12);
   }
+
+  const normalizedEmail = email ? email.trim().toLowerCase() : current.email;
 
   const result = await database.query(
     `UPDATE users
      SET name=$1, email=$2, phone=$3, address=$4, city=$5,
-         role=$6, is_verified=$7, is_active=$8, password=$9
+         role=$6, is_verified=$7, is_active=$8, password=$9,
+         updated_at=NOW()
      WHERE id=$10
      RETURNING id, name, email, avatar, role, is_verified,
-               is_active, phone, address, city, created_at`,
+               is_active, phone, address, city, created_at, updated_at`,
     [
-      name        || current.name,
-      email       || current.email,
-      phone       ?? current.phone,
-      address     ?? current.address,
-      city        ?? current.city,
-      role        || current.role,
-      is_verified ?? current.is_verified,
-      is_active   ?? current.is_active,
+      name?.trim()  || current.name,
+      normalizedEmail,
+      phone         ?? current.phone,
+      address       ?? current.address,
+      city          ?? current.city,
+      role          || current.role,
+      is_verified   ?? current.is_verified,
+      is_active     ?? current.is_active,
       hashedPassword,
       userId,
     ]

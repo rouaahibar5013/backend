@@ -8,18 +8,18 @@ import {
   googleCallback,
   forgotPassword,
   resetPassword,
+  resendVerification,
   getMe,
   updateProfile,
   updatePassword,
+  completeAccount,
   getAllUsers,
   deleteUser,
-  updateUserRole 
+  updateUserRole,
+  suspendUser,
+  activateUser,
+  adminUpdateUser,
 } from "../controllers/authController.js";
-
-
-import {  suspendUser, activateUser } from "../controllers/authController.js";
-import { adminUpdateUser } from "../controllers/authController.js";
-import { completeAccount } from "../controllers/authController.js";
 
 import { isAuthenticated , isAdmin  } from "../middlewares/auth.js";
 
@@ -38,6 +38,9 @@ router.get("/verify-email/:token", verifyEmail); // user clicks link in email
 router.post("/forgot-password",          forgotPassword);  // sends reset email
 router.post("/reset-password/:token",    resetPassword);   // sets new password
 
+
+//  renvoyer le lien de vérification
+router.post("/resend-verification", resendVerification);
 // ── Google OAuth ─────────────────────────────────────────
 // Step 1: redirect user to Google login page
 router.get(

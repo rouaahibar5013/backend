@@ -22,7 +22,8 @@ export const isAuthenticated = catchAsyncErrors(async (req, res, next) => {
 
   // ── Find the user in database ─────────────────────────
   const result = await database.query(
-    "SELECT id, name, email, avatar, role FROM users WHERE id = $1",
+
+    "SELECT id, name, email, avatar, role, is_active FROM users WHERE id = $1",
     [decoded.id]
   );
 
@@ -30,8 +31,12 @@ export const isAuthenticated = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler("User not found.", 404));
   }
 
-  // ── Attach user to request ────────────────────────────
-  // Now any controller can access req.user
+
+  // ✅ Bloquer les comptes suspendus même avec un cookie valide
+  if (result.rows[0].is_active === false)
+    return next(new ErrorHandler("Votre compte a été suspendu. Contactez le support.", 403));
+
+ 
   req.user = result.rows[0];
   next();
 });
