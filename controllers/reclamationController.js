@@ -2,7 +2,7 @@ import {
   createReclamationService,
   getAllReclamationsService,
   updateStatusService,
-} from "../services/contactService.js";
+} from "../services/reclamationService.js";
 
 // ═══════════════════════════════════════════════════════════
 // POST /api/contact/reclamation  (public)

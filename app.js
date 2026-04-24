@@ -20,7 +20,7 @@ import wishlistRoutes from "./routes/wishlistRoutes.js";
 import recipeRoutes from "./routes/recipeRoutes.js";
 import offresRoutes from "./routes/offresRoutes.js";
 import emailcampaignRoutes from "./routes/emailcampaignRoutes.js";
-import contactRoutes from "./routes/contactRoutes.js";
+import reclamationRoutes from "./routes/reclamationRoutes.js";
 
 import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 
@@ -78,7 +78,7 @@ app.use("/api/stats", statsRoutes);
 app.use("/api/email-campaigns", emailcampaignRoutes);
 app.use("/api/faqs", faqRouter);
 app.use("/api/recipes", recipeRoutes);
-app.use("/api/contact", contactRoutes);
+app.use("/api/contact", reclamationRoutes);
 
 // ─── Global error handler ─────────────────────────────────
 app.use(errorMiddleware);

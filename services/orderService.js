@@ -267,7 +267,7 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
     doc.moveTo(50, 750).lineTo(545, 750).strokeColor("#e5e7eb").lineWidth(1).stroke();
     doc.fontSize(9).fillColor("#9ca3af").font("Helvetica")
       .text("Merci pour votre commande ! Pour toute question : contact@goffa.tn", 50, 760, { align: "center", width: pageWidth })
-      .text("GOFFA — Artisanat tunisien authentique", 50, 775, { align: "center", width: pageWidth });
+      .text("GOFFA — Artisanat  authentique", 50, 775, { align: "center", width: pageWidth });
 
     doc.end();
   });

@@ -3,7 +3,7 @@ import {
   createReclamation,
   getAllReclamations,
   updateStatus,
-} from "../controllers/contactController.js";
+} from "../controllers/reclamationController.js";
 import { isAuthenticated, isAdmin } from "../middlewares/auth.js";
 
 const router = express.Router();

@@ -24,7 +24,7 @@ const buildEmailTemplate = ({ type, title, content_fr, promoCode, promoValue }) 
           🌿 GOFFA
         </h1>
         <p style="color: rgba(255,255,255,0.8); margin: 8px 0 0; font-size: 14px;">
-          artisanat tunisien
+          artisanat
         </p>
         <div style="background: rgba(255,255,255,0.2); display: inline-block; padding: 8px 20px; border-radius: 50px; margin-top: 16px;">
           <span style="color: white; font-weight: 700; font-size: 14px; letter-spacing: 2px;">
