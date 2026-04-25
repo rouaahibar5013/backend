@@ -30,7 +30,7 @@ const sendOrderConfirmationEmail = async (toEmail, order, customerName, pdfBuffe
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: #166534; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
           <h1 style="color: white; margin: 0;">🧺 GOFFA</h1>
-          <p style="color: #86efac; margin: 5px 0 0;">artisanat tunisien</p>
+          <p style="color: #86efac; margin: 5px 0 0;">artisanat</p>
         </div>
         <div style="padding: 30px; background: #f9fafb; border-radius: 0 0 10px 10px;">
           <h2 style="color: #166534;">✅ Commande confirmée !</h2>
@@ -85,9 +85,9 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
       .fontSize(10)
       .fillColor("#4b5563")
       .font("Helvetica")
-      .text("Artisanat tunisien", 50, 80)
-      .text("Email : contact@goffa.tn", 50, 95)
-      .text("Site : www.goffa.tn", 50, 110);
+      .text("Artisanat ", 50, 80)
+      .text("Email : contact@goffa.ch", 50, 95)
+      .text("Site : www.goffa.ch", 50, 110);
 
     // Bloc FACTURE à droite
     doc
@@ -291,7 +291,7 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
         50, 760, { align: "center", width: pageWidth }
       )
       .text(
-        "GOFFA — Artisanat tunisien authentique",
+        "GOFFA — Artisanat  authentique",
         50, 775, { align: "center", width: pageWidth }
       );
 
@@ -843,7 +843,7 @@ export const handleStripeWebhookService = async (payload, signature) => {
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <div style="background: #dc2626; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
               <h1 style="color: white; margin: 0;">🧺 GOFFA</h1>
-              <p style="color: #fecaca; margin: 5px 0 0;">artisanat tunisien</p>
+              <p style="color: #fecaca; margin: 5px 0 0;">artisanat</p>
             </div>
             <div style="padding: 30px; background: #f9fafb; border-radius: 0 0 10px 10px;">
               <h2 style="color: #dc2626;">❌ Paiement échoué</h2>
