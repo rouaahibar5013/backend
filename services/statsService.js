@@ -295,16 +295,24 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
       [start, end]
     ),
 
-    // 19 — Réclamations récentes non résolues
-    database.query(
-      `SELECT id, user_name, user_email, user_phone,
-              order_number, reclamation_type, message,
-              status, created_at
-       FROM reclamations
-       WHERE status = 'en_attente'
-       ORDER BY created_at DESC
-       LIMIT 10`
-    ),
+   database.query(
+  `SELECT
+     r.id,
+     r.reclamation_type,
+     r.message,
+     r.status,
+     r.created_at,
+     u.name   AS user_name,      
+     u.email  AS user_email,    
+     u.phone  AS user_phone,     
+     o.order_number              
+   FROM reclamations r
+   LEFT JOIN users  u ON u.id = r.user_id
+   LEFT JOIN orders o ON o.id = r.order_id
+   WHERE r.status = 'en_attente'
+   ORDER BY r.created_at DESC
+   LIMIT 10`
+),
 
     // 20 — Réclamations total période précédente
     database.query(
