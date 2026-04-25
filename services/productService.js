@@ -339,13 +339,16 @@ export const fetchAllProductsService = async ({
 };
 
 // ═══════════════════════════════════════════════════════════
-// FETCH SINGLE PRODUCT (Admin + Public)
-// ✅ Retourne TOUT même si le produit est désactivé quand admin=true
+// FETCH SINGLE PRODUCT
+// ✅ Full details + variants + attributes + reviews
+// FIX 3b: accepts admin flag to bypass is_active filter
 // ═══════════════════════════════════════════════════════════
 export const fetchSingleProductService = async (productId, admin = false, alreadyViewed = false) => {
-  if (!admin && !alreadyViewed) {
-    await database.query(`UPDATE products SET views_count = views_count + 1 WHERE id = $1`, [productId]);
-    await database.query(`INSERT INTO product_views (product_id) VALUES ($1)`, [productId]);
+
+
+ if (!admin && !alreadyViewed) {
+    database.query(`UPDATE products SET views_count = views_count + 1 WHERE id = $1`, [productId]);
+    database.query(`INSERT INTO product_views (product_id) VALUES ($1)`, [productId]);
   }
   
   const [productResult, variantsResult] = await Promise.all([
@@ -413,9 +416,9 @@ export const fetchSingleProductService = async (productId, admin = false, alread
           '[]'
         ) AS attributes
       FROM product_variants pv
-      LEFT JOIN product_variant_attributes pva ON pva.variant_id = pv.id
-      LEFT JOIN attribute_values           av  ON av.id          = pva.attribute_value_id
-      LEFT JOIN attribute_types            at  ON at.id          = av.attribute_type_id
+      LEFT JOIN product_variant_attributes pva ON pva.variant_id        = pv.id
+      LEFT JOIN attribute_values           av  ON av.id                 = pva.attribute_value_id
+      LEFT JOIN attribute_types            at  ON at.id                 = av.attribute_type_id
       LEFT JOIN LATERAL (
         SELECT discount_type, discount_value, expires_at
         FROM variant_promotions vp
@@ -426,22 +429,21 @@ export const fetchSingleProductService = async (productId, admin = false, alread
         ORDER BY vp.created_at DESC
         LIMIT 1
       ) active_promo ON true
-      WHERE pv.product_id = $1 ${admin ? "" : "AND pv.is_active = true"}
-      GROUP BY pv.id, active_promo.discount_type, active_promo.discount_value, active_promo.expires_at
+WHERE pv.product_id = $1 ${admin ? "" : "AND pv.is_active = true"}      GROUP BY pv.id, active_promo.discount_type, active_promo.discount_value, active_promo.expires_at
       ORDER BY pv.price ASC`,
       [productId]
     ),
   ]);
 
-  if (productResult.rows.length === 0) {
+  if (productResult.rows.length === 0)
     throw new ErrorHandler("Product not found.", 404);
-  }
 
   const product    = productResult.rows[0];
-  product.variants = variantsResult.rows || [];
+  product.variants = variantsResult.rows;
 
   return product;
 };
+
 // ═══════════════════════════════════════════════════════════
 // FETCH FEATURED PRODUCTS (homepage)
 // ═══════════════════════════════════════════════════════════
@@ -508,14 +510,13 @@ export const fetchFeaturedProductsService = async (limit = 8) => {
 
 // ═══════════════════════════════════════════════════════════
 // UPDATE PRODUCT
-// ✅ Now appends new images instead of replacing (your main request)
 // ═══════════════════════════════════════════════════════════
 export const updateProductService = async ({
-  productId, name_fr, description_fr, 
+  productId, name_fr,description_fr, 
   ethical_info_fr, origin, certifications,
   usage_fr, ingredients_fr, 
   precautions_fr, 
-  supplier_id, category_id, slug, is_active, is_featured, is_new,
+  supplier_id, category_id, slug, is_active, is_featured, is_new, low_stock_threshold,
   files,
 }) => {
   const existing = await database.query(
@@ -536,11 +537,12 @@ export const updateProductService = async ({
   }
 
   let images = p.images || [];
-
-  // ── NEW BEHAVIOR: ADD new images instead of replacing ──
   if (files && files.images) {
-    const newUploaded = await uploadProductImages(files.images);
-    images = [...images, ...newUploaded];   // ← append only
+    await Promise.all(
+      images.filter(img => img.public_id)
+            .map(img => cloudinary.uploader.destroy(img.public_id))
+    );
+    images = await uploadProductImages(files.images);
   }
 
   const result = await database.query(
@@ -578,6 +580,7 @@ export const updateProductService = async ({
 
   return result.rows[0];
 };
+
 // ═══════════════════════════════════════════════════════════
 // ADD VARIANT
 // ═══════════════════════════════════════════════════════════
