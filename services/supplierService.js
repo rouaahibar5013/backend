@@ -158,10 +158,10 @@ export const updateSupplierService = async ({
 
   const result = await database.query(
     `UPDATE suppliers SET
-       name=$1,  description_fr=$2, 
-       region=$3, address=$4, contact=$5, email=$6, website=$7,
-       is_certified_bio=$8, is_active=$9, logo_url=$10, updated_at=now()
-     WHERE id=$13 RETURNING *`,
+      name=$1, description_fr=$2,
+      region=$3, address=$4, contact=$5, email=$6, website=$7,
+      is_certified_bio=$8, is_active=$9, logo_url=$10, updated_at=now()
+    WHERE id=$11 RETURNING *`,
     [
       name ?? s.name,
       description_fr ?? s.description_fr,
