@@ -23,8 +23,9 @@ const router = express.Router();
 
 // ── Public ───────────────────────────────────────────────
 router.get("/featured",        fetchFeaturedProducts);  // homepage featured products
-router.get("/",                fetchAllProducts);        // browse + search + filter    // full product + variants + reviews
-router.get("/:productId", optionalAuth, fetchSingleProduct);
+router.get("/",                 fetchAllProducts);
+router.get("/admin/:productId", isAuthenticated, isAdmin, fetchSingleProduct);
+router.get("/:productId",       optionalAuth, fetchSingleProduct);
 
 // ── Admin only ───────────────────────────────────────────
 router.post("/",               isAuthenticated, isAdmin, createProduct);
