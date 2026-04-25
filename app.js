@@ -63,6 +63,12 @@ app.use(cookieParser());
 // 5. Passport
 app.use(passport.initialize());
 
+
+app.post('/api/orders/webhooks/stripe-test', (req, res) => {
+  console.log('✅ Route test atteinte !');
+  res.status(200).json({ ok: true });
+});
+
 // ─── Routes ───────────────────────────────────────────────
 app.use("/api/home", homeRoutes);
 app.use("/api/products",   productRoutes);

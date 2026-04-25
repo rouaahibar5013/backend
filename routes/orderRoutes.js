@@ -33,7 +33,7 @@ const router = express.Router();
 // ═══════════════════════════════════════════════════════════
 
 // ── 1. WEBHOOK STRIPE ───────────────────────────────────
-router.post("/webhook", stripeWebhook);
+router.post("/webhooks/stripe", stripeWebhook);
 
 // ── 2. ROUTES PUBLIQUES ─────────────────────────────────
 router.get("/shipping-cost",   getShippingCost);
