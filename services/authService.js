@@ -86,7 +86,7 @@ const wrapEmail = (bodyHtml) => `
   <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
     <div style="background:#166534;padding:30px;text-align:center;border-radius:10px 10px 0 0;">
       <h1 style="color:white;margin:0;">🧺 GOFFA</h1>
-      <p style="color:#86efac;margin:5px 0 0;">artisanat tunisien</p>
+      <p style="color:#86efac;margin:5px 0 0;">artisanat</p>
     </div>
     <div style="padding:30px;background:#f9fafb;border-radius:0 0 10px 10px;">
       ${bodyHtml}
