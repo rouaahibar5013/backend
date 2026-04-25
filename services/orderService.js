@@ -945,7 +945,6 @@ export const getMyOrdersService = async (userId) => {
        o.payment_status, o.subtotal, o.discount_amount,
        o.shipping_cost, o.total_price,
        o.shipping_address, o.shipping_city, o.created_at,
-       -- Promo via JOIN (plus de promo_code en colonne)
        pr.code AS promo_code,
        d.status          AS delivery_status,
        d.tracking_number,
