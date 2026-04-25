@@ -517,7 +517,7 @@ export const updateProductService = async ({
   usage_fr, ingredients_fr, 
   precautions_fr, 
   supplier_id, category_id, slug, is_active, is_featured, is_new, low_stock_threshold,
-  files,
+  files,existingImages,
 }) => {
   const existing = await database.query(
     "SELECT * FROM products WHERE id = $1", [productId]
@@ -536,13 +536,10 @@ export const updateProductService = async ({
     if (sup.rows.length === 0) throw new ErrorHandler("Supplier not found.", 404);
   }
 
-  let images = p.images || [];
+  let images = existingImages ?? (p.images || []); 
   if (files && files.images) {
-    await Promise.all(
-      images.filter(img => img.public_id)
-            .map(img => cloudinary.uploader.destroy(img.public_id))
-    );
-    images = await uploadProductImages(files.images);
+      const newUploads = await uploadProductImages(files.images);
+    images = [...images, ...newUploads];             
   }
 
   const result = await database.query(
@@ -626,7 +623,7 @@ export const addVariantService = async ({
 // ═══════════════════════════════════════════════════════════
 export const updateVariantService = async ({
   variantId, price,  cost_price,
-  stock, sku,low_stock_threshold ,weight_grams, is_active,
+  stock, sku,low_stock_threshold ,weight_grams, is_active,attributes,
 }) => {
   const existing = await database.query(
     "SELECT * FROM product_variants WHERE id = $1", [variantId]
@@ -669,8 +666,24 @@ export const updateVariantService = async ({
     ]
   );
 
-  return result.rows[0];
+    const updatedVariant = result.rows[0];
+
+  if (attributes && attributes.length > 0) {
+    await database.query(
+      "DELETE FROM product_variant_attributes WHERE variant_id = $1", [variantId]
+    );
+    for (const attr of attributes) {
+      const valueId = await upsertAttribute(attr.type_fr, attr.value_fr);
+      await database.query(
+        "INSERT INTO product_variant_attributes (variant_id, attribute_value_id) VALUES ($1, $2)",
+        [variantId, valueId]
+      );
+    }
+  }
+
+  return updatedVariant;
 };
+
 
 // ═══════════════════════════════════════════════════════════
 // DELETE VARIANT
