@@ -38,6 +38,11 @@ app.use(cors({
 }));
 
 
+// 2. fileUpload — AVANT express.json() pour traiter le multipart/form-data
+app.use(fileUpload({
+  useTempFiles: true,
+  tempFileDir:  "/tmp/",
+}));
 
 // 3. Parsers JSON et URL-encoded
 app.use(
@@ -50,11 +55,6 @@ app.use(express.urlencoded({ extended: true }));
 
 
 
-// 2. fileUpload — AVANT express.json() pour traiter le multipart/form-data
-app.use(fileUpload({
-  useTempFiles: true,
-  tempFileDir:  "/tmp/",
-}));
 
 
 // 4. Cookie parser

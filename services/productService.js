@@ -429,8 +429,7 @@ export const fetchSingleProductService = async (productId, admin = false, alread
         ORDER BY vp.created_at DESC
         LIMIT 1
       ) active_promo ON true
-      WHERE pv.product_id = $1 AND pv.is_active = true
-      GROUP BY pv.id, active_promo.discount_type, active_promo.discount_value, active_promo.expires_at
+WHERE pv.product_id = $1 ${admin ? "" : "AND pv.is_active = true"}      GROUP BY pv.id, active_promo.discount_type, active_promo.discount_value, active_promo.expires_at
       ORDER BY pv.price ASC`,
       [productId]
     ),
