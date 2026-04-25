@@ -52,6 +52,7 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
     variants: parsedVariants,
     userId: req.user.id,
     files: req.files,
+    existingImages: existingImages ? JSON.parse(existingImages) : undefined, 
     is_active:   req.body.is_active   !== undefined ? req.body.is_active   === "true" : true,
     is_featured: req.body.is_featured !== undefined ? req.body.is_featured === "true" : false,
     is_new:      req.body.is_new      !== undefined ? req.body.is_new      === "true" : true,
@@ -151,12 +152,13 @@ export const updateProduct = catchAsyncErrors(async (req, res) => {
     is_featured,
     is_new,
     certifications,
+    existingImages, 
   } = req.body;
 
   const product = await productService.updateProductService({
     productId:      req.params.productId,
     name_fr:        ou(name_fr),
-    description_fr: ou(description_fr),      // ✅ "" → undefined → garde la valeur en base
+    description_fr: ou(description_fr),      
     ethical_info_fr:ou(ethical_info_fr),
     origin:         ou(origin),
     usage_fr:       ou(usage_fr),
@@ -170,6 +172,7 @@ export const updateProduct = catchAsyncErrors(async (req, res) => {
     is_featured:    is_featured !== undefined ? is_featured === "true" : undefined,
     is_new:         is_new      !== undefined ? is_new      === "true" : undefined,
     files:          req.files,
+    existingImages: existingImages ? JSON.parse(existingImages) : undefined,
   });
 
   res.status(200).json({
@@ -215,13 +218,14 @@ export const addVariant = catchAsyncErrors(async (req, res, next) => {
 export const updateVariant = catchAsyncErrors(async (req, res) => {
   const {
     price, cost_price, stock, sku, weight_grams,
-    is_active, low_stock_threshold,               // ✅ low_stock_threshold ajouté
+    is_active, low_stock_threshold, attributes             
   } = req.body;
 
   const variant = await productService.updateVariantService({
     variantId: req.params.variantId,
     price, cost_price, stock, sku, weight_grams,
     low_stock_threshold,
+    attributes: attributes ? JSON.parse(attributes) : undefined, 
     is_active: is_active !== undefined ? is_active === "true" : undefined,
   });
 
