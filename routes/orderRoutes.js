@@ -22,120 +22,44 @@ import {
 
 import {
   isAuthenticated,
-   isAdmin,
+  isAdmin,
 } from "../middlewares/auth.js";
 
 const router = express.Router();
 
 // ═══════════════════════════════════════════════════════════
-// WEBHOOK STRIPE — raw body obligatoire
-// ✅ DOIT être déclaré AVANT express.json() dans app.js
-// ✅ Dans app.js : app.use('/api/orders/webhook', express.raw({ type: 'application/json' }))
+// ⚠️  RÈGLE CRITIQUE — ORDRE DES ROUTES
+// Les routes statiques DOIVENT être avant /:orderId
 // ═══════════════════════════════════════════════════════════
+
+// ── 1. WEBHOOK STRIPE ───────────────────────────────────
 router.post("/webhook", stripeWebhook);
 
-// ═══════════════════════════════════════════════════════════
-// ROUTES PUBLIQUES
-// ═══════════════════════════════════════════════════════════
-
-// Frais de livraison en temps réel (GET /api/orders/shipping-cost?subtotal=XX)
-router.get("/shipping-cost", getShippingCost);
-
-// Validation code promo (checkout)
+// ── 2. ROUTES PUBLIQUES ─────────────────────────────────
+router.get("/shipping-cost",   getShippingCost);
 router.post("/validate-promo", validatePromo);
+router.post("/guest",          createGuestOrder);
 
-// Commande guest (non connecté)
-router.post("/guest", createGuestOrder);
-
-// Webhooks Odoo
+// ── 3. ODOO WEBHOOKS ────────────────────────────────────
 router.post("/odoo/stock-update", odooStockUpdate);
 router.post("/odoo/price-update", odooPriceUpdate);
 
-// ═══════════════════════════════════════════════════════════
-// ROUTES USER CONNECTÉ
-// ═══════════════════════════════════════════════════════════
+// ── 4. ADMIN — routes statiques ──────────────────────────
+router.get("/admin/low-stock", isAuthenticated, isAdmin, getLowStockProducts);
+router.get("/odoo/settings",   isAuthenticated, isAdmin, getOdooSettings);
+router.put("/odoo/settings",   isAuthenticated, isAdmin, updateOdooSettings);
+router.get("/odoo/logs",       isAuthenticated,isAdmin, getSyncLogs);
 
-// Créer une commande
-router.post("/", isAuthenticated, createOrder);
+// ── 5. USER CONNECTÉ — routes statiques ─────────────────
+router.post("/",    isAuthenticated, createOrder);
+router.get("/my",   isAuthenticated, getMyOrders);
+router.get("/all",  isAuthenticated, isAdmin, getAllOrders);
 
-// Mes commandes
-router.get("/my", isAuthenticated, getMyOrders);
-
-// Détail d'une commande (user voit la sienne, admin voit toutes)
-router.get("/:orderId", isAuthenticated, getSingleOrder);
-
-// ═══════════════════════════════════════════════════════════
-// ROUTES ADMIN
-// ═══════════════════════════════════════════════════════════
-
-// Liste de toutes les commandes
-router.get(
-  "/",
-  isAuthenticated,
-   isAdmin,
-  getAllOrders
-);
-
-// Mettre à jour le statut d'une commande
-router.patch(
-  "/:orderId/status",
-  isAuthenticated,
-   isAdmin,
-  updateOrderStatus
-);
-
-// Annuler une commande (admin only — reason obligatoire)
-router.patch(
-  "/:orderId/cancel",
-  isAuthenticated,
-   isAdmin,
-  cancelOrder
-);
-
-// Mettre à jour la livraison (carrier, tracking, estimated_date, status, notes)
-router.patch(
-  "/:orderId/delivery",
-  isAuthenticated,
-   isAdmin,
-  updateDelivery
-);
-
-// Mettre à jour les infos de livraison (adresse)
-router.put(
-  "/:orderId/shipping",
-  isAuthenticated,
-   isAdmin,
-  adminUpdateOrderShipping
-);
-
-// Produits en stock faible (dashboard)
-router.get(
-  "/admin/low-stock",
-  isAuthenticated,
-   isAdmin,
-  getLowStockProducts
-);
-
-// Paramètres Odoo
-router.get(
-  "/odoo/settings",
-  isAuthenticated,
-   isAdmin,
-  getOdooSettings
-);
-
-router.put(
-  "/odoo/settings",
-  isAuthenticated,
-   isAdmin,
-  updateOdooSettings
-);
-
-router.get(
-  "/odoo/logs",
-  isAuthenticated,
-   isAdmin,
-  getSyncLogs
-);
+// ── 6. ROUTES DYNAMIQUES (/:orderId) — EN DERNIER ───────
+router.get(    "/:orderId",          isAuthenticated,                        getSingleOrder);
+router.patch(  "/:orderId/status",   isAuthenticated, isAdmin, updateOrderStatus);
+router.patch(  "/:orderId/cancel",   isAuthenticated, isAdmin, cancelOrder);
+router.patch(  "/:orderId/delivery", isAuthenticated, isAdmin, updateDelivery);
+router.put(    "/:orderId/shipping", isAuthenticated, isAdmin, adminUpdateOrderShipping);
 
 export default router;
