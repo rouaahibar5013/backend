@@ -3,6 +3,7 @@ import passport from "../config/passport.js";
 import {
   register,
   login,
+   verifyMfa,
   logout,
   verifyEmail,
   googleCallback,
@@ -20,14 +21,22 @@ import {
   activateUser,
   adminUpdateUser,
 } from "../controllers/authController.js";
+import {
+  loginLimiter,
+  mfaLimiter,
+  registerLimiter,
+  forgotPasswordLimiter,
+} from "../middlewares/rateLimiter.js";
 
 import { isAuthenticated , isAdmin  } from "../middlewares/auth.js";
 
 const router = express.Router();
 
 // ── Public ───────────────────────────────────────────────
-router.post("/register",    register);       // create account → sends verification email
-router.post("/login",       login);          // login → sets cookie
+router.post("/register",         registerLimiter,        register);
+router.post("/login",            loginLimiter,           login);
+router.post("/login/verify-mfa", mfaLimiter,             verifyMfa);
+
 router.post("/logout",      logout);         // logout → clears cookie
 router.post("/complete-account/:token", completeAccount);
 
@@ -35,7 +44,7 @@ router.post("/complete-account/:token", completeAccount);
 router.get("/verify-email/:token", verifyEmail); // user clicks link in email
 
 // ── Forgot / Reset Password ──────────────────────────────
-router.post("/forgot-password",          forgotPassword);  // sends reset email
+router.post("/forgot-password",  forgotPasswordLimiter,  forgotPassword);
 router.post("/reset-password/:token",    resetPassword);   // sets new password
 
 

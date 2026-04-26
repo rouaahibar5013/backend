@@ -2,55 +2,64 @@ import express from "express";
 import {
   createOrder,
   createGuestOrder,
-  confirmStripePayment,
+  stripeWebhook,
+  getShippingCost,
+  validatePromo,
   getMyOrders,
   getSingleOrder,
-  cancelOrder,
   getAllOrders,
   updateOrderStatus,
+  cancelOrder,
   updateDelivery,
+  adminUpdateOrderShipping,
+  getLowStockProducts,
   odooStockUpdate,
   odooPriceUpdate,
   getOdooSettings,
   updateOdooSettings,
   getSyncLogs,
-  stripeWebhook,
-  getLowStockProducts,
-  adminUpdateOrderShipping,
-  validatePromo,            // ← NEW
 } from "../controllers/orderController.js";
-import { isAuthenticated, isAdmin } from "../middlewares/auth.js";
+
+import {
+  isAuthenticated,
+  isAdmin,
+} from "../middlewares/auth.js";
 
 const router = express.Router();
 
-// ── Webhooks publics ──────────────────────────────────────
-router.post('/webhooks/stripe',            stripeWebhook);
-router.post("/webhooks/odoo/stock-update", odooStockUpdate);
-router.post("/webhooks/odoo/price-update", odooPriceUpdate);
+// ═══════════════════════════════════════════════════════════
+// ⚠️  RÈGLE CRITIQUE — ORDRE DES ROUTES
+// Les routes statiques DOIVENT être avant /:orderId
+// ═══════════════════════════════════════════════════════════
 
-// ── Guest ─────────────────────────────────────────────────
-router.post("/guest", createGuestOrder);
+// ── 1. WEBHOOK STRIPE ───────────────────────────────────
+router.post("/webhooks/stripe", stripeWebhook);
 
-// ── Validation code promo (public) ───────────────────────
-router.post("/validate-promo", validatePromo);   // ← NEW — avant /:orderId
+// ── 2. ROUTES PUBLIQUES ─────────────────────────────────
+router.get("/shipping-cost",   getShippingCost);
+router.post("/validate-promo", validatePromo);
+router.post("/guest",          createGuestOrder);
 
-// ── Statiques admin — AVANT /:orderId ────────────────────
+// ── 3. ODOO WEBHOOKS ────────────────────────────────────
+router.post("/odoo/stock-update", odooStockUpdate);
+router.post("/odoo/price-update", odooPriceUpdate);
+
+// ── 4. ADMIN — routes statiques ──────────────────────────
 router.get("/admin/low-stock", isAuthenticated, isAdmin, getLowStockProducts);
 router.get("/odoo/settings",   isAuthenticated, isAdmin, getOdooSettings);
-router.get("/odoo/logs",       isAuthenticated, isAdmin, getSyncLogs);
 router.put("/odoo/settings",   isAuthenticated, isAdmin, updateOdooSettings);
+router.get("/odoo/logs",       isAuthenticated,isAdmin, getSyncLogs);
 
-// ── Statiques client — AVANT /:orderId ───────────────────
-router.get("/my",  isAuthenticated, getMyOrders);
-router.post("/",   isAuthenticated, createOrder);
-router.get("/",    isAuthenticated, isAdmin, getAllOrders);
+// ── 5. USER CONNECTÉ — routes statiques ─────────────────
+router.post("/",    isAuthenticated, createOrder);
+router.get("/my",   isAuthenticated, getMyOrders);
+router.get("/all",  isAuthenticated, isAdmin, getAllOrders);
 
-// ── Dynamiques avec :orderId — EN DERNIER ─────────────────
-router.get("/:orderId",                 isAuthenticated, getSingleOrder);
-router.patch("/:orderId/cancel",        isAuthenticated, cancelOrder);
-router.post("/:orderId/stripe/confirm", isAuthenticated, confirmStripePayment);
-router.patch("/:orderId/status",        isAuthenticated, isAdmin, updateOrderStatus);
-router.patch("/:orderId/delivery",      isAuthenticated, isAdmin, updateDelivery);
-router.put("/:orderId/shipping",        isAuthenticated, isAdmin, adminUpdateOrderShipping);
+// ── 6. ROUTES DYNAMIQUES (/:orderId) — EN DERNIER ───────
+router.get(    "/:orderId",          isAuthenticated,                        getSingleOrder);
+router.patch(  "/:orderId/status",   isAuthenticated, isAdmin, updateOrderStatus);
+router.patch(  "/:orderId/cancel",   isAuthenticated, isAdmin, cancelOrder);
+router.patch(  "/:orderId/delivery", isAuthenticated, isAdmin, updateDelivery);
+router.put(    "/:orderId/shipping", isAuthenticated, isAdmin, adminUpdateOrderShipping);
 
 export default router;

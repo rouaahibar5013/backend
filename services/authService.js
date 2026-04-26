@@ -6,6 +6,8 @@ import database      from "../database/db.js";
 import ErrorHandler  from "../middlewares/errorMiddleware.js";
 import sendEmail     from "../utils/sendEmail.js";
 import { linkSubscriptionToUserService } from "./emailcampaignService.js";
+import { checkLoginBlock, recordFailedLogin, clearLoginAttempts } from "../utils/loginAttempts.js";
+
 
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -20,32 +22,25 @@ export const validatePassword = (password) => {
   if (!password || typeof password !== "string")
     throw new ErrorHandler("Le mot de passe est requis.", 400);
 
-  if (password.length < 8)
-    throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins 8 caractères.", 400
-    );
+  const errors = [];
 
+  if (password.length < 10)
+    errors.push("au moins 10 caractères");
   if (!/[a-z]/.test(password))
-    throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins une lettre minuscule.", 400
-    );
-
+    errors.push("une lettre minuscule");
   if (!/[A-Z]/.test(password))
-    throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins une lettre majuscule.", 400
-    );
-
+    errors.push("une lettre majuscule");
   if (!/[0-9]/.test(password))
-    throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins un chiffre.", 400
-    );
-
+    errors.push("un chiffre");
   if (!/[!@#$%^&*()\-_=+\[\]{};':",.<>/?`~\\|]/.test(password))
+    errors.push("un caractère spécial (!@#$%^&*…)");
+
+  if (errors.length > 0)
     throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins un caractère spécial (!@#$%^&*…).", 400
+      `Le mot de passe doit contenir : ${errors.join(", ")}.`,
+      400
     );
 };
-
 /**
  * Valide le format d'un email.
  */
@@ -283,7 +278,7 @@ export const verifyUserEmail = async (token) => {
 // ══════════════════════════════════════════════════════════════════════════
 // LOGIN
 // ══════════════════════════════════════════════════════════════════════════
-export const loginUser = async ({ email, password }) => {
+export const loginUser = async ({ email, password, ip}) => {
   validateEmail(email);
 
   if (!password) throw new ErrorHandler("Le mot de passe est requis.", 400);
@@ -327,17 +322,109 @@ export const loginUser = async ({ email, password }) => {
       "Veuillez vérifier votre email avant de vous connecter.", 401
     );
 
-  // Vérification du mot de passe
-  const isPasswordCorrect = await bcrypt.compare(password, user.password);
-  if (!isPasswordCorrect)
+
+ try {
+    await checkLoginBlock(user.id, ip);
+  } catch (err) {
+    if (err.message.startsWith("BLOCKED:")) {
+      const minutes = err.message.split(":")[1];
+      throw new ErrorHandler(
+        `Compte temporairement bloqué après trop d'échecs. Réessayez dans ${minutes} minute(s).`, 429
+      );
+    }
+  }
+
+
+
+
+
+ const isPasswordCorrect = await bcrypt.compare(password, user.password);
+  if (!isPasswordCorrect) {
+    await recordFailedLogin(user.id, ip);
     throw new ErrorHandler("Email ou mot de passe incorrect.", 401);
+  }
+  // ✅ Connexion réussie → effacer les échecs
+  await clearLoginAttempts(user.id, ip);
 
-  // Retourner user sans password
-  const { password: _, ...userWithoutPassword } = user;
+// ══════ MFA — générer OTP ══════
+  const otp        = Math.floor(100000 + Math.random() * 900000).toString(); // 6 chiffres
+  const otpHashed  = crypto.createHash("sha256").update(otp).digest("hex");
+  const otpExpire  = new Date(Date.now() + 10 * 60 * 1000); // 10 min
 
-  await linkSubscriptionToUserService({ userId: user.id, email: normalizedEmail });
+  await database.query(
+    `UPDATE users SET mfa_otp=$1, mfa_otp_expire=$2, updated_at=NOW() WHERE id=$3`,
+    [otpHashed, otpExpire, user.id]
+  );
 
-  return userWithoutPassword;
+  await sendEmail({
+    to:      normalizedEmail,
+    subject: "Votre code de connexion — GOFFA 🧺",
+    html: wrapEmail(`
+      <h2>Code de vérification</h2>
+      <p>Bonjour ${user.name},</p>
+      <p>Voici votre code de connexion à usage unique :</p>
+      <div style="font-size:36px;font-weight:bold;letter-spacing:12px;
+                  text-align:center;color:#166534;margin:24px 0;">
+        ${otp}
+      </div>
+      <p style="color:#666;font-size:14px;">
+        Ce code expire dans <strong>10 minutes</strong>.<br/>
+        Si vous n'avez pas tenté de vous connecter, ignorez cet email.
+      </p>
+    `),
+  });
+
+ // ✅ Retourner un mfaSessionToken signé à la place du userId brut
+  const mfaSessionToken = jwt.sign(
+    { userId: user.id },
+    process.env.JWT_SECRET,
+    { expiresIn: "10m" }
+  );
+  return { mfaRequired: true, mfaSessionToken };
+};
+
+
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// VERIFY MFA OTP
+// ══════════════════════════════════════════════════════════════════════════
+export const verifyMfaService = async ({ mfaSessionToken, otp }) => {
+  if (!mfaSessionToken || !otp)
+    throw new ErrorHandler("mfaSessionToken et otp sont requis.", 400);
+
+  // ✅ Vérifier et décoder le token MFA
+  let userId;
+  try {
+    const decoded = jwt.verify(mfaSessionToken, process.env.JWT_SECRET);
+    userId = decoded.userId;
+  } catch {
+    throw new ErrorHandler("Session MFA expirée. Recommencez la connexion.", 401);
+  }
+
+  const result = await database.query(
+    `SELECT * FROM users WHERE id=$1 AND mfa_otp IS NOT NULL AND mfa_otp_expire > NOW()`,
+    [userId]
+  );
+
+  if (result.rows.length === 0)
+    throw new ErrorHandler("Code invalide ou expiré. Recommencez la connexion.", 401);
+
+  const user = result.rows[0];
+
+  const otpHashed = crypto.createHash("sha256").update(otp).digest("hex");
+  if (otpHashed !== user.mfa_otp)
+    throw new ErrorHandler("Code incorrect.", 401);
+
+  await database.query(
+    `UPDATE users SET mfa_otp=NULL, mfa_otp_expire=NULL, updated_at=NOW() WHERE id=$1`,
+    [userId]
+  );
+
+  await linkSubscriptionToUserService({ userId: user.id, email: user.email });
+
+  const { password: _, mfa_otp: __, mfa_otp_expire: ___, ...userClean } = user;
+  return userClean;
 };
 
 
@@ -480,17 +567,17 @@ export const getUserById = async (id) => {
   return result.rows[0];
 };
 
-
 // ══════════════════════════════════════════════════════════════════════════
 // UPDATE PROFILE
+// ✅ name, avatar, phone, address, city → champs auth
+// ✅ phone  → propage aussi vers billing_phone  (sync auto)
+// ✅ address → propage aussi vers billing_address (sync auto)
+// ✅ city   → propage aussi vers billing_city   (sync auto)
+// ✅ billing_* et shipping_* restent modifiables indépendamment
 // ══════════════════════════════════════════════════════════════════════════
 export const updateUserProfile = async ({
   userId, name, phone, address, city,
   avatarFile, deleteAvatar,
-  billing_full_name, billing_phone, billing_address,
-  billing_city, billing_governorate, billing_postal_code, billing_country,
-  shipping_full_name, shipping_phone, shipping_address,
-  shipping_city, shipping_governorate, shipping_postal_code, shipping_country,
 }) => {
   const userResult = await database.query(
     "SELECT * FROM users WHERE id = $1", [userId]
@@ -502,13 +589,13 @@ export const updateUserProfile = async ({
   const cu = userResult.rows[0]; // current user
   let avatarUrl = cu.avatar;
 
-  // Suppression avatar
+  // ── Suppression avatar ───────────────────────────────
   if (deleteAvatar === "true" || deleteAvatar === true) {
     await destroyCloudinaryAvatar(cu.avatar);
     avatarUrl = null;
   }
 
-  // Remplacement avatar
+  // ── Remplacement avatar ──────────────────────────────
   if (avatarFile) {
     await destroyCloudinaryAvatar(cu.avatar);
     const upload = await cloudinary.uploader.upload(avatarFile.tempFilePath, {
@@ -519,50 +606,57 @@ export const updateUserProfile = async ({
     avatarUrl = upload.secure_url;
   }
 
+  // ── Valeurs finales des champs auth ──────────────────
+  const newPhone   = phone   ?? cu.phone;
+  const newAddress = address ?? cu.address;
+  const newCity    = city    ?? cu.city;
+
+  // ✅ Sync auto : si le champ auth change → billing aussi
+  // COALESCE : on ne remplace que si la nouvelle valeur est non-null
+  // Logique : si l'user met à jour phone → billing_phone suit
+  //           si l'user ne touche pas phone → billing_phone reste inchangé
+  const newBillingPhone   = phone   !== undefined ? newPhone   : cu.billing_phone;
+  const newBillingAddress = address !== undefined ? newAddress : cu.billing_address;
+  const newBillingCity    = city    !== undefined ? newCity    : cu.billing_city;
+
   const result = await database.query(
     `UPDATE users
-     SET name=$1, avatar=$2, phone=$3, address=$4, city=$5,
-         billing_full_name=$6, billing_phone=$7, billing_address=$8,
-         billing_city=$9, billing_governorate=$10, billing_postal_code=$11, billing_country=$12,
-         shipping_full_name=$13, shipping_phone=$14, shipping_address=$15,
-         shipping_city=$16, shipping_governorate=$17, shipping_postal_code=$18, shipping_country=$19,
-         updated_at=NOW()
-     WHERE id=$20
-     RETURNING id, name, email, avatar, role, is_verified, is_active,
-               phone, address, city,
-               billing_full_name, billing_phone, billing_address,
-               billing_city, billing_governorate, billing_postal_code, billing_country,
-               shipping_full_name, shipping_phone, shipping_address,
-               shipping_city, shipping_governorate, shipping_postal_code, shipping_country,
-               created_at, updated_at`,
+     SET
+       -- Champs auth
+       name    = $1,
+       avatar  = $2,
+       phone   = $3,
+       address = $4,
+       city    = $5,
+       -- Sync auto billing (phone/address/city)
+       billing_phone   = $6,
+       billing_address = $7,
+       billing_city    = $8,
+       updated_at = NOW()
+     WHERE id = $9
+     RETURNING
+       id, name, email, avatar, role, is_verified, is_active,
+       phone, address, city,
+       billing_full_name, billing_phone, billing_address,
+       billing_city, billing_governorate, billing_postal_code, billing_country,
+       shipping_full_name, shipping_phone, shipping_address,
+       shipping_city, shipping_governorate, shipping_postal_code, shipping_country,
+       created_at, updated_at`,
     [
-      name?.trim()        || cu.name,
+      name?.trim() || cu.name,
       avatarUrl,
-      phone               ?? cu.phone,
-      address             ?? cu.address,
-      city                ?? cu.city,
-      billing_full_name   ?? cu.billing_full_name,
-      billing_phone       ?? cu.billing_phone,
-      billing_address     ?? cu.billing_address,
-      billing_city        ?? cu.billing_city,
-      billing_governorate ?? cu.billing_governorate,
-      billing_postal_code ?? cu.billing_postal_code,
-      billing_country     ?? cu.billing_country,
-      shipping_full_name  ?? cu.shipping_full_name,
-      shipping_phone      ?? cu.shipping_phone,
-      shipping_address    ?? cu.shipping_address,
-      shipping_city       ?? cu.shipping_city,
-      shipping_governorate ?? cu.shipping_governorate,
-      shipping_postal_code ?? cu.shipping_postal_code,
-      shipping_country    ?? cu.shipping_country,
+      newPhone,
+      newAddress,
+      newCity,
+      newBillingPhone,
+      newBillingAddress,
+      newBillingCity,
       userId,
     ]
   );
 
   return result.rows[0];
 };
-
-
 // ══════════════════════════════════════════════════════════════════════════
 // UPDATE PASSWORD
 // ══════════════════════════════════════════════════════════════════════════
