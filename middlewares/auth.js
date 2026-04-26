@@ -3,6 +3,7 @@ import { catchAsyncErrors } from "./catchAsyncErrors.js";
 import ErrorHandler from "./errorMiddleware.js";
 import { isTokenBlacklisted } from "../utils/tokenBlacklist.js";
 import database from "../database/db.js";
+import { getUserById } from "../services/authService.js";
 
 // ═══════════════════════════════════════════════════════════
 // IS AUTHENTICATED
