@@ -64,10 +64,35 @@ export const verifyEmail = catchAsyncErrors(async (req, res, next) => {
 // ══════════════════════════════════════════════════════════════════════════
 export const login = catchAsyncErrors(async (req, res, next) => {
   const { email, password } = req.body;
-  const user = await authService.loginUser({ email, password });
-  sendToken(user, 200, "Connexion réussie.", res);
+  const result = await authService.loginUser({ email, password });
+
+  // MFA requis → pas de token encore
+  if (result.mfaRequired) {
+    return res.status(200).json({
+      success: true,
+      mfaRequired: true,
+      userId: result.userId,
+      message: "Un code de vérification a été envoyé à votre adresse email.",
+    });
+  }
+
+  sendToken(result, 200, "Connexion réussie.", res);
 });
 
+
+// ══════════════════════════════════════════════════════════════════════════
+// VERIFY MFA
+// POST /api/auth/login/verify-mfa
+// ══════════════════════════════════════════════════════════════════════════
+export const verifyMfa = catchAsyncErrors(async (req, res, next) => {
+  const { userId, otp } = req.body;
+
+  if (!userId || !otp)
+    return next(new ErrorHandler("userId et otp sont requis.", 400));
+
+  const user = await authService.verifyMfaService({ userId, otp });
+  sendToken(user, 200, "Connexion réussie.", res);
+});
 
 // ══════════════════════════════════════════════════════════════════════════
 // LOGOUT

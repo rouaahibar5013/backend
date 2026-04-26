@@ -3,6 +3,7 @@ import passport from "../config/passport.js";
 import {
   register,
   login,
+   verifyMfa,
   logout,
   verifyEmail,
   googleCallback,
@@ -27,7 +28,8 @@ const router = express.Router();
 
 // ── Public ───────────────────────────────────────────────
 router.post("/register",    register);       // create account → sends verification email
-router.post("/login",       login);          // login → sets cookie
+router.post("/login",       login);          // login 
+router.post("/login/verify-mfa", verifyMfa);
 router.post("/logout",      logout);         // logout → clears cookie
 router.post("/complete-account/:token", completeAccount);
 

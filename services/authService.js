@@ -20,32 +20,25 @@ export const validatePassword = (password) => {
   if (!password || typeof password !== "string")
     throw new ErrorHandler("Le mot de passe est requis.", 400);
 
-  if (password.length < 8)
-    throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins 8 caractères.", 400
-    );
+  const errors = [];
 
+  if (password.length < 10)
+    errors.push("au moins 10 caractères");
   if (!/[a-z]/.test(password))
-    throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins une lettre minuscule.", 400
-    );
-
+    errors.push("une lettre minuscule");
   if (!/[A-Z]/.test(password))
-    throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins une lettre majuscule.", 400
-    );
-
+    errors.push("une lettre majuscule");
   if (!/[0-9]/.test(password))
-    throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins un chiffre.", 400
-    );
-
+    errors.push("un chiffre");
   if (!/[!@#$%^&*()\-_=+\[\]{};':",.<>/?`~\\|]/.test(password))
+    errors.push("un caractère spécial (!@#$%^&*…)");
+
+  if (errors.length > 0)
     throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins un caractère spécial (!@#$%^&*…).", 400
+      `Le mot de passe doit contenir : ${errors.join(", ")}.`,
+      400
     );
 };
-
 /**
  * Valide le format d'un email.
  */
@@ -326,18 +319,76 @@ export const loginUser = async ({ email, password }) => {
     throw new ErrorHandler(
       "Veuillez vérifier votre email avant de vous connecter.", 401
     );
+// ══════ MFA — générer OTP ══════
+  const otp        = Math.floor(100000 + Math.random() * 900000).toString(); // 6 chiffres
+  const otpHashed  = crypto.createHash("sha256").update(otp).digest("hex");
+  const otpExpire  = new Date(Date.now() + 10 * 60 * 1000); // 10 min
 
-  // Vérification du mot de passe
-  const isPasswordCorrect = await bcrypt.compare(password, user.password);
-  if (!isPasswordCorrect)
-    throw new ErrorHandler("Email ou mot de passe incorrect.", 401);
+  await database.query(
+    `UPDATE users SET mfa_otp=$1, mfa_otp_expire=$2, updated_at=NOW() WHERE id=$3`,
+    [otpHashed, otpExpire, user.id]
+  );
 
-  // Retourner user sans password
-  const { password: _, ...userWithoutPassword } = user;
+  await sendEmail({
+    to:      normalizedEmail,
+    subject: "Votre code de connexion — GOFFA 🧺",
+    html: wrapEmail(`
+      <h2>Code de vérification</h2>
+      <p>Bonjour ${user.name},</p>
+      <p>Voici votre code de connexion à usage unique :</p>
+      <div style="font-size:36px;font-weight:bold;letter-spacing:12px;
+                  text-align:center;color:#166534;margin:24px 0;">
+        ${otp}
+      </div>
+      <p style="color:#666;font-size:14px;">
+        Ce code expire dans <strong>10 minutes</strong>.<br/>
+        Si vous n'avez pas tenté de vous connecter, ignorez cet email.
+      </p>
+    `),
+  });
 
-  await linkSubscriptionToUserService({ userId: user.id, email: normalizedEmail });
+  // Retourner uniquement l'info MFA — pas de token encore
+  return { mfaRequired: true, userId: user.id };
+};
 
-  return userWithoutPassword;
+
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// VERIFY MFA OTP
+// ══════════════════════════════════════════════════════════════════════════
+export const verifyMfaService = async ({ userId, otp }) => {
+  if (!userId || !otp)
+    throw new ErrorHandler("userId et otp sont requis.", 400);
+
+  const result = await database.query(
+    `SELECT * FROM users
+     WHERE id = $1
+       AND mfa_otp IS NOT NULL
+       AND mfa_otp_expire > NOW()`,
+    [userId]
+  );
+
+  if (result.rows.length === 0)
+    throw new ErrorHandler("Code invalide ou expiré. Recommencez la connexion.", 401);
+
+  const user = result.rows[0];
+
+  const otpHashed = crypto.createHash("sha256").update(otp).digest("hex");
+  if (otpHashed !== user.mfa_otp)
+    throw new ErrorHandler("Code incorrect.", 401);
+
+  // ✅ Invalider l'OTP après usage (one-time use)
+  await database.query(
+    `UPDATE users SET mfa_otp=NULL, mfa_otp_expire=NULL, updated_at=NOW() WHERE id=$1`,
+    [userId]
+  );
+
+  await linkSubscriptionToUserService({ userId: user.id, email: user.email });
+
+  // Retourner user sans password pour sendToken
+  const { password: _, mfa_otp: __, mfa_otp_expire: ___, ...userClean } = user;
+  return userClean;
 };
 
 
