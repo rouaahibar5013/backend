@@ -480,17 +480,17 @@ export const getUserById = async (id) => {
   return result.rows[0];
 };
 
-
 // ══════════════════════════════════════════════════════════════════════════
 // UPDATE PROFILE
+// ✅ name, avatar, phone, address, city → champs auth
+// ✅ phone  → propage aussi vers billing_phone  (sync auto)
+// ✅ address → propage aussi vers billing_address (sync auto)
+// ✅ city   → propage aussi vers billing_city   (sync auto)
+// ✅ billing_* et shipping_* restent modifiables indépendamment
 // ══════════════════════════════════════════════════════════════════════════
 export const updateUserProfile = async ({
   userId, name, phone, address, city,
   avatarFile, deleteAvatar,
-  billing_full_name, billing_phone, billing_address,
-  billing_city, billing_governorate, billing_postal_code, billing_country,
-  shipping_full_name, shipping_phone, shipping_address,
-  shipping_city, shipping_governorate, shipping_postal_code, shipping_country,
 }) => {
   const userResult = await database.query(
     "SELECT * FROM users WHERE id = $1", [userId]
@@ -502,13 +502,13 @@ export const updateUserProfile = async ({
   const cu = userResult.rows[0]; // current user
   let avatarUrl = cu.avatar;
 
-  // Suppression avatar
+  // ── Suppression avatar ───────────────────────────────
   if (deleteAvatar === "true" || deleteAvatar === true) {
     await destroyCloudinaryAvatar(cu.avatar);
     avatarUrl = null;
   }
 
-  // Remplacement avatar
+  // ── Remplacement avatar ──────────────────────────────
   if (avatarFile) {
     await destroyCloudinaryAvatar(cu.avatar);
     const upload = await cloudinary.uploader.upload(avatarFile.tempFilePath, {
@@ -519,50 +519,57 @@ export const updateUserProfile = async ({
     avatarUrl = upload.secure_url;
   }
 
+  // ── Valeurs finales des champs auth ──────────────────
+  const newPhone   = phone   ?? cu.phone;
+  const newAddress = address ?? cu.address;
+  const newCity    = city    ?? cu.city;
+
+  // ✅ Sync auto : si le champ auth change → billing aussi
+  // COALESCE : on ne remplace que si la nouvelle valeur est non-null
+  // Logique : si l'user met à jour phone → billing_phone suit
+  //           si l'user ne touche pas phone → billing_phone reste inchangé
+  const newBillingPhone   = phone   !== undefined ? newPhone   : cu.billing_phone;
+  const newBillingAddress = address !== undefined ? newAddress : cu.billing_address;
+  const newBillingCity    = city    !== undefined ? newCity    : cu.billing_city;
+
   const result = await database.query(
     `UPDATE users
-     SET name=$1, avatar=$2, phone=$3, address=$4, city=$5,
-         billing_full_name=$6, billing_phone=$7, billing_address=$8,
-         billing_city=$9, billing_governorate=$10, billing_postal_code=$11, billing_country=$12,
-         shipping_full_name=$13, shipping_phone=$14, shipping_address=$15,
-         shipping_city=$16, shipping_governorate=$17, shipping_postal_code=$18, shipping_country=$19,
-         updated_at=NOW()
-     WHERE id=$20
-     RETURNING id, name, email, avatar, role, is_verified, is_active,
-               phone, address, city,
-               billing_full_name, billing_phone, billing_address,
-               billing_city, billing_governorate, billing_postal_code, billing_country,
-               shipping_full_name, shipping_phone, shipping_address,
-               shipping_city, shipping_governorate, shipping_postal_code, shipping_country,
-               created_at, updated_at`,
+     SET
+       -- Champs auth
+       name    = $1,
+       avatar  = $2,
+       phone   = $3,
+       address = $4,
+       city    = $5,
+       -- Sync auto billing (phone/address/city)
+       billing_phone   = $6,
+       billing_address = $7,
+       billing_city    = $8,
+       updated_at = NOW()
+     WHERE id = $9
+     RETURNING
+       id, name, email, avatar, role, is_verified, is_active,
+       phone, address, city,
+       billing_full_name, billing_phone, billing_address,
+       billing_city, billing_governorate, billing_postal_code, billing_country,
+       shipping_full_name, shipping_phone, shipping_address,
+       shipping_city, shipping_governorate, shipping_postal_code, shipping_country,
+       created_at, updated_at`,
     [
-      name?.trim()        || cu.name,
+      name?.trim() || cu.name,
       avatarUrl,
-      phone               ?? cu.phone,
-      address             ?? cu.address,
-      city                ?? cu.city,
-      billing_full_name   ?? cu.billing_full_name,
-      billing_phone       ?? cu.billing_phone,
-      billing_address     ?? cu.billing_address,
-      billing_city        ?? cu.billing_city,
-      billing_governorate ?? cu.billing_governorate,
-      billing_postal_code ?? cu.billing_postal_code,
-      billing_country     ?? cu.billing_country,
-      shipping_full_name  ?? cu.shipping_full_name,
-      shipping_phone      ?? cu.shipping_phone,
-      shipping_address    ?? cu.shipping_address,
-      shipping_city       ?? cu.shipping_city,
-      shipping_governorate ?? cu.shipping_governorate,
-      shipping_postal_code ?? cu.shipping_postal_code,
-      shipping_country    ?? cu.shipping_country,
+      newPhone,
+      newAddress,
+      newCity,
+      newBillingPhone,
+      newBillingAddress,
+      newBillingCity,
       userId,
     ]
   );
 
   return result.rows[0];
 };
-
-
 // ══════════════════════════════════════════════════════════════════════════
 // UPDATE PASSWORD
 // ══════════════════════════════════════════════════════════════════════════

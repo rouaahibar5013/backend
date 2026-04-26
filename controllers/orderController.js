@@ -315,8 +315,8 @@ export const getAllOrders = catchAsyncErrors(async (req, res, next) => {
   const { status, payment_status } = req.query;
   const page = parseInt(req.query.page) || 1;
 
-  const validStatuses = ["pending","confirmed","processing","shipped","delivered","cancelled"];
-  const validPayments = ["pending","paid","failed","refunded"];
+const validStatuses = ["en_attente","confirmee","en_preparation","expediee","livree","annulee","remboursee"];
+const validPayments = ["en_attente","paye","echoue","rembourse"];
 
   if (status && !validStatuses.includes(status))
     return next(new ErrorHandler("Statut de commande invalide.", 400));
@@ -337,7 +337,7 @@ export const getAllOrders = catchAsyncErrors(async (req, res, next) => {
 export const updateOrderStatus = catchAsyncErrors(async (req, res, next) => {
   const { status } = req.body;
 
-  const validStatuses = ["pending","confirmed","processing","shipped","delivered","cancelled"];
+const validStatuses = ["en_attente","confirmee","en_preparation","expediee","livree","annulee","remboursee"];
   if (!status || !validStatuses.includes(status))
     return next(new ErrorHandler(`Statut invalide. Valeurs acceptées : ${validStatuses.join(", ")}.`, 400));
 
@@ -390,7 +390,7 @@ export const updateDelivery = catchAsyncErrors(async (req, res, next) => {
   if (estimated_date && isNaN(Date.parse(estimated_date)))
     return next(new ErrorHandler("Date estimée invalide.", 400));
 
-  const validDeliveryStatuses = ["pending","in_transit","delivered","failed"];
+const validDeliveryStatuses = ["en_preparation","expedie","en_transit","en_cours","livre","echec","retourne"];
   if (status && !validDeliveryStatuses.includes(status))
     return next(new ErrorHandler(`Statut livraison invalide. Valeurs : ${validDeliveryStatuses.join(", ")}.`, 400));
 

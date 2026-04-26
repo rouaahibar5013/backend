@@ -558,7 +558,7 @@ const buildAndInsertOrder = async ({
        shipping_governorate, shipping_postal_code, shipping_country,
        notes
      ) VALUES (
-       $1, 'pending', $2, 'pending',
+       $1, 'en_attente', $2, 'en_attente',
        $3, $4, $5, $6,
        $7,
        $8,  $9,
@@ -645,7 +645,7 @@ const finalizeOrder = async ({ order, orderItems, promoId }) => {
 
   // Créer l'entrée livraison
   await database.query(
-    "INSERT INTO deliveries (order_id, status) VALUES ($1, 'preparing')",
+    "INSERT INTO deliveries (order_id, status) VALUES ($1, 'en_preparation')",
     [order.id]
   );
 
@@ -855,7 +855,7 @@ export const handleStripeWebhookService = async (payload, signature) => {
 
       const updateResult = await database.query(
         `UPDATE orders
-         SET payment_status = 'paid', status = 'confirmed'
+         SET payment_status = 'paye', status = 'confirmee'
          WHERE payment_id = $1
          RETURNING *`,
         [pi.id]
@@ -886,7 +886,7 @@ export const handleStripeWebhookService = async (payload, signature) => {
 
       const updateResult = await database.query(
         `UPDATE orders
-         SET payment_status = 'failed', status = 'cancelled',
+         SET payment_status = 'echoue', status = 'annulee',
              cancelled_reason = 'Paiement échoué'
          WHERE payment_id = $1
          RETURNING *`,
@@ -898,7 +898,7 @@ export const handleStripeWebhookService = async (payload, signature) => {
 
       // Annuler la livraison
       await database.query(
-        "UPDATE deliveries SET status = 'returned' WHERE order_id = $1",
+        "UPDATE deliveries SET status = 'retourne' WHERE order_id = $1",
         [order.id]
       );
 
@@ -922,7 +922,7 @@ export const handleStripeWebhookService = async (payload, signature) => {
     case "charge.refunded": {
       const charge = event.data.object;
       await database.query(
-        "UPDATE orders SET payment_status = 'refunded' WHERE payment_id = $1",
+        "UPDATE orders SET payment_status = 'rembourse' WHERE payment_id = $1",
         [charge.payment_intent]
       );
       break;
@@ -1090,7 +1090,7 @@ export const getAllOrdersService = async ({ status, payment_status, page = 1 }) 
 // SERVICE — UPDATE ORDER STATUS (admin)
 // ═══════════════════════════════════════════════════════════
 export const updateOrderStatusService = async ({ orderId, status }) => {
-  const validStatuses = ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled", "refunded"];
+const validStatuses = ["en_attente","confirmee","en_preparation","expediee","livree","annulee","remboursee"];
 
   if (!validStatuses.includes(status))
     throw new ErrorHandler(`Statut invalide. Valeurs acceptées : ${validStatuses.join(", ")}`, 400);
@@ -1102,7 +1102,7 @@ export const updateOrderStatusService = async ({ orderId, status }) => {
     throw new ErrorHandler("Commande introuvable.", 404);
 
   // ✅ Si annulation → cancelled_reason obligatoire selon contrainte DB
-  if (status === "cancelled") {
+  if (status === "annulee") {
     throw new ErrorHandler(
       "Pour annuler, utilisez la route PATCH /cancel qui requiert une raison d'annulation.",
       400
@@ -1116,9 +1116,9 @@ export const updateOrderStatusService = async ({ orderId, status }) => {
 
   // ✅ Sync automatique de la livraison
   const deliveryMap = {
-    shipped:   "UPDATE deliveries SET status = 'shipped' WHERE order_id = $1",
-    delivered: "UPDATE deliveries SET status = 'delivered', delivered_at = NOW() WHERE order_id = $1",
-  };
+  expediee: "UPDATE deliveries SET status = 'expedie', shipped_at = NOW() WHERE order_id = $1",
+  livree:   "UPDATE deliveries SET status = 'livre',   delivered_at = NOW() WHERE order_id = $1",
+};
 
   if (deliveryMap[status]) {
     await database.query(deliveryMap[status], [orderId]);
@@ -1144,27 +1144,27 @@ export const cancelOrderService = async ({ orderId, reason }) => {
 
   const order = orderResult.rows[0];
 
-  if (order.status === "cancelled")
+  if (order.status === "annulee")
     throw new ErrorHandler("Cette commande est déjà annulée.", 400);
 
-  if (order.status === "delivered")
+  if (order.status === "livree")
     throw new ErrorHandler("Impossible d'annuler une commande déjà livrée.", 400);
 
   // ✅ Restaurer le stock
   await restoreStock(orderId);
 
   // ✅ Rembourser via Stripe si déjà payé
-  if (order.payment_status === "paid" && order.payment_id) {
+  if (order.payment_status === "paye" && order.payment_id) {
     await stripe.refunds.create({ payment_intent: order.payment_id });
   }
 
   await Promise.all([
     database.query(
-      "UPDATE orders SET status = 'cancelled', cancelled_reason = $1 WHERE id = $2",
+      "UPDATE orders SET status = 'annulee', cancelled_reason = $1 WHERE id = $2",
       [reason.trim(), orderId]
     ),
     database.query(
-      "UPDATE deliveries SET status = 'returned' WHERE order_id = $1",
+      "UPDATE deliveries SET status = 'retourne' WHERE order_id = $1",
       [orderId]
     ),
   ]);
@@ -1189,7 +1189,7 @@ export const cancelOrderService = async ({ orderId, reason }) => {
             <p>Bonjour ${user.name},</p>
             <p>Votre commande <strong>#${order.order_number}</strong> a été annulée.</p>
             <p><strong>Raison :</strong> ${reason}</p>
-            ${order.payment_status === "paid"
+            ${order.payment_status === "paye"
               ? `<p style="color: #166534;">✅ Un remboursement de <strong>${parseFloat(order.total_price).toFixed(2)} CHF</strong> a été initié.</p>`
               : ""}
             <div style="text-align: center; margin-top: 24px;">
@@ -1243,9 +1243,9 @@ export const updateDeliveryService = async ({
   );
 
   // Sync order status si livraison confirmée
-  if (status === "delivered") {
+  if (status === "livre") {
     await database.query(
-      "UPDATE orders SET status = 'delivered' WHERE id = $1",
+      "UPDATE orders SET status = 'livree' WHERE id = $1",
       [orderId]
     );
   }

@@ -121,7 +121,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
       `SELECT COALESCE(SUM(total_price), 0)::float AS revenue,
               COUNT(*)::int AS orders_count
        FROM orders
-       WHERE status != 'cancelled'
+       WHERE status != 'annulee'
        AND DATE(created_at) BETWEEN $1 AND $2`,
       [start, end]
     ),
@@ -146,7 +146,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     database.query(
       `SELECT COALESCE(SUM(total_price), 0)::float AS revenue
        FROM orders
-       WHERE status != 'cancelled'
+       WHERE status != 'annulee'
        AND DATE(created_at) BETWEEN $1 AND $2`,
       [prevStartStr, prevEndStr]
     ),
@@ -199,7 +199,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
               u.name AS customer_name
        FROM orders o
        LEFT JOIN users u ON u.id = o.user_id
-       WHERE o.status = 'pending'
+       WHERE o.status = 'en_attente'
        AND o.created_at < NOW() - INTERVAL '48 hours'
        ORDER BY o.created_at ASC
        LIMIT 10`
@@ -209,7 +209,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     database.query(
       `SELECT COUNT(*)::int AS count
        FROM orders
-       WHERE status = 'cancelled'
+       WHERE status = 'annulee'
        AND DATE(updated_at) = CURRENT_DATE`
     ),
 
@@ -227,7 +227,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
          COALESCE(SUM(total_price), 0)::float AS revenue,
          COUNT(*)::int AS orders
        FROM orders
-       WHERE status != 'cancelled'
+       WHERE status != 'annulee'
        AND DATE(created_at) BETWEEN $1 AND $2
        GROUP BY DATE(created_at)
        ORDER BY date ASC`,
@@ -242,7 +242,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
          COALESCE(SUM(total_price), 0)::float AS revenue,
          COUNT(*)::int AS orders
        FROM orders
-       WHERE status != 'cancelled'
+       WHERE status != 'annulee'
        AND DATE(created_at) BETWEEN $1 AND $2
        GROUP BY DATE_TRUNC('month', created_at)
        ORDER BY DATE_TRUNC('month', created_at) ASC`,
@@ -342,7 +342,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
        LEFT JOIN product_variants pv ON pv.id = oi.variant_id
        LEFT JOIN products         p  ON p.id  = pv.product_id
        LEFT JOIN categories       c  ON c.id  = p.category_id
-       WHERE o.status != 'cancelled'
+       WHERE o.status != 'annulee'
        AND DATE(o.created_at) BETWEEN $1 AND $2
        GROUP BY c.name_fr
        ORDER BY revenue DESC
@@ -362,7 +362,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
        LEFT JOIN orders           o  ON o.id  = oi.order_id
        LEFT JOIN product_variants pv ON pv.id = oi.variant_id
        LEFT JOIN products         p  ON p.id  = pv.product_id
-       WHERE o.status != 'cancelled'
+       WHERE o.status != 'annulee'
        AND DATE(o.created_at) BETWEEN $1 AND $2
        GROUP BY p.id, p.name_fr, p.slug
        ORDER BY total_qty DESC
@@ -397,7 +397,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
          COALESCE(SUM(o.total_price), 0)::float AS total_spent
        FROM orders o
        LEFT JOIN users u ON u.id = o.user_id
-       WHERE o.status != 'cancelled'
+       WHERE o.status != 'annulee'
        AND DATE(o.created_at) BETWEEN $1 AND $2
        GROUP BY u.id, u.name, u.email
        ORDER BY total_spent DESC
@@ -528,7 +528,7 @@ export const exportStatsService = async ({ period, month, year, type }) => {
          LEFT JOIN product_variants pv ON pv.id = oi.variant_id
          LEFT JOIN products         p  ON p.id  = pv.product_id
          LEFT JOIN categories       c  ON c.id  = p.category_id
-         WHERE o.status != 'cancelled'
+         WHERE o.status != 'annulee'
          AND DATE(o.created_at) BETWEEN $1 AND $2
          GROUP BY p.id, p.name_fr, p.slug, c.name_fr
          ORDER BY revenue DESC`,
@@ -546,7 +546,7 @@ export const exportStatsService = async ({ period, month, year, type }) => {
                 COUNT(DISTINCT o.id)::int AS total_orders,
                 COALESCE(SUM(o.total_price), 0)::float AS total_spent
          FROM users u
-         LEFT JOIN orders o ON o.user_id = u.id AND o.status != 'cancelled'
+         LEFT JOIN orders o ON o.user_id = u.id AND o.status != 'annulee'
          GROUP BY u.id, u.name, u.email, u.created_at
          ORDER BY total_spent DESC`
       );

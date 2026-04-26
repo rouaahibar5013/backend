@@ -124,8 +124,8 @@ export const getEligibleOrdersService = async (userId) => {
      FROM orders o
      LEFT JOIN order_items oi ON oi.order_id = o.id
      WHERE o.user_id        = $1
-       AND o.payment_status = 'paid'
-       AND o.status IN ('confirmed', 'processing', 'shipped', 'delivered')
+       AND o.payment_status = 'paye'
+    AND o.status IN ('confirmee', 'en_preparation', 'expediee', 'livree')
      GROUP BY o.id
      ORDER BY o.created_at DESC`,
     [userId]
@@ -468,7 +468,7 @@ export const createGuestReclamationService = async ({
     );
 
   // ── Vérifier commande éligible ───────────────────────────
-  if (order.payment_status !== "paid")
+  if (order.payment_status !== "paye")
     throw new ErrorHandler("Cette commande n'est pas encore payée.", 400);
 
   // ── Vérifier pas de réclamation active du même type ─────

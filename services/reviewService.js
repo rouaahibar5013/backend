@@ -26,7 +26,7 @@ const verifyOrderOwnership = async ({ userId, orderId, productId }) => {
       "Commande introuvable ou ce produit ne fait pas partie de cette commande.", 403
     );
 
-  if (result.rows[0].status !== "delivered")
+  if (result.rows[0].status !== "livree")
     throw new ErrorHandler(
       "Vous pouvez uniquement noter un produit d'une commande livrée.", 403
     );
@@ -52,9 +52,8 @@ export const getReviewableProductsService = async (userId) => {
      LEFT JOIN order_items      oi ON oi.order_id  = o.id
      LEFT JOIN product_variants pv ON pv.id        = oi.variant_id
      LEFT JOIN products          p  ON p.id         = pv.product_id
-     -- Exclure les produits déjà reviewés pour cette commande
      WHERE o.user_id      = $1
-       AND o.status       = 'delivered'
+       AND o.status       = 'livree'
        AND p.id IS NOT NULL
        AND NOT EXISTS (
          SELECT 1 FROM reviews r
