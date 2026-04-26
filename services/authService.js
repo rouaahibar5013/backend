@@ -319,6 +319,10 @@ export const loginUser = async ({ email, password }) => {
     throw new ErrorHandler(
       "Veuillez vérifier votre email avant de vous connecter.", 401
     );
+
+    const isPasswordCorrect = await bcrypt.compare(password, user.password);
+  if (!isPasswordCorrect)
+    throw new ErrorHandler("Email ou mot de passe incorrect.", 401)
 // ══════ MFA — générer OTP ══════
   const otp        = Math.floor(100000 + Math.random() * 900000).toString(); // 6 chiffres
   const otpHashed  = crypto.createHash("sha256").update(otp).digest("hex");
