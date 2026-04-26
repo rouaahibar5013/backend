@@ -6,6 +6,8 @@ import database      from "../database/db.js";
 import ErrorHandler  from "../middlewares/errorMiddleware.js";
 import sendEmail     from "../utils/sendEmail.js";
 import { linkSubscriptionToUserService } from "./emailcampaignService.js";
+import { checkLoginBlock, recordFailedLogin, clearLoginAttempts } from "../utils/loginAttempts.js";
+
 
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -276,7 +278,7 @@ export const verifyUserEmail = async (token) => {
 // ══════════════════════════════════════════════════════════════════════════
 // LOGIN
 // ══════════════════════════════════════════════════════════════════════════
-export const loginUser = async ({ email, password }) => {
+export const loginUser = async ({ email, password, ip}) => {
   validateEmail(email);
 
   if (!password) throw new ErrorHandler("Le mot de passe est requis.", 400);
@@ -320,9 +322,30 @@ export const loginUser = async ({ email, password }) => {
       "Veuillez vérifier votre email avant de vous connecter.", 401
     );
 
-    const isPasswordCorrect = await bcrypt.compare(password, user.password);
-  if (!isPasswordCorrect)
-    throw new ErrorHandler("Email ou mot de passe incorrect.", 401)
+
+ try {
+    await checkLoginBlock(user.id, ip);
+  } catch (err) {
+    if (err.message.startsWith("BLOCKED:")) {
+      const minutes = err.message.split(":")[1];
+      throw new ErrorHandler(
+        `Compte temporairement bloqué après trop d'échecs. Réessayez dans ${minutes} minute(s).`, 429
+      );
+    }
+  }
+
+
+
+
+
+ const isPasswordCorrect = await bcrypt.compare(password, user.password);
+  if (!isPasswordCorrect) {
+    await recordFailedLogin(user.id, ip);
+    throw new ErrorHandler("Email ou mot de passe incorrect.", 401);
+  }
+  // ✅ Connexion réussie → effacer les échecs
+  await clearLoginAttempts(user.id, ip);
+
 // ══════ MFA — générer OTP ══════
   const otp        = Math.floor(100000 + Math.random() * 900000).toString(); // 6 chiffres
   const otpHashed  = crypto.createHash("sha256").update(otp).digest("hex");
@@ -351,8 +374,13 @@ export const loginUser = async ({ email, password }) => {
     `),
   });
 
-  // Retourner uniquement l'info MFA — pas de token encore
-  return { mfaRequired: true, userId: user.id };
+ // ✅ Retourner un mfaSessionToken signé à la place du userId brut
+  const mfaSessionToken = jwt.sign(
+    { userId: user.id },
+    process.env.JWT_SECRET,
+    { expiresIn: "10m" }
+  );
+  return { mfaRequired: true, mfaSessionToken };
 };
 
 
@@ -361,15 +389,21 @@ export const loginUser = async ({ email, password }) => {
 // ══════════════════════════════════════════════════════════════════════════
 // VERIFY MFA OTP
 // ══════════════════════════════════════════════════════════════════════════
-export const verifyMfaService = async ({ userId, otp }) => {
-  if (!userId || !otp)
-    throw new ErrorHandler("userId et otp sont requis.", 400);
+export const verifyMfaService = async ({ mfaSessionToken, otp }) => {
+  if (!mfaSessionToken || !otp)
+    throw new ErrorHandler("mfaSessionToken et otp sont requis.", 400);
+
+  // ✅ Vérifier et décoder le token MFA
+  let userId;
+  try {
+    const decoded = jwt.verify(mfaSessionToken, process.env.JWT_SECRET);
+    userId = decoded.userId;
+  } catch {
+    throw new ErrorHandler("Session MFA expirée. Recommencez la connexion.", 401);
+  }
 
   const result = await database.query(
-    `SELECT * FROM users
-     WHERE id = $1
-       AND mfa_otp IS NOT NULL
-       AND mfa_otp_expire > NOW()`,
+    `SELECT * FROM users WHERE id=$1 AND mfa_otp IS NOT NULL AND mfa_otp_expire > NOW()`,
     [userId]
   );
 
@@ -382,7 +416,6 @@ export const verifyMfaService = async ({ userId, otp }) => {
   if (otpHashed !== user.mfa_otp)
     throw new ErrorHandler("Code incorrect.", 401);
 
-  // ✅ Invalider l'OTP après usage (one-time use)
   await database.query(
     `UPDATE users SET mfa_otp=NULL, mfa_otp_expire=NULL, updated_at=NOW() WHERE id=$1`,
     [userId]
@@ -390,7 +423,6 @@ export const verifyMfaService = async ({ userId, otp }) => {
 
   await linkSubscriptionToUserService({ userId: user.id, email: user.email });
 
-  // Retourner user sans password pour sendToken
   const { password: _, mfa_otp: __, mfa_otp_expire: ___, ...userClean } = user;
   return userClean;
 };

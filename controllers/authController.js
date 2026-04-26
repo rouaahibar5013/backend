@@ -1,5 +1,6 @@
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import ErrorHandler         from "../middlewares/errorMiddleware.js";
+import { blacklistToken } from "../utils/tokenBlacklist.js";
 import * as authService     from "../services/authService.js";
 import { sendToken } from "../utils/jwtToken.js";
 
@@ -64,14 +65,15 @@ export const verifyEmail = catchAsyncErrors(async (req, res, next) => {
 // ══════════════════════════════════════════════════════════════════════════
 export const login = catchAsyncErrors(async (req, res, next) => {
   const { email, password } = req.body;
-  const result = await authService.loginUser({ email, password });
+  const ip = req.ip || req.headers["x-forwarded-for"] || "unknown";
+  const result = await authService.loginUser({ email, password, ip });
 
   // MFA requis → pas de token encore
   if (result.mfaRequired) {
     return res.status(200).json({
       success: true,
       mfaRequired: true,
-      userId: result.userId,
+      mfaSessionToken: result.mfaSessionToken,
       message: "Un code de vérification a été envoyé à votre adresse email.",
     });
   }
@@ -85,24 +87,27 @@ export const login = catchAsyncErrors(async (req, res, next) => {
 // POST /api/auth/login/verify-mfa
 // ══════════════════════════════════════════════════════════════════════════
 export const verifyMfa = catchAsyncErrors(async (req, res, next) => {
-  const { userId, otp } = req.body;
-
-  if (!userId || !otp)
-    return next(new ErrorHandler("userId et otp sont requis.", 400));
-
-  const user = await authService.verifyMfaService({ userId, otp });
+  const { mfaSessionToken, otp } = req.body;
+  if (!mfaSessionToken || !otp)
+    return next(new ErrorHandler("mfaSessionToken et otp sont requis.", 400));
+  const user = await authService.verifyMfaService({ mfaSessionToken, otp });
   sendToken(user, 200, "Connexion réussie.", res);
-});
+})
 
 // ══════════════════════════════════════════════════════════════════════════
 // LOGOUT
 // POST /api/auth/logout
 // ══════════════════════════════════════════════════════════════════════════
 export const logout = catchAsyncErrors(async (req, res, next) => {
-  // ✅ Effacer le cookie côté serveur
+  const token = req.cookies?.token; // ✅ récupérer avant d'effacer
+
+  if (token) {
+    await blacklistToken(token); // ✅ invalider côté serveur
+  }
+
   res.cookie("token", "", {
     httpOnly: true,
-    expires:  new Date(0),      // expiration immédiate
+    expires:  new Date(0),
     secure:   process.env.NODE_ENV === "production",
     sameSite: process.env.NODE_ENV === "production" ? "None" : "Lax",
   });
@@ -210,17 +215,17 @@ export const updatePassword = catchAsyncErrors(async (req, res, next) => {
   const { currentPassword, newPassword } = req.body;
 
   if (!currentPassword || !newPassword)
-    return next(
-      new ErrorHandler("L'ancien et le nouveau mot de passe sont requis.", 400)
-    );
+    return next(new ErrorHandler("L'ancien et le nouveau mot de passe sont requis.", 400));
 
   await authService.updateUserPassword({
-    userId:          req.user.id,
+    userId: req.user.id,
     currentPassword,
     newPassword,
   });
 
-  // ✅ Après changement de mot de passe → forcer la reconnexion
+  const token = req.cookies?.token;
+  if (token) await blacklistToken(token); // ✅ invalider l'ancien token
+
   res.cookie("token", "", {
     httpOnly: true,
     expires:  new Date(0),
@@ -230,11 +235,9 @@ export const updatePassword = catchAsyncErrors(async (req, res, next) => {
 
   res.status(200).json({
     success: true,
-    message:
-      "Mot de passe modifié avec succès. Veuillez vous reconnecter.",
+    message: "Mot de passe modifié avec succès. Veuillez vous reconnecter.",
   });
 });
-
 
 // ══════════════════════════════════════════════════════════════════════════
 // COMPLETE ACCOUNT (guest)
