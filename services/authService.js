@@ -6,6 +6,8 @@ import database      from "../database/db.js";
 import ErrorHandler  from "../middlewares/errorMiddleware.js";
 import sendEmail     from "../utils/sendEmail.js";
 import { linkSubscriptionToUserService } from "./emailcampaignService.js";
+import { checkLoginBlock, recordFailedLogin, clearLoginAttempts } from "../utils/loginAttempts.js";
+
 
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -20,32 +22,25 @@ export const validatePassword = (password) => {
   if (!password || typeof password !== "string")
     throw new ErrorHandler("Le mot de passe est requis.", 400);
 
-  if (password.length < 8)
-    throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins 8 caractères.", 400
-    );
+  const errors = [];
 
+  if (password.length < 10)
+    errors.push("au moins 10 caractères");
   if (!/[a-z]/.test(password))
-    throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins une lettre minuscule.", 400
-    );
-
+    errors.push("une lettre minuscule");
   if (!/[A-Z]/.test(password))
-    throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins une lettre majuscule.", 400
-    );
-
+    errors.push("une lettre majuscule");
   if (!/[0-9]/.test(password))
-    throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins un chiffre.", 400
-    );
-
+    errors.push("un chiffre");
   if (!/[!@#$%^&*()\-_=+\[\]{};':",.<>/?`~\\|]/.test(password))
+    errors.push("un caractère spécial (!@#$%^&*…)");
+
+  if (errors.length > 0)
     throw new ErrorHandler(
-      "Le mot de passe doit contenir au moins un caractère spécial (!@#$%^&*…).", 400
+      `Le mot de passe doit contenir : ${errors.join(", ")}.`,
+      400
     );
 };
-
 /**
  * Valide le format d'un email.
  */
@@ -283,7 +278,7 @@ export const verifyUserEmail = async (token) => {
 // ══════════════════════════════════════════════════════════════════════════
 // LOGIN
 // ══════════════════════════════════════════════════════════════════════════
-export const loginUser = async ({ email, password }) => {
+export const loginUser = async ({ email, password, ip}) => {
   validateEmail(email);
 
   if (!password) throw new ErrorHandler("Le mot de passe est requis.", 400);
@@ -327,17 +322,109 @@ export const loginUser = async ({ email, password }) => {
       "Veuillez vérifier votre email avant de vous connecter.", 401
     );
 
-  // Vérification du mot de passe
-  const isPasswordCorrect = await bcrypt.compare(password, user.password);
-  if (!isPasswordCorrect)
+
+ try {
+    await checkLoginBlock(user.id, ip);
+  } catch (err) {
+    if (err.message.startsWith("BLOCKED:")) {
+      const minutes = err.message.split(":")[1];
+      throw new ErrorHandler(
+        `Compte temporairement bloqué après trop d'échecs. Réessayez dans ${minutes} minute(s).`, 429
+      );
+    }
+  }
+
+
+
+
+
+ const isPasswordCorrect = await bcrypt.compare(password, user.password);
+  if (!isPasswordCorrect) {
+    await recordFailedLogin(user.id, ip);
     throw new ErrorHandler("Email ou mot de passe incorrect.", 401);
+  }
+  // ✅ Connexion réussie → effacer les échecs
+  await clearLoginAttempts(user.id, ip);
 
-  // Retourner user sans password
-  const { password: _, ...userWithoutPassword } = user;
+// ══════ MFA — générer OTP ══════
+  const otp        = Math.floor(100000 + Math.random() * 900000).toString(); // 6 chiffres
+  const otpHashed  = crypto.createHash("sha256").update(otp).digest("hex");
+  const otpExpire  = new Date(Date.now() + 10 * 60 * 1000); // 10 min
 
-  await linkSubscriptionToUserService({ userId: user.id, email: normalizedEmail });
+  await database.query(
+    `UPDATE users SET mfa_otp=$1, mfa_otp_expire=$2, updated_at=NOW() WHERE id=$3`,
+    [otpHashed, otpExpire, user.id]
+  );
 
-  return userWithoutPassword;
+  await sendEmail({
+    to:      normalizedEmail,
+    subject: "Votre code de connexion — GOFFA 🧺",
+    html: wrapEmail(`
+      <h2>Code de vérification</h2>
+      <p>Bonjour ${user.name},</p>
+      <p>Voici votre code de connexion à usage unique :</p>
+      <div style="font-size:36px;font-weight:bold;letter-spacing:12px;
+                  text-align:center;color:#166534;margin:24px 0;">
+        ${otp}
+      </div>
+      <p style="color:#666;font-size:14px;">
+        Ce code expire dans <strong>10 minutes</strong>.<br/>
+        Si vous n'avez pas tenté de vous connecter, ignorez cet email.
+      </p>
+    `),
+  });
+
+ // ✅ Retourner un mfaSessionToken signé à la place du userId brut
+  const mfaSessionToken = jwt.sign(
+    { userId: user.id },
+    process.env.JWT_SECRET,
+    { expiresIn: "10m" }
+  );
+  return { mfaRequired: true, mfaSessionToken };
+};
+
+
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// VERIFY MFA OTP
+// ══════════════════════════════════════════════════════════════════════════
+export const verifyMfaService = async ({ mfaSessionToken, otp }) => {
+  if (!mfaSessionToken || !otp)
+    throw new ErrorHandler("mfaSessionToken et otp sont requis.", 400);
+
+  // ✅ Vérifier et décoder le token MFA
+  let userId;
+  try {
+    const decoded = jwt.verify(mfaSessionToken, process.env.JWT_SECRET);
+    userId = decoded.userId;
+  } catch {
+    throw new ErrorHandler("Session MFA expirée. Recommencez la connexion.", 401);
+  }
+
+  const result = await database.query(
+    `SELECT * FROM users WHERE id=$1 AND mfa_otp IS NOT NULL AND mfa_otp_expire > NOW()`,
+    [userId]
+  );
+
+  if (result.rows.length === 0)
+    throw new ErrorHandler("Code invalide ou expiré. Recommencez la connexion.", 401);
+
+  const user = result.rows[0];
+
+  const otpHashed = crypto.createHash("sha256").update(otp).digest("hex");
+  if (otpHashed !== user.mfa_otp)
+    throw new ErrorHandler("Code incorrect.", 401);
+
+  await database.query(
+    `UPDATE users SET mfa_otp=NULL, mfa_otp_expire=NULL, updated_at=NOW() WHERE id=$1`,
+    [userId]
+  );
+
+  await linkSubscriptionToUserService({ userId: user.id, email: user.email });
+
+  const { password: _, mfa_otp: __, mfa_otp_expire: ___, ...userClean } = user;
+  return userClean;
 };
 
 
