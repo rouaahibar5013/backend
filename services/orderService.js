@@ -47,7 +47,7 @@ const sendOrderConfirmationEmail = async (toEmail, order, customerName, pdfBuffe
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: #166534; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
           <h1 style="color: white; margin: 0;">🧺 GOFFA</h1>
-          <p style="color: #86efac; margin: 5px 0 0;">artisanat tunisien</p>
+          <p style="color: #86efac; margin: 5px 0 0;">artisanat</p>
         </div>
         <div style="padding: 30px; background: #f9fafb; border-radius: 0 0 10px 10px;">
           <h2 style="color: #166534;">✅ Commande confirmée !</h2>
@@ -140,11 +140,19 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
     doc.on("error", reject);
 
     // ── En-tête ──────────────────────────────────────────
-    doc.fillColor("#166534").fontSize(26).font("Helvetica-Bold").text("GOFFA", 50, 50);
-    doc.fontSize(10).fillColor("#4b5563").font("Helvetica")
-      .text("Artisanat tunisien",    50, 80)
-      .text("Email : contact@goffa.tn", 50, 95)
-      .text("Site : www.goffa.tn",   50, 110);
+    doc
+      .fillColor("#166534")
+      .fontSize(26)
+      .font("Helvetica-Bold")
+      .text("GOFFA", 50, 50);
+
+    doc
+      .fontSize(10)
+      .fillColor("#4b5563")
+      .font("Helvetica")
+      .text("Artisanat ", 50, 80)
+      .text("Email : contact@goffa.ch", 50, 95)
+      .text("Site : www.goffa.ch", 50, 110);
 
     doc.fillColor("#166534").fontSize(20).font("Helvetica-Bold")
       .text("FACTURE", 350, 50, { align: "right", width: 200 });
@@ -264,10 +272,25 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
       .text(`${parseFloat(order.total_price).toFixed(2)} CHF`, totalsX, y, { width: totalsWidth, align: "right" });
 
     // ── Pied de page ─────────────────────────────────────
-    doc.moveTo(50, 750).lineTo(545, 750).strokeColor("#e5e7eb").lineWidth(1).stroke();
-    doc.fontSize(9).fillColor("#9ca3af").font("Helvetica")
-      .text("Merci pour votre commande ! Pour toute question : contact@goffa.tn", 50, 760, { align: "center", width: pageWidth })
-      .text("GOFFA — Artisanat  authentique", 50, 775, { align: "center", width: pageWidth });
+    doc
+      .moveTo(50, 750)
+      .lineTo(545, 750)
+      .strokeColor("#e5e7eb")
+      .lineWidth(1)
+      .stroke();
+
+    doc
+      .fontSize(9)
+      .fillColor("#9ca3af")
+      .font("Helvetica")
+      .text(
+        "Merci pour votre commande ! Pour toute question : contact@goffa.tn",
+        50, 760, { align: "center", width: pageWidth }
+      )
+      .text(
+        "GOFFA — Artisanat  authentique",
+        50, 775, { align: "center", width: pageWidth }
+      );
 
     doc.end();
   });

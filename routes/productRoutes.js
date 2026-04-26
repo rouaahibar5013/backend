@@ -10,7 +10,8 @@ import {
   updateVariant,
   deleteVariant,
 } from "../controllers/productController.js";
-import { isAuthenticated, isAdmin } from "../middlewares/auth.js";
+import { isAuthenticated, isAdmin, optionalAuth } from "../middlewares/auth.js";
+
 import {
   getVariantPromotions,
   createVariantPromotion,
@@ -22,8 +23,9 @@ const router = express.Router();
 
 // ── Public ───────────────────────────────────────────────
 router.get("/featured",        fetchFeaturedProducts);  // homepage featured products
-router.get("/",                fetchAllProducts);        // browse + search + filter
-router.get("/:productId",      fetchSingleProduct);      // full product + variants + reviews
+router.get("/",                 fetchAllProducts);
+router.get("/admin/:productId", isAuthenticated, isAdmin, fetchSingleProduct);
+router.get("/:productId",       optionalAuth, fetchSingleProduct);
 
 // ── Admin only ───────────────────────────────────────────
 router.post("/",               isAuthenticated, isAdmin, createProduct);

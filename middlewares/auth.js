@@ -45,18 +45,28 @@ export const isAdmin = (req, res, next) => {
   }
   next();
 };
-
-export const optionalAuth = (req, res, next) => {
+export const optionalAuth = async (req, res, next) => {
   try {
     const token = req.cookies?.token 
                || req.headers?.authorization?.split(" ")[1];
     
-    if (!token) return next();
+
     
+    if (!token) return next();
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    
+    
+    const result = await database.query(
+      "SELECT id, name, email, avatar, role, is_active FROM users WHERE id = $1",
+      [decoded.id]
+    );
+    
+    if (result.rows.length > 0 && result.rows[0].is_active !== false) {
+      req.user = result.rows[0];
+    }
     next();
-  } catch {
+  } catch (err) {
     next();
   }
 };

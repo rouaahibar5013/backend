@@ -20,6 +20,8 @@ import recipeRoutes        from "./routes/recipeRoutes.js";
 import offresRoutes        from "./routes/offresRoutes.js";
 import emailcampaignRoutes from "./routes/emailcampaignRoutes.js";
 import reclamationRoutes   from "./routes/reclamationRoutes.js";
+import contactRoutes       from "./routes/contactRoutes.js";
+import aiRoutes            from "./routes/aiRoutes.js";
 
 import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 
@@ -42,7 +44,7 @@ app.use(
   express.raw({ type: "application/json" })
 );
 
-// 3. fileUpload — AVANT express.json() ✅
+// 3. fileUpload — AVANT express.json()
 app.use(fileUpload({
   useTempFiles: true,
   tempFileDir:  "/tmp/",
@@ -59,21 +61,23 @@ app.use(cookieParser());
 app.use(passport.initialize());
 
 // ─── Routes ───────────────────────────────────────────────
-app.use("/api/home",             homeRoutes);
-app.use("/api/auth",             authRoutes);
-app.use("/api/products",         productRoutes);
-app.use("/api/categories",       categoryRoutes);
-app.use("/api/suppliers",        supplierRoutes);
-app.use("/api/promotions",       promotionRoutes);
-app.use("/api/orders",           orderRoutes);
-app.use("/api/reviews",          reviewRoutes);
-app.use("/api/reclamations",     reclamationRoutes);  // ✅ /api/reclamations
-app.use("/api/wishlist",         wishlistRoutes);
-app.use("/api/offres",           offresRoutes);
-app.use("/api/stats",            statsRoutes);
-app.use("/api/email-campaigns",  emailcampaignRoutes);
-app.use("/api/faqs",             faqRouter);
-app.use("/api/recipes",          recipeRoutes);
+app.use("/api/home",            homeRoutes);
+app.use("/api/auth",            authRoutes);
+app.use("/api/products",        productRoutes);
+app.use("/api/categories",      categoryRoutes);
+app.use("/api/suppliers",       supplierRoutes);
+app.use("/api/promotions",      promotionRoutes);
+app.use("/api/orders",          orderRoutes);
+app.use("/api/reviews",         reviewRoutes);
+app.use("/api/reclamations",    reclamationRoutes);
+app.use("/api/wishlist",        wishlistRoutes);
+app.use("/api/offres",          offresRoutes);
+app.use("/api/stats",           statsRoutes);
+app.use("/api/email-campaigns", emailcampaignRoutes);
+app.use("/api/faqs",            faqRouter);
+app.use("/api/recipes",         recipeRoutes);
+app.use("/api/contact",         contactRoutes);
+app.use("/api/ai",              aiRoutes);
 
 // ─── Global error handler — toujours en dernier ───────────
 app.use(errorMiddleware);
