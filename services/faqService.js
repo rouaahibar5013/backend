@@ -146,35 +146,29 @@ export const askQuestionService = async ({ userId, user_name, user_email, questi
   const cleanName     = user_name.trim();
   const cleanEmail    = user_email.trim().toLowerCase();
 
-  // ── Recherche de FAQ similaire ──────────────────────────
   const matchedFaq = await findSimilarFaq(cleanQuestion);
 
   // ── CAS 1 : match trouvé ────────────────────────────────
   if (matchedFaq) {
-    // Incrémenter la fréquence de la FAQ (atomique via la fonction SQL)
     await database.query(
       `SELECT increment_faq_frequency($1)`,
       [matchedFaq.id]
     );
 
-    // Stocker la question avec statut 'answered' et lien vers la FAQ
     const result = await database.query(
       `INSERT INTO faq_questions
-         (user_id, user_name, user_email, question,
-          faq_id, matched_automatically, status, answer, answered_at)
-       VALUES ($1, $2, $3, $4, $5, TRUE, 'answered', $6, NOW())
+         (user_id, user_name, user_email, question, status, answer, answered_at)
+       VALUES ($1, $2, $3, $4, 'answered', $5, NOW())
        RETURNING *`,
-      [
-        userId || null,
-        cleanName,
-        cleanEmail,
-        cleanQuestion,
-        matchedFaq.id,
-        matchedFaq.answer_fr,
-      ]
+      [userId || null, cleanName, cleanEmail, cleanQuestion, matchedFaq.answer_fr]
     );
 
-    // Répondre immédiatement au user avec la réponse existante
+    await database.query(
+      `INSERT INTO frequent_question (question_id, faq_id, matched_automatically)
+       VALUES ($1, $2, TRUE)`,
+      [result.rows[0].id, matchedFaq.id]
+    );
+
     await sendAnswerEmail(cleanEmail, cleanName, cleanQuestion, matchedFaq.answer_fr)
       .catch(err => console.error("Auto-answer email error:", err.message));
 
@@ -192,14 +186,12 @@ export const askQuestionService = async ({ userId, user_name, user_email, questi
   // ── CAS 2 : aucun match → en attente de l'admin ─────────
   const result = await database.query(
     `INSERT INTO faq_questions
-       (user_id, user_name, user_email, question,
-        faq_id, matched_automatically, status)
-     VALUES ($1, $2, $3, $4, NULL, FALSE, 'pending')
+       (user_id, user_name, user_email, question, status)
+     VALUES ($1, $2, $3, $4, 'pending')
      RETURNING *`,
     [userId || null, cleanName, cleanEmail, cleanQuestion]
   );
 
-  // Notifier l'admin
   const adminEmail = process.env.ADMIN_EMAIL;
   if (adminEmail) {
     await sendEmail({
@@ -232,7 +224,6 @@ export const askQuestionService = async ({ userId, user_name, user_email, questi
     matched_faq:   null,
   };
 };
-
 
 // ═══════════════════════════════════════════════════════════
 // ADMIN — GET ALL FAQs
@@ -337,16 +328,21 @@ export const adminGetQuestionsService = async ({ status, matched, page = 1 }) =>
   let   index      = 1;
 
   if (status) {
-    conditions.push(`status=$${index}`);
+    conditions.push(`fqq.status=$${index}`);
     values.push(status);
     index++;
   }
 
-  // Nouveau filtre : matched=true → auto-répondues, matched=false → pending manuel
   if (matched !== undefined) {
-    conditions.push(`matched_automatically=$${index}`);
-    values.push(matched === 'true');
-    index++;
+    if (matched === 'true') {
+      conditions.push(
+        `EXISTS (SELECT 1 FROM frequent_question fq WHERE fq.question_id = fqq.id)`
+      );
+    } else {
+      conditions.push(
+        `NOT EXISTS (SELECT 1 FROM frequent_question fq WHERE fq.question_id = fqq.id)`
+      );
+    }
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -355,18 +351,28 @@ export const adminGetQuestionsService = async ({ status, matched, page = 1 }) =>
 
   const [totalResult, result] = await Promise.all([
     database.query(
-      `SELECT COUNT(*) FROM faq_questions ${whereClause}`,
+      `SELECT COUNT(*)
+       FROM faq_questions fqq
+       ${whereClause}`,
       countValues
     ),
     database.query(
       `SELECT
-         fq.*,
-         f.question_fr AS faq_question,
-         f.category    AS faq_category
-       FROM faq_questions fq
-       LEFT JOIN faqs f ON fq.faq_id = f.id
+         fqq.*,
+         json_agg(
+           json_build_object(
+             'faq_id',                flink.faq_id,
+             'matched_automatically', flink.matched_automatically,
+             'faq_question',          f.question_fr,
+             'faq_category',          f.category
+           )
+         ) FILTER (WHERE flink.faq_id IS NOT NULL) AS linked_faqs
+       FROM faq_questions fqq
+       LEFT JOIN frequent_question flink ON flink.question_id = fqq.id
+       LEFT JOIN faqs f                  ON f.id = flink.faq_id
        ${whereClause}
-       ORDER BY fq.created_at DESC
+       GROUP BY fqq.id
+       ORDER BY fqq.created_at DESC
        LIMIT $${index} OFFSET $${index + 1}`,
       values
     ),
@@ -379,8 +385,6 @@ export const adminGetQuestionsService = async ({ status, matched, page = 1 }) =>
     questions:  result.rows,
   };
 };
-
-
 // ═══════════════════════════════════════════════════════════
 // ADMIN — RÉPONDRE À UNE QUESTION (manuelle)
 // ═══════════════════════════════════════════════════════════
@@ -400,8 +404,6 @@ export const adminAnswerQuestionService = async ({ id, answer, create_faq, faq_c
   const cleanAnswer = answer.trim();
   let   newFaqId    = null;
 
-  // Option : créer une nouvelle FAQ depuis cette question
-  // L'admin peut choisir de l'ajouter à la base de FAQs
   if (create_faq) {
     const category = faq_category && VALID_CATEGORIES.includes(faq_category)
       ? faq_category
@@ -414,20 +416,24 @@ export const adminAnswerQuestionService = async ({ id, answer, create_faq, faq_c
       [category, q.question, cleanAnswer]
     );
     newFaqId = newFaq.rows[0].id;
+
+    await database.query(
+      `INSERT INTO frequent_question (question_id, faq_id, matched_automatically)
+       VALUES ($1, $2, FALSE)`,
+      [id, newFaqId]
+    );
   }
 
   const result = await database.query(
     `UPDATE faq_questions
      SET answer      = $1,
          status      = 'answered',
-         answered_at = NOW(),
-         faq_id      = COALESCE($2, faq_id)
-     WHERE id = $3
+         answered_at = NOW()
+     WHERE id = $2
      RETURNING *`,
-    [cleanAnswer, newFaqId, id]
+    [cleanAnswer, id]
   );
 
-  // Envoyer email au user
   await sendAnswerEmail(q.user_email, q.user_name, q.question, cleanAnswer)
     .catch(err => console.error("Answer email error:", err.message));
 
@@ -436,47 +442,45 @@ export const adminAnswerQuestionService = async ({ id, answer, create_faq, faq_c
     faq_created: create_faq ? newFaqId : null,
   };
 };
-
-
 // ═══════════════════════════════════════════════════════════
 // ADMIN — LIER UNE QUESTION À UNE FAQ EXISTANTE
 // Nouveau endpoint : permet à l'admin de lier manuellement
 // une question pending à une FAQ déjà existante
 // ═══════════════════════════════════════════════════════════
 export const adminLinkQuestionToFaqService = async ({ questionId, faqId }) => {
-  // Vérifier que la question existe
   const q = await database.query(
     "SELECT * FROM faq_questions WHERE id=$1", [questionId]
   );
   if (q.rows.length === 0)
     throw new ErrorHandler("Question introuvable.", 404);
 
-  // Vérifier que la FAQ existe
   const faq = await database.query(
     "SELECT * FROM faqs WHERE id=$1", [faqId]
   );
   if (faq.rows.length === 0)
     throw new ErrorHandler("FAQ introuvable.", 404);
 
-  // Incrémenter la fréquence de la FAQ liée
   await database.query(
     `SELECT increment_faq_frequency($1)`, [faqId]
   );
 
-  // Lier la question à la FAQ + répondre avec la réponse existante
-  const result = await database.query(
-    `UPDATE faq_questions
-     SET faq_id              = $1,
-         matched_automatically = FALSE,
-         answer              = $2,
-         status              = 'answered',
-         answered_at         = NOW()
-     WHERE id = $3
-     RETURNING *`,
-    [faqId, faq.rows[0].answer_fr, questionId]
+  await database.query(
+    `INSERT INTO frequent_question (question_id, faq_id, matched_automatically)
+     VALUES ($1, $2, FALSE)
+     ON CONFLICT (question_id, faq_id) DO NOTHING`,
+    [questionId, faqId]
   );
 
-  // Notifier le user
+  const result = await database.query(
+    `UPDATE faq_questions
+     SET answer      = $1,
+         status      = 'answered',
+         answered_at = NOW()
+     WHERE id = $2
+     RETURNING *`,
+    [faq.rows[0].answer_fr, questionId]
+  );
+
   const question = q.rows[0];
   await sendAnswerEmail(
     question.user_email,
@@ -487,8 +491,6 @@ export const adminLinkQuestionToFaqService = async ({ questionId, faqId }) => {
 
   return result.rows[0];
 };
-
-
 // ═══════════════════════════════════════════════════════════
 // ADMIN — DELETE USER QUESTION
 // ═══════════════════════════════════════════════════════════
@@ -509,12 +511,19 @@ export const adminFaqStatsService = async () => {
   const [counts, topFaqs] = await Promise.all([
     database.query(`
       SELECT
-        COUNT(*)                                            AS total,
-        COUNT(*) FILTER (WHERE status = 'pending')         AS pending,
-        COUNT(*) FILTER (WHERE status = 'answered')        AS answered,
-        COUNT(*) FILTER (WHERE matched_automatically = TRUE) AS auto_answered,
-        COUNT(*) FILTER (WHERE matched_automatically = FALSE
-                           AND status = 'answered')        AS manually_answered
+        COUNT(*)                                                            AS total,
+        COUNT(*) FILTER (WHERE status = 'pending')                          AS pending,
+        COUNT(*) FILTER (WHERE status = 'answered')                         AS answered,
+        COUNT(*) FILTER (WHERE EXISTS (
+          SELECT 1 FROM frequent_question fq
+          WHERE fq.question_id = faq_questions.id
+            AND fq.matched_automatically = TRUE
+        ))                                                                  AS auto_answered,
+        COUNT(*) FILTER (WHERE status = 'answered' AND EXISTS (
+          SELECT 1 FROM frequent_question fq
+          WHERE fq.question_id = faq_questions.id
+            AND fq.matched_automatically = FALSE
+        ))                                                                  AS manually_answered
       FROM faq_questions
     `),
     database.query(`

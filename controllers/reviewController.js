@@ -33,17 +33,14 @@ export const getProductReviews = catchAsyncErrors(async (req, res) => {
 // ═══════════════════════════════════════════════════════════
 // CREATE REVIEW
 // POST /api/reviews
-// Body : { product_id, order_id, rating, comment }
+// Body : { product_id, rating, comment }
 // ═══════════════════════════════════════════════════════════
 export const createReview = catchAsyncErrors(async (req, res, next) => {
-  const { product_id, order_id, rating, comment } = req.body;
+  const { product_id, rating, comment } = req.body;
 
   // ── Validation ───────────────────────────────────────────
   if (!product_id)
     return next(new ErrorHandler("product_id est obligatoire.", 400));
-
-  if (!order_id)
-    return next(new ErrorHandler("order_id est obligatoire.", 400));
 
   if (!rating || rating < 1 || rating > 5)
     return next(new ErrorHandler("La note doit être entre 1 et 5.", 400));
@@ -57,7 +54,6 @@ export const createReview = catchAsyncErrors(async (req, res, next) => {
   const review = await reviewService.createReviewService({
     productId: product_id,
     userId:    req.user.id,
-    orderId:   order_id,
     rating:    parseInt(rating),
     comment,
   });
