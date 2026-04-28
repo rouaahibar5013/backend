@@ -3,7 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash-lite',
-    generationConfig: { responseMimeType: "application/json", maxOutputTokens: 600 }
+    generationConfig: { responseMimeType: "application/json", maxOutputTokens: 2000 }
 });
 
 const cache = new Map();
@@ -22,7 +22,8 @@ Sinon, 1 recette mondiale en JSON strict:
 
     try {
         const result = await model.generateContent(prompt);
-        const recette = JSON.parse(result.response.text());
+        const raw = result.response.text().replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const recette = JSON.parse(raw);
 
         if (recette.non_alimentaire) return null;
 
