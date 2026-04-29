@@ -25,43 +25,9 @@ const verifyPurchase = async ({ userId, productId }) => {
 };
 
 // ═══════════════════════════════════════════════════════════
-// GET PRODUITS REVIEWABLES (user connecté)
-// Produits livrés sans review existante de cet user
+// CREATE REVIEW (publiée directement)
 // ═══════════════════════════════════════════════════════════
-export const getReviewableProductsService = async (userId) => {
-  const result = await database.query(
-    `SELECT DISTINCT
-       p.id         AS product_id,
-       p.name_fr    AS product_name,
-       p.images,
-       p.slug,
-       MAX(o.created_at) AS last_order_date
-     FROM orders o
-     JOIN order_items      oi ON oi.order_id  = o.id
-     JOIN product_variants pv ON pv.id        = oi.variant_id
-     JOIN products          p  ON p.id         = pv.product_id
-     WHERE o.user_id  = $1
-       AND o.status   = 'livree'
-       AND p.id IS NOT NULL
-       AND NOT EXISTS (
-         SELECT 1 FROM review r
-         WHERE r.product_id = p.id
-           AND r.user_id    = $1
-       )
-     GROUP BY p.id, p.name_fr, p.images, p.slug
-     ORDER BY last_order_date DESC`,
-    [userId]
-  );
-
-  return result.rows;
-};
-
-// ═══════════════════════════════════════════════════════════
-// CREATE REVIEW
-// ═══════════════════════════════════════════════════════════
-export const createReviewService = async ({
-  productId, userId, rating, comment,
-}) => {
+export const createReviewService = async ({ productId, userId, rating, comment }) => {
   // ── Vérifier produit existe ──────────────────────────────
   const product = await database.query(
     "SELECT id FROM products WHERE id = $1 AND is_active = true",
@@ -75,32 +41,25 @@ export const createReviewService = async ({
 
   // ── Vérifier pas de review existante (1 review / produit / user) ──
   const existing = await database.query(
-    `SELECT id FROM review
-     WHERE product_id = $1
-       AND user_id    = $2`,
+    "SELECT id FROM review WHERE product_id = $1 AND user_id = $2",
     [productId, userId]
   );
   if (existing.rows.length > 0)
-    throw new ErrorHandler(
-      "Vous avez déjà laissé un avis pour ce produit.", 409
-    );
+    throw new ErrorHandler("Vous avez déjà laissé un avis pour ce produit.", 409);
 
-  // ── INSERT — is_approved = false (modération admin) ──────
+  // ── INSERT ───────────────────────────────────────────────
   const result = await database.query(
-    `INSERT INTO review
-       (product_id, user_id, rating, comment, is_approved)
-     VALUES ($1, $2, $3, $4, false)
+    `INSERT INTO review (product_id, user_id, rating, comment)
+     VALUES ($1, $2, $3, $4)
      RETURNING *`,
     [productId, userId, rating, comment.trim()]
   );
 
-  // ✅ Le trigger trg_rating_refresh s'exécute automatiquement
   return result.rows[0];
 };
 
 // ═══════════════════════════════════════════════════════════
 // GET REVIEWS D'UN PRODUIT (public)
-// Seulement les reviews approuvées
 // ═══════════════════════════════════════════════════════════
 export const getProductReviewsService = async (productId) => {
   const [reviewsResult, statsResult] = await Promise.all([
@@ -114,23 +73,21 @@ export const getProductReviewsService = async (productId) => {
          u.avatar AS user_avatar
        FROM review r
        LEFT JOIN users u ON u.id = r.user_id
-       WHERE r.product_id  = $1
-         AND r.is_approved = true
+       WHERE r.product_id = $1
        ORDER BY r.created_at DESC`,
       [productId]
     ),
     database.query(
       `SELECT
-         ROUND(AVG(rating)::numeric, 1) AS average_rating,
-         COUNT(*)                        AS total_reviews,
+         ROUND(AVG(rating)::numeric, 1)     AS average_rating,
+         COUNT(*)                            AS total_reviews,
          COUNT(*) FILTER (WHERE rating = 5) AS five_stars,
          COUNT(*) FILTER (WHERE rating = 4) AS four_stars,
          COUNT(*) FILTER (WHERE rating = 3) AS three_stars,
          COUNT(*) FILTER (WHERE rating = 2) AS two_stars,
          COUNT(*) FILTER (WHERE rating = 1) AS one_star
        FROM review
-       WHERE product_id  = $1
-         AND is_approved = true`,
+       WHERE product_id = $1`,
       [productId]
     ),
   ]);
@@ -152,46 +109,15 @@ export const getProductReviewsService = async (productId) => {
 };
 
 // ═══════════════════════════════════════════════════════════
-// GET MES REVIEWS (user connecté)
-// ═══════════════════════════════════════════════════════════
-export const getMyReviewsService = async (userId) => {
-  const result = await database.query(
-    `SELECT
-       r.id,
-       r.rating,
-       r.comment,
-       r.is_approved,
-       r.created_at,
-       p.id      AS product_id,
-       p.name_fr AS product_name,
-       p.slug    AS product_slug,
-       p.images
-     FROM review r
-     LEFT JOIN products p ON p.id = r.product_id
-     WHERE r.user_id = $1
-     ORDER BY r.created_at DESC`,
-    [userId]
-  );
-
-  return result.rows;
-};
-
-// ═══════════════════════════════════════════════════════════
-// UPDATE REVIEW (user — seulement si pas encore approuvée)
+// UPDATE REVIEW (user — seulement la sienne)
 // ═══════════════════════════════════════════════════════════
 export const updateReviewService = async ({ reviewId, userId, rating, comment }) => {
   const review = await database.query(
     "SELECT * FROM review WHERE id = $1 AND user_id = $2",
     [reviewId, userId]
   );
-
   if (review.rows.length === 0)
     throw new ErrorHandler("Avis introuvable.", 404);
-
-  if (review.rows[0].is_approved)
-    throw new ErrorHandler(
-      "Impossible de modifier un avis déjà approuvé.", 400
-    );
 
   const current = review.rows[0];
 
@@ -213,8 +139,7 @@ export const updateReviewService = async ({ reviewId, userId, rating, comment })
 
 // ═══════════════════════════════════════════════════════════
 // DELETE REVIEW
-// User → seulement le sien ET pas encore approuvé
-// Admin → n'importe lequel
+// User → seulement la sienne | Admin → n'importe laquelle
 // ═══════════════════════════════════════════════════════════
 export const deleteReviewService = async ({ reviewId, userId, role }) => {
   if (role === "admin") {
@@ -228,25 +153,20 @@ export const deleteReviewService = async ({ reviewId, userId, role }) => {
   }
 
   const review = await database.query(
-    "SELECT * FROM review WHERE id = $1 AND user_id = $2",
+    "SELECT id FROM review WHERE id = $1 AND user_id = $2",
     [reviewId, userId]
   );
   if (review.rows.length === 0)
     throw new ErrorHandler("Avis introuvable.", 404);
-
-  if (review.rows[0].is_approved)
-    throw new ErrorHandler(
-      "Impossible de supprimer un avis déjà approuvé.", 400
-    );
 
   await database.query("DELETE FROM review WHERE id = $1", [reviewId]);
 };
 
 // ═══════════════════════════════════════════════════════════
 // GET ALL REVIEWS (admin)
-// Avec filtres : is_approved, page
+// Filtres : rating, date_from, date_to, page
 // ═══════════════════════════════════════════════════════════
-export const getAllReviewsService = async ({ approved, page = 1 }) => {
+export const getAllReviewsService = async ({ rating, date_from, date_to, page = 1 }) => {
   const LIMIT  = 20;
   const offset = (page - 1) * LIMIT;
 
@@ -254,9 +174,24 @@ export const getAllReviewsService = async ({ approved, page = 1 }) => {
   const values     = [];
   let   i          = 1;
 
-  if (approved !== undefined) {
-    conditions.push(`r.is_approved = $${i}`);
-    values.push(approved === "true");
+  // Filtre par note (ex: ?rating=1 pour voir les mauvais avis)
+  if (rating !== undefined) {
+    conditions.push(`r.rating = $${i}`);
+    values.push(parseInt(rating));
+    i++;
+  }
+
+  // Filtre par date de début (ex: ?date_from=2024-01-01)
+  if (date_from) {
+    conditions.push(`r.created_at >= $${i}`);
+    values.push(new Date(date_from));
+    i++;
+  }
+
+  // Filtre par date de fin (ex: ?date_to=2024-12-31)
+  if (date_to) {
+    conditions.push(`r.created_at <= $${i}`);
+    values.push(new Date(date_to));
     i++;
   }
 
@@ -265,15 +200,12 @@ export const getAllReviewsService = async ({ approved, page = 1 }) => {
   values.push(LIMIT, offset);
 
   const [totalResult, result] = await Promise.all([
-    database.query(
-      `SELECT COUNT(*) FROM review r ${WHERE}`, countValues
-    ),
+    database.query(`SELECT COUNT(*) FROM review r ${WHERE}`, countValues),
     database.query(
       `SELECT
          r.id,
          r.rating,
          r.comment,
-         r.is_approved,
          r.created_at,
          u.name    AS user_name,
          u.email   AS user_email,
@@ -295,27 +227,4 @@ export const getAllReviewsService = async ({ approved, page = 1 }) => {
     page,
     reviews:    result.rows,
   };
-};
-
-// ═══════════════════════════════════════════════════════════
-// APPROVE / REJECT REVIEW (admin)
-// ═══════════════════════════════════════════════════════════
-export const approveReviewService = async ({ reviewId, is_approved }) => {
-  const review = await database.query(
-    "SELECT id FROM review WHERE id = $1",
-    [reviewId]
-  );
-  if (review.rows.length === 0)
-    throw new ErrorHandler("Avis introuvable.", 404);
-
-  const result = await database.query(
-    `UPDATE review
-     SET is_approved = $1
-     WHERE id = $2
-     RETURNING *`,
-    [is_approved, reviewId]
-  );
-
-  // ✅ Le trigger trg_rating_refresh met à jour rating_avg automatiquement
-  return result.rows[0];
 };
