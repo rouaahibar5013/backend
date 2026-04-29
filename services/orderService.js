@@ -84,6 +84,101 @@ const sendOrderConfirmationEmail = async (toEmail, order, customerName, pdfBuffe
 };
 
 // ═══════════════════════════════════════════════════════════
+// HELPER — Email notification changement de statut commande
+// ✅ Appelé dans updateOrderStatusService après chaque UPDATE
+// ═══════════════════════════════════════════════════════════
+const sendOrderStatusEmail = async (order, userName, userEmail) => {
+ 
+  // Configuration par statut : couleur, icône, titre, message
+  const statusConfig = {
+    confirmee: {
+      color:   "#166534",
+      icon:    "✅",
+      title:   "Commande confirmée",
+      message: "Votre commande a été confirmée et est en cours de préparation.",
+    },
+    en_preparation: {
+      color:   "#f59e0b",
+      icon:    "📦",
+      title:   "Commande en préparation",
+      message: "Votre commande est en cours de préparation par notre équipe.",
+    },
+    expediee: {
+      color:   "#3b82f6",
+      icon:    "🚚",
+      title:   "Commande expédiée",
+      message: "Votre commande a été expédiée et est en route vers vous.",
+    },
+    livree: {
+      color:   "#166534",
+      icon:    "🎉",
+      title:   "Commande livrée",
+      message: "Votre commande a bien été livrée. Merci pour votre confiance !",
+    },
+    remboursee: {
+      color:   "#8b5cf6",
+      icon:    "💜",
+      title:   "Commande remboursée",
+      message: "Votre remboursement a été effectué. Il apparaîtra sur votre compte sous 3 à 5 jours ouvrés.",
+    },
+  };
+ 
+  const config = statusConfig[order.status];
+  if (!config) return; // Pas d'email pour les statuts non listés
+ 
+  // Bloc tracking number si disponible
+  const trackingBlock = order.tracking_number
+    ? `<p><strong>Numéro de suivi :</strong> ${order.tracking_number}</p>`
+    : "";
+ 
+  // Bloc transporteur si disponible
+  const carrierBlock = order.carrier
+    ? `<p><strong>Transporteur :</strong> ${order.carrier}</p>`
+    : "";
+ 
+  // Bloc date estimée si disponible
+  const estimatedBlock = order.estimated_date
+    ? `<p><strong>Date de livraison estimée :</strong> ${new Date(order.estimated_date).toLocaleDateString("fr-FR", {
+        day: "2-digit", month: "long", year: "numeric",
+      })}</p>`
+    : "";
+ 
+  await sendEmail({
+    to:      userEmail,
+    subject: `${config.icon} Commande #${order.order_number} — ${config.title} — GOFFA 🧺`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: ${config.color}; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+          <h1 style="color: white; margin: 0;">🧺 GOFFA</h1>
+          <p style="color: rgba(255,255,255,0.8); margin: 5px 0 0;">artisanat tunisien</p>
+        </div>
+        <div style="padding: 30px; background: #f9fafb; border-radius: 0 0 10px 10px;">
+          <h2 style="color: ${config.color};">${config.icon} ${config.title}</h2>
+          <p>Bonjour ${userName},</p>
+          <p>${config.message}</p>
+          <div style="background: white; padding: 20px; border-radius: 8px;
+                      margin: 20px 0; border-left: 4px solid ${config.color};">
+            <p><strong>N° de commande :</strong> #${order.order_number}</p>
+            <p><strong>Total :</strong> ${parseFloat(order.total_price).toFixed(2)} CHF</p>
+            ${trackingBlock}
+            ${carrierBlock}
+            ${estimatedBlock}
+          </div>
+          <div style="text-align: center; margin-top: 24px;">
+            <a href="${process.env.FRONTEND_URL}/commandes/${order.id}"
+               style="background: ${config.color}; color: white; padding: 12px 28px;
+                      border-radius: 6px; text-decoration: none;
+                      font-weight: bold; display: inline-block;">
+              Suivre ma commande →
+            </a>
+          </div>
+        </div>
+      </div>
+    `,
+  }).catch(err => console.error(`Status email error (${order.status}):`, err.message));
+};
+
+// ═══════════════════════════════════════════════════════════
 // HELPER — Email paiement échoué
 // ═══════════════════════════════════════════════════════════
 const sendPaymentFailedEmail = async (toEmail, customerName, order) => {
@@ -350,28 +445,30 @@ const fetchOrderItemsWithDetails = async (orderId) => {
        p.name_fr           AS product_name_fr,
        p.images->0->>'url' AS product_image,
        pv.sku,
+       -- ✅ Nouveau JOIN — pva.value_fr directement, plus d'attribute_values
        COALESCE(
          json_agg(
            json_build_object(
              'attribute_type',  at.name_fr,
-             'attribute_value', av.value_fr
+             'attribute_value', pva.value_fr
            )
-           ORDER BY av.sort_order
+           ORDER BY at.name_fr
          ) FILTER (WHERE at.id IS NOT NULL),
          '[]'
        ) AS variant_details
      FROM order_items oi
-     LEFT JOIN product_variants          pv  ON pv.id  = oi.variant_id
-     LEFT JOIN products                   p  ON p.id   = pv.product_id
-     LEFT JOIN product_variant_attributes pva ON pva.variant_id         = pv.id
-     LEFT JOIN attribute_values           av  ON av.id                  = pva.attribute_value_id
-     LEFT JOIN attribute_types            at  ON at.id                  = av.attribute_type_id
+     LEFT JOIN product_variants          pv  ON pv.id = oi.variant_id
+     LEFT JOIN products                   p  ON p.id  = pv.product_id
+     -- ✅ JOIN direct sur pva — attribute_type_id disponible directement
+     LEFT JOIN product_variant_attributes pva ON pva.variant_id = pv.id
+     LEFT JOIN attribute_types            at  ON at.id = pva.attribute_type_id
      WHERE oi.order_id = $1
      GROUP BY oi.id, p.name_fr, p.images, pv.sku`,
     [orderId]
   );
   return result.rows;
 };
+ 
 
 // ═══════════════════════════════════════════════════════════
 // HELPER — Calculer articles de la commande
@@ -982,15 +1079,16 @@ export const getMyOrdersService = async (userId) => {
              'product_name',   p.name_fr,
              'variant_details', (
                SELECT COALESCE(
-                 json_agg(json_build_object(
-                   'attribute_type',  at2.name_fr,
-                   'attribute_value', av2.value_fr
-                 )),
+                 json_agg(
+                   json_build_object(
+                     'attribute_type',  at2.name_fr,
+                     'attribute_value', pva2.value_fr
+                   )
+                 ),
                  '[]'
                )
                FROM product_variant_attributes pva2
-               JOIN attribute_values av2 ON av2.id = pva2.attribute_value_id
-               JOIN attribute_types  at2 ON at2.id = av2.attribute_type_id
+               JOIN attribute_types at2 ON at2.id = pva2.attribute_type_id
                WHERE pva2.variant_id = oi.variant_id
              ),
              'quantity',       oi.quantity,
@@ -1000,17 +1098,17 @@ export const getMyOrdersService = async (userId) => {
          ) FILTER (WHERE oi.id IS NOT NULL), '[]'
        ) AS items
      FROM orders o
-     LEFT JOIN deliveries  d   ON d.order_id  = o.id
-     LEFT JOIN order_items oi  ON oi.order_id = o.id
-     LEFT JOIN product_variants pv ON pv.id   = oi.variant_id
-     LEFT JOIN products         p  ON p.id    = pv.product_id
-     LEFT JOIN promotions       pr ON pr.id   = o.promo_id
+     LEFT JOIN deliveries        d   ON d.order_id  = o.id
+     LEFT JOIN order_items       oi  ON oi.order_id = o.id
+     LEFT JOIN product_variants  pv  ON pv.id       = oi.variant_id
+     LEFT JOIN products          p   ON p.id        = pv.product_id
+     LEFT JOIN promotions        pr  ON pr.id       = o.promo_id
      WHERE o.user_id = $1
      GROUP BY o.id, d.status, d.tracking_number, d.carrier, d.estimated_date, pr.code
      ORDER BY o.created_at DESC`,
     [userId]
   );
-
+ 
   return result.rows;
 };
 
@@ -1111,45 +1209,77 @@ export const getAllOrdersService = async ({ status, payment_status, page = 1 }) 
 
 // ═══════════════════════════════════════════════════════════
 // SERVICE — UPDATE ORDER STATUS (admin)
+// ✅ Email automatique au client à chaque changement
 // ═══════════════════════════════════════════════════════════
 export const updateOrderStatusService = async ({ orderId, status }) => {
-const validStatuses = ["en_attente","confirmee","en_preparation","expediee","livree","annulee","remboursee"];
-
+  const validStatuses = [
+    "en_attente", "confirmee", "en_preparation",
+    "expediee", "livree", "annulee", "remboursee",
+  ];
+ 
   if (!validStatuses.includes(status))
-    throw new ErrorHandler(`Statut invalide. Valeurs acceptées : ${validStatuses.join(", ")}`, 400);
-
+    throw new ErrorHandler(
+      `Statut invalide. Valeurs acceptées : ${validStatuses.join(", ")}`, 400
+    );
+ 
   const orderResult = await database.query(
     "SELECT * FROM orders WHERE id = $1", [orderId]
   );
   if (orderResult.rows.length === 0)
     throw new ErrorHandler("Commande introuvable.", 404);
-
-  // ✅ Si annulation → cancelled_reason obligatoire selon contrainte DB
+ 
+  const order = orderResult.rows[0];
+ 
   if (status === "annulee") {
     throw new ErrorHandler(
       "Pour annuler, utilisez la route PATCH /cancel qui requiert une raison d'annulation.",
       400
     );
   }
-
+ 
+  // Mettre à jour le statut
   await database.query(
     "UPDATE orders SET status = $1 WHERE id = $2",
     [status, orderId]
   );
-
-  // ✅ Sync automatique de la livraison
+  order.status = status;
+ 
+  // Sync automatique livraison
   const deliveryMap = {
-  expediee: "UPDATE deliveries SET status = 'expedie', shipped_at = NOW() WHERE order_id = $1",
-  livree:   "UPDATE deliveries SET status = 'livre',   delivered_at = NOW() WHERE order_id = $1",
-};
-
+    expediee: "UPDATE deliveries SET status = 'expedie', shipped_at = NOW() WHERE order_id = $1",
+    livree:   "UPDATE deliveries SET status = 'livre',   delivered_at = NOW() WHERE order_id = $1",
+  };
+ 
   if (deliveryMap[status]) {
     await database.query(deliveryMap[status], [orderId]);
   }
-
+ 
+  // ✅ Récupérer tracking + carrier pour l'email si expédiée
+  if (status === "expediee") {
+    const deliveryResult = await database.query(
+      "SELECT tracking_number, carrier, estimated_date FROM deliveries WHERE order_id = $1",
+      [orderId]
+    );
+    if (deliveryResult.rows.length > 0) {
+      order.tracking_number = deliveryResult.rows[0].tracking_number;
+      order.carrier         = deliveryResult.rows[0].carrier;
+      order.estimated_date  = deliveryResult.rows[0].estimated_date;
+    }
+  }
+ 
+  // ✅ Envoyer l'email au client
+  const userResult = await database.query(
+    "SELECT name, email FROM users WHERE id = $1",
+    [order.user_id]
+  );
+  const user = userResult.rows[0];
+ 
+  if (user) {
+    await sendOrderStatusEmail(order, user.name, user.email);
+  }
+ 
   return { message: `Statut mis à jour : ${status}` };
 };
-
 // ═══════════════════════════════════════════════════════════
 // SERVICE — CANCEL ORDER (admin uniquement)
 // ✅ Restaure le stock
@@ -1248,11 +1378,11 @@ export const updateDeliveryService = async ({
 
   const result = await database.query(
     `UPDATE deliveries
-     SET carrier          = $1,
-         tracking_number  = $2,
-         estimated_date   = $3,
-         status           = $4,
-         notes            = $5
+     SET carrier         = $1,
+         tracking_number = $2,
+         estimated_date  = $3,
+         status          = $4,
+         notes           = $5
      WHERE order_id = $6
      RETURNING *`,
     [
@@ -1265,17 +1395,29 @@ export const updateDeliveryService = async ({
     ]
   );
 
-  // Sync order status si livraison confirmée
+  // ✅ Sync order status + email si livraison confirmée
   if (status === "livre") {
-    await database.query(
-      "UPDATE orders SET status = 'livree' WHERE id = $1",
+    const orderResult = await database.query(
+      "UPDATE orders SET status = 'livree' WHERE id = $1 RETURNING *",
       [orderId]
     );
+    const order = orderResult.rows[0];
+
+    // ✅ Email notification au client
+    if (order) {
+      const userResult = await database.query(
+        "SELECT name, email FROM users WHERE id = $1",
+        [order.user_id]
+      );
+      const user = userResult.rows[0];
+      if (user) {
+        await sendOrderStatusEmail(order, user.name, user.email);
+      }
+    }
   }
 
   return result.rows[0];
 };
-
 // ═══════════════════════════════════════════════════════════
 // SERVICE — ADMIN UPDATE ORDER SHIPPING INFO
 // ═══════════════════════════════════════════════════════════
