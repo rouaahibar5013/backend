@@ -1077,7 +1077,6 @@ export const getMyOrdersService = async (userId) => {
              'id',             oi.id,
              'variant_id',     oi.variant_id,
              'product_name',   p.name_fr,
-             -- ✅ Sous-requête sans attribute_values
              'variant_details', (
                SELECT COALESCE(
                  json_agg(
