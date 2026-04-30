@@ -207,7 +207,7 @@ export const askQuestionService = async ({ userId, user_name, user_email, questi
             <div style="background: white; padding: 16px; border-radius: 8px; border-left: 4px solid #166534;">
               <p style="margin: 0;">${cleanQuestion}</p>
             </div>
-            <a href="${process.env.FRONTEND_URL}/admin"
+            href="${process.env.FRONTEND_URL}/admin#faq?tab=questions"
                style="display: inline-block; margin-top: 16px; background: #166534; color: white;
                       padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: bold;">
               Répondre dans le dashboard →
