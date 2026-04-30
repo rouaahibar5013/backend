@@ -14,7 +14,7 @@ import {
   adminDeleteQuestion,
   adminFaqStats,           // nouveau
 } from "../controllers/faqController.js";
-import { isAuthenticated, isAdmin } from "../middlewares/auth.js";
+import { isAuthenticated, isAdmin , optionalAuth} from "../middlewares/auth.js";
 
 const router = express.Router();
 
@@ -26,7 +26,7 @@ const router = express.Router();
 // POST /api/faqs/ask          → poser une question (connecté ou non)
 
 router.get ("/search", searchFaqs);
-router.post("/ask",    askQuestion);  // public — isAuthenticated optionnel en amont
+router.post("/ask", optionalAuth,   askQuestion);  // public — isAuthenticated optionnel en amont
 router.get ("/",       getAllFaqs);
 
 

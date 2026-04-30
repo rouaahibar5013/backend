@@ -100,12 +100,12 @@ export const adminCreateFaq = catchAsyncErrors(async (req, res, next) => {
 // PUT /api/faqs/admin/:id
 // ═══════════════════════════════════════════════════════════
 export const adminUpdateFaq = catchAsyncErrors(async (req, res, next) => {
-  const { category, question_fr, answer_fr, order_index } = req.body;
+  const { category, question_fr, answer_fr, order_index, is_active } = req.body;
 
-  const faq = await faqService.adminUpdateFaqService({
-    id: req.params.id,
-    category, question_fr, answer_fr, order_index,
-  });
+const faq = await faqService.adminUpdateFaqService({
+  id: req.params.id,
+  category, question_fr, answer_fr, order_index, is_active,
+});
 
   res.status(200).json({ success: true, message: "FAQ mise à jour.", faq });
 });
