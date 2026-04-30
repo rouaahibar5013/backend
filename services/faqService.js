@@ -258,7 +258,7 @@ export const adminCreateFaqService = async ({ category, question_fr, answer_fr, 
 // ═══════════════════════════════════════════════════════════
 // ADMIN — UPDATE FAQ
 // ═══════════════════════════════════════════════════════════
-export const adminUpdateFaqService = async ({ id, category, question_fr, answer_fr, order_index }) => {
+export const adminUpdateFaqService = async ({ id, category, question_fr, answer_fr, order_index, is_active }) => {
   const faq = await database.query("SELECT * FROM faqs WHERE id=$1", [id]);
   if (faq.rows.length === 0)
     throw new ErrorHandler("FAQ introuvable.", 404);
@@ -271,14 +271,16 @@ export const adminUpdateFaqService = async ({ id, category, question_fr, answer_
          question_fr = $2,
          answer_fr   = $3,
          order_index = $4,
+          is_active   = $5,
          updated_at  = NOW()
-     WHERE id = $5
+     WHERE id = $6
      RETURNING *`,
     [
       category    || current.category,
       question_fr || current.question_fr,
       answer_fr   || current.answer_fr,
       order_index ?? current.order_index,
+      is_active   ?? current.is_active,
       id,
     ]
   );

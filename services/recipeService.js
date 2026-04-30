@@ -238,7 +238,7 @@ export const fetchFeaturedRecipesService = async () => {
 export const updateRecipeService = async ({
   recipeId, title_fr,  description_fr, 
   prep_time, cook_time, servings, difficulty, category,
-  is_published, is_featured, coverImageFile,
+  is_published, is_featured, coverImageFile,ingredients,
 }) => {
   const recipe = await database.query(
     "SELECT * FROM recipes WHERE id=$1", [recipeId]
@@ -282,6 +282,24 @@ export const updateRecipeService = async ({
       recipeId,
     ]
   );
+
+  if (ingredients !== null && ingredients !== undefined) {
+    await database.query(
+      "DELETE FROM recipe_ingredients WHERE recipe_id = $1",
+      [recipeId]
+    );
+    if (ingredients.length > 0) {
+      for (let i = 0; i < ingredients.length; i++) {
+        const { name_fr, quantity, product_id, is_bio } = ingredients[i];
+        await database.query(
+          `INSERT INTO recipe_ingredients
+            (recipe_id, product_id, name_fr, quantity, is_bio, sort_order)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [recipeId, product_id || null, name_fr, quantity || null, is_bio !== false, i]
+        );
+      }
+    }
+  }
 
   return result.rows[0];
 };

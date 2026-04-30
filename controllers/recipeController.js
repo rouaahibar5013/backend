@@ -105,7 +105,7 @@ export const updateRecipe = catchAsyncErrors(async (req, res, next) => {
   const {
     title_fr, description_fr, 
     prep_time, cook_time, servings, difficulty,
-    category, is_published, is_featured,
+    category, is_published, is_featured,ingredients, 
   } = req.body;
 
 // updateRecipe
@@ -113,13 +113,16 @@ const recipe = await recipeService.updateRecipeService({
   recipeId: req.params.recipeId,
   title_fr,
   description_fr,
-  prep_time:  toInt(prep_time),   // ✅
-  cook_time:  toInt(cook_time),   // ✅
-  servings:   toInt(servings),    // ✅
+  prep_time:  toInt(prep_time),   
+  cook_time:  toInt(cook_time),   
+  servings:   toInt(servings),    
   difficulty,
   category,
   is_published,
   is_featured,
+  ingredients: ingredients
+      ? (typeof ingredients === "string" ? JSON.parse(ingredients) : ingredients)
+      : null, 
   coverImageFile: req.files?.cover_image || null,
 });
 

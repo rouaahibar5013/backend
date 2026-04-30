@@ -183,8 +183,8 @@ export const fetchAllProductsService = async ({
   search, category_id, min_rating, min_price, max_price, page = 1,
   is_featured, supplier_id, admin = false,
 }) => {
-  const LIMIT  = 12;
-  const offset = (page - 1) * LIMIT;
+  const LIMIT  = admin === "true" ? 500 : 12;
+  const offset = admin === "true" ? 0 : (page - 1) * LIMIT;
 
   const conditions = admin === "true" ? [] : ["p.is_active = true"];
   const values     = [];
@@ -339,9 +339,12 @@ export const fetchAllProductsService = async ({
 // ✅ pva.value_fr lu directement
 // ═══════════════════════════════════════════════════════════
 export const fetchSingleProductService = async (productId, admin = false, alreadyViewed = false) => {
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
+  const col    = isUuid ? "id" : "slug";
+
   if (!admin && !alreadyViewed) {
-    database.query("UPDATE products SET views_count = views_count + 1 WHERE id = $1", [productId]);
-    database.query("INSERT INTO product_views (product_id) VALUES ($1)", [productId]);
+    database.query(`UPDATE products SET views_count = views_count + 1 WHERE ${col} = $1`, [productId]);
+    database.query(`INSERT INTO product_views (product_id) SELECT id FROM products WHERE ${col} = $1`, [productId]);
   }
 
   const [productResult, variantsResult] = await Promise.all([
@@ -383,7 +386,7 @@ export const fetchSingleProductService = async (productId, admin = false, alread
        LEFT JOIN suppliers  s  ON s.id  = p.supplier_id
        LEFT JOIN reviews    r  ON r.product_id = p.id
        LEFT JOIN users      u  ON u.id  = r.user_id
-       WHERE p.id = $1 ${admin ? "" : "AND p.is_active = true"}
+       WHERE p.${col} = $1 ${admin ? "" : "AND p.is_active = true"}
        GROUP BY p.id, c.id, c.name_fr, c.slug,
                 pc.name_fr, pc.slug,
                 s.name, s.slug, s.description_fr,
@@ -422,7 +425,8 @@ export const fetchSingleProductService = async (productId, admin = false, alread
          ORDER BY vp.created_at DESC
          LIMIT 1
        ) active_promo ON true
-       WHERE pv.product_id = $1 ${admin ? "" : "AND pv.is_active = true"}
+       WHERE pv.product_id = (SELECT id FROM products WHERE ${col} = $1)
+      ${admin ? "" : "AND pv.is_active = true"}
        GROUP BY pv.id, active_promo.discount_type, active_promo.discount_value, active_promo.expires_at
        ORDER BY pv.price ASC`,
       [productId]
