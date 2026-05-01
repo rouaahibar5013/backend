@@ -1,5 +1,5 @@
 import database from "../database/db.js";
-
+import redis from "../config/redis.js";
 // ═══════════════════════════════════════════════════════════
 // HELPER — calcul pourcentage de changement
 // ═══════════════════════════════════════════════════════════
@@ -60,6 +60,26 @@ const buildDateFilter = (period, month, year) => {
 // GET DASHBOARD STATS
 // ═══════════════════════════════════════════════════════════
 export const getDashboardStatsService = async ({ period, month, year }) => {
+  
+    
+  // ── Clé unique par combinaison de paramètres ──────────
+  const cacheKey = `dashboard:${period || "30days"}:${month || ""}:${year || ""}`;
+  const CACHE_TTL = 5 * 60; // 5 minutes en secondes
+
+  // ── 1. Chercher dans le cache Redis ───────────────────
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      console.log(`[Redis] Cache HIT — ${cacheKey}`);
+      return JSON.parse(cached); // ✅ Retour immédiat, 0 SQL
+    }
+    console.log(`[Redis] Cache MISS — ${cacheKey}`);
+  } catch (err) {
+    // ✅ Si Redis est down → on continue sans cache (pas de crash)
+    console.error("[Redis] Erreur lecture cache:", err.message);
+  }
+
+  // ── 2. Pas de cache → faire les 26 requêtes SQL ───────
   const { start, end, label } = buildDateFilter(period, month, year);
 
   // Période précédente pour comparaison
@@ -415,7 +435,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
   const currentUsers   = usersResult.rows[0].count;
   const prevUsers      = prevUsersResult.rows[0].count;
 
-  return {
+  const result = {
     period: { label, start, end },
 
     kpis: {
@@ -483,6 +503,15 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
       recent:   recentReclamationsResult.rows,
     },
   };
+
+  try {
+    await redis.set(cacheKey, JSON.stringify(result), "EX", CACHE_TTL);
+    console.log(`[Redis] Cache SET — ${cacheKey} (TTL: ${CACHE_TTL}s)`);
+  } catch (err) {
+    console.error("[Redis] Erreur écriture cache:", err.message);
+  }
+
+  return result;
 };
 
 

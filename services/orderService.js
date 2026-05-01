@@ -5,6 +5,8 @@ import sendEmail from "../utils/sendEmail.js";
 import { createGuestAccountService } from "./authService.js";
 import { exportOrderToOdoo } from "./odooService.js";
 import PDFDocument from "pdfkit";
+import { invalidateDashboardCache } from "../utils/cacheInvalideation.js";
+
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -997,6 +999,7 @@ export const handleStripeWebhookService = async (payload, signature) => {
         await sendOrderConfirmationEmail(user.email, order, user.name, pdfBuffer);
         console.log(`✅ Email + PDF envoyés — commande ${order.order_number}`);
       }
+       await invalidateDashboardCache();
       break;
     }
 
@@ -1242,6 +1245,7 @@ export const updateOrderStatusService = async ({ orderId, status }) => {
     "UPDATE orders SET status = $1 WHERE id = $2",
     [status, orderId]
   );
+  await invalidateDashboardCache();
   order.status = status;
  
   // Sync automatique livraison
@@ -1357,6 +1361,7 @@ export const cancelOrderService = async ({ orderId, reason }) => {
       `,
     }).catch(err => console.error("Cancel email error:", err.message));
   }
+await invalidateDashboardCache(); // ✅ ajout ici
 
   return { message: "Commande annulée avec succès." };
 };

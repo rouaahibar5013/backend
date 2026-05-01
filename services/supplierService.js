@@ -1,6 +1,8 @@
 import { v2 as cloudinary } from "cloudinary";
 import database from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
+import { invalidateOffresCache } from "../utils/cacheInvalideation.js"; // ✅ ajout
+
 
 const uploadSupplierImages = async (imageFiles) => {
   const imgs = Array.isArray(imageFiles) ? imageFiles : [imageFiles];
@@ -61,6 +63,7 @@ export const createSupplierService = async ({
       images[0]?.url || null,
     ]
   );
+  await invalidateOffresCache();
   return result.rows[0];
 };
 
@@ -176,6 +179,7 @@ export const updateSupplierService = async ({
       logoUrl, supplierId,
     ]
   );
+  await invalidateOffresCache();
   return result.rows[0];
 };
 
@@ -197,4 +201,5 @@ export const deleteSupplierService = async (supplierId) => {
     const matches = s.logo_url.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z]+$/i);
     if (matches) await cloudinary.uploader.destroy(matches[1]);
   }
+  await invalidateOffresCache();
 };

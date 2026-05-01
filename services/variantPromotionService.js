@@ -1,5 +1,7 @@
 import database from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
+import { invalidateOffresCache } from "../utils/cacheInvalideation.js"; // ✅ ajout
+
 
 export const getVariantPromotionsService = async (variantId) => {
   const result = await database.query(
@@ -35,6 +37,7 @@ export const createVariantPromotionService = async ({
      RETURNING *`,
     [variantId, discount_type, discount_value, starts_at, expires_at]
   );
+  await invalidateOffresCache();
   return result.rows[0];
 };
 
@@ -46,6 +49,7 @@ export const toggleVariantPromotionService = async (promoId, is_active) => {
   );
   if (result.rows.length === 0)
     throw new ErrorHandler("Promotion introuvable.", 404);
+  await invalidateOffresCache();
   return result.rows[0];
 };
 
@@ -55,4 +59,5 @@ export const deleteVariantPromotionService = async (promoId) => {
   );
   if (result.rows.length === 0)
     throw new ErrorHandler("Promotion introuvable.", 404);
+  await invalidateOffresCache();
 };

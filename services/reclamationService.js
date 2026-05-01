@@ -1,6 +1,8 @@
 import database    from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import sendEmail    from "../utils/sendEmail.js";
+import { invalidateDashboardCache } from "../utils/cacheInvalideation.js";
+
 
 const VALID_STATUSES = ["en_attente", "en_cours", "resolue", "rejetee"];
 
@@ -203,7 +205,7 @@ export const createReclamationService = async ({
   );
 
   const reclamation = result.rows[0];
-
+await invalidateDashboardCache();
   // Email de confirmation au client
   await sendReclamationConfirmationEmail(
     user.email,
@@ -377,7 +379,7 @@ export const respondToReclamationService = async ({
   );
 
   const reclamation = result.rows[0];
-
+await invalidateDashboardCache();
   // ✅ Email automatique au client
   await sendAdminResponseEmail(
     current.user_email,
