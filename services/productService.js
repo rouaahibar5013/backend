@@ -312,11 +312,11 @@ export const fetchAllProductsService = async ({
          (SELECT COALESCE(SUM(pv2.stock), 0)
           FROM product_variants pv2
           WHERE pv2.product_id = p.id AND pv2.is_active = true
-         ) AS total_stock
+         ) AS total_stock,
           (SELECT MIN(pv2.price)
- FROM product_variants pv2
- WHERE pv2.product_id = p.id AND pv2.is_active = true
-) AS original_min_price,
+          FROM product_variants pv2
+          WHERE pv2.product_id = p.id AND pv2.is_active = true
+          ) AS original_min_price
        FROM products p
        LEFT JOIN categories c ON c.id = p.category_id
        LEFT JOIN suppliers  s ON s.id = p.supplier_id
@@ -492,7 +492,11 @@ export const fetchFeaturedProductsService = async (limit = 8) => {
        (SELECT COALESCE(SUM(pv2.stock), 0)
         FROM product_variants pv2
         WHERE pv2.product_id = p.id AND pv2.is_active = true
-       ) AS total_stock
+       ) AS total_stock,
+       (SELECT MIN(pv2.price)
+        FROM product_variants pv2
+        WHERE pv2.product_id = p.id AND pv2.is_active = true
+       ) AS original_min_price
      FROM products p
      LEFT JOIN categories c ON c.id = p.category_id
      LEFT JOIN suppliers  s ON s.id = p.supplier_id

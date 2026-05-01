@@ -37,7 +37,9 @@ const productColumns = `
     WHEN vp_active.discount_type = 'fixed' THEN
       ROUND((vp_active.discount_value / pv_main.price * 100)::numeric, 0)
     ELSE NULL
-  END AS discount_percent
+  END AS discount_percent,
+
+  pv_main.price AS original_min_price
 `;
 
 // ═══════════════════════════════════════════════════════════
