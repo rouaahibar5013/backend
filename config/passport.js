@@ -37,7 +37,11 @@ passport.use(
             );
           }
 
-          return done(null, existingUser.rows[0]);
+      const refreshed = await database.query(
+  "SELECT id, name, email, avatar, role, is_verified, google_id FROM users WHERE id = $1",
+  [existingUser.rows[0].id]
+);
+return done(null, refreshed.rows[0]);
         }
 
         // ── User doesn't exist → create a new account ─────
@@ -56,5 +60,20 @@ passport.use(
     }
   )
 );
+
+
+passport.serializeUser((user, done) => done(null, user.id));
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    const result = await database.query(
+      "SELECT id, name, email, avatar, role, is_verified FROM users WHERE id = $1",
+      [id]
+    );
+    done(null, result.rows[0] || null);
+  } catch (err) {
+    done(err, null);
+  }
+});
 
 export default passport;
