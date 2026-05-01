@@ -50,7 +50,9 @@ export const getHomeDataService = async () => {
            WHEN vp_active.discount_type = 'fixed' THEN
              ROUND((vp_active.discount_value / pv_main.price * 100)::numeric, 0)
            ELSE NULL
-         END AS discount_percent
+         END AS discount_percent,
+
+         pv_main.price AS original_min_price
 
        FROM products p
        LEFT JOIN suppliers s ON s.id = p.supplier_id
@@ -110,8 +112,10 @@ export const getHomeDataService = async () => {
              ROUND(vp_active.discount_value::numeric, 0)
            WHEN vp_active.discount_type = 'fixed' THEN
              ROUND((vp_active.discount_value / pv_main.price * 100)::numeric, 0)
-           ELSE NULL
-         END AS discount_percent
+          ELSE NULL
+         END AS discount_percent,
+
+         pv_main.price AS original_min_price
 
        FROM products p
        LEFT JOIN suppliers s ON s.id = p.supplier_id
