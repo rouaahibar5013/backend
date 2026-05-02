@@ -1,5 +1,6 @@
 import database from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
+import { invalidateOffresCache } from "../utils/cacheInvalideation.js"; // ✅ ajout
 
 // ─────────────────────────────────────────
 // CREATE PROMOTION
@@ -54,7 +55,7 @@ export const createPromotionService = async (data, next) => {
       is_active !== undefined ? is_active : true,
     ]
   );
-
+await invalidateOffresCache();
   return result.rows[0];
 };
 
@@ -137,7 +138,7 @@ export const updatePromotionService = async (promotionId, data, next) => {
       promotionId,
     ]
   );
-
+await invalidateOffresCache();
   return result.rows[0];
 };
 
@@ -153,6 +154,7 @@ export const deletePromotionService = async (promotionId, next) => {
     return next(new ErrorHandler("Promotion introuvable.", 404));
 
   await database.query("DELETE FROM promotions WHERE id = $1", [promotionId]);
+  await invalidateOffresCache();
 };
 
 // ─────────────────────────────────────────

@@ -52,8 +52,7 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
     variants: parsedVariants,
     userId: req.user.id,
     files: req.files,
-    existingImages: existingImages ? JSON.parse(existingImages) : undefined, 
-    is_active:   req.body.is_active   !== undefined ? req.body.is_active   === "true" : true,
+existingImages: req.body.existingImages ? JSON.parse(req.body.existingImages) : undefined,    is_active:   req.body.is_active   !== undefined ? req.body.is_active   === "true" : true,
     is_featured: req.body.is_featured !== undefined ? req.body.is_featured === "true" : false,
     is_new:      req.body.is_new      !== undefined ? req.body.is_new      === "true" : true,
   });
@@ -73,7 +72,7 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
 export const fetchAllProducts = catchAsyncErrors(async (req, res) => {
   const {
     search, category_id, min_rating, min_price, max_price,
-    is_featured, supplier_id, admin,
+    is_featured, supplier_id, admin, is_active,
   } = req.query;
   const page = parseInt(req.query.page) || 1;
 
@@ -87,6 +86,8 @@ export const fetchAllProducts = catchAsyncErrors(async (req, res) => {
     supplier_id,
     page,
     admin,
+    // filtre statut explicite (admin uniquement)
+    is_active: is_active !== undefined ? is_active === "true" : undefined,
   });
 
   res.status(200).json({ success: true, ...data });

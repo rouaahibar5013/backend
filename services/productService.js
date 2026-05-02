@@ -1,6 +1,7 @@
 import { v2 as cloudinary } from "cloudinary";
 import database from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
+import { invalidateOffresCache, invalidateDashboardCache } from "../utils/cacheInvalideation.js"; // ✅ ajout
 
 // ═══════════════════════════════════════════════════════════
 // HELPER — Upload images produit en parallèle
@@ -172,7 +173,8 @@ export const createProductService = async ({
 
     createdVariants.push(newVariant);
   }
-
+ await invalidateOffresCache();    // ✅ nouveau produit → page offres
+  await invalidateDashboardCache();
   return { product, variants: createdVariants };
 };
 
@@ -181,12 +183,16 @@ export const createProductService = async ({
 // ═══════════════════════════════════════════════════════════
 export const fetchAllProductsService = async ({
   search, category_id, min_rating, min_price, max_price, page = 1,
-  is_featured, supplier_id, admin = false,
+  is_featured, supplier_id, admin = false, is_active,
 }) => {
   const LIMIT  = admin === "true" ? 500 : 12;
   const offset = admin === "true" ? 0 : (page - 1) * LIMIT;
 
   const conditions = admin === "true" ? [] : ["p.is_active = true"];
+  // filtre statut explicite demandé par l'admin
+  if (admin === "true" && is_active !== undefined) {
+    conditions.push(`p.is_active = ${is_active}`);
+  }
   const values     = [];
   let   i          = 1;
 
@@ -571,7 +577,7 @@ export const updateProductService = async ({
       productId,
     ]
   );
-
+ await invalidateOffresCache()
   return result.rows[0];
 };
 
@@ -611,7 +617,7 @@ export const addVariantService = async ({
   // ✅ Insérer attributs avec nouvelle structure
   const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : attributes;
   await insertVariantAttributes(variant.id, parsedAttrs);
-
+ await invalidateOffresCache()
   return variant;
 };
 
@@ -676,7 +682,7 @@ export const updateVariantService = async ({
     const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : attributes;
     await insertVariantAttributes(variantId, parsedAttrs);
   }
-
+ await invalidateOffresCache()
   return updatedVariant;
 };
 
@@ -694,6 +700,7 @@ export const deleteVariantService = async (variantId) => {
   await database.query(
     "DELETE FROM product_variants WHERE id = $1", [variantId]
   );
+   await invalidateOffresCache()
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -715,4 +722,6 @@ export const deleteProductService = async (productId) => {
 
   // CASCADE supprime variants + attributes automatiquement
   await database.query("DELETE FROM products WHERE id = $1", [productId]);
+   await invalidateOffresCache();    // ✅ produit supprimé → page offres
+  await invalidateDashboardCache();
 };

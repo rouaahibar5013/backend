@@ -1,5 +1,6 @@
 import database    from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
+import { invalidateOffresCache } from "../utils/cacheInvalideation.js"; // ✅ ajout
 
 // ═══════════════════════════════════════════════════════════
 // HELPER — Vérifier que l'user a acheté ce produit
@@ -54,7 +55,7 @@ export const createReviewService = async ({ productId, userId, rating, comment }
      RETURNING *`,
     [productId, userId, rating, comment.trim()]
   );
-
+ await invalidateOffresCache();
   return result.rows[0];
 };
 
@@ -134,7 +135,7 @@ export const updateReviewService = async ({ reviewId, userId, rating, comment })
       reviewId,
     ]
   );
-
+ await invalidateOffresCache();
   return result.rows[0];
 };
 
@@ -150,6 +151,7 @@ export const deleteReviewService = async ({ reviewId, userId, role }) => {
     );
     if (result.rows.length === 0)
       throw new ErrorHandler("Avis introuvable.", 404);
+     await invalidateOffresCache();
     return;
   }
 
@@ -161,6 +163,7 @@ export const deleteReviewService = async ({ reviewId, userId, role }) => {
     throw new ErrorHandler("Avis introuvable.", 404);
 
   await database.query("DELETE FROM review WHERE id = $1", [reviewId]);
+   await invalidateOffresCache();
 };
 
 // ═══════════════════════════════════════════════════════════

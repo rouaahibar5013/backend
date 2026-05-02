@@ -7,6 +7,7 @@ import ErrorHandler  from "../middlewares/errorMiddleware.js";
 import sendEmail     from "../utils/sendEmail.js";
 import { linkSubscriptionToUserService } from "./emailcampaignService.js";
 import { checkLoginBlock, recordFailedLogin, clearLoginAttempts } from "../utils/loginAttempts.js";
+import { invalidateDashboardCache } from "../utils/cacheInvalideation.js"; // ✅ ajout
 
 
 
@@ -183,7 +184,7 @@ export const registerUser = async ({
 
   // 8. Relier abonnement newsletter si email déjà inscrit anonymement
   await linkSubscriptionToUserService({ userId: user.id, email: normalizedEmail });
-
+  await invalidateDashboardCache()
   return user;
 };
 
@@ -839,44 +840,47 @@ export const completeUserAccount = async ({ token, password }) => {
 // ══════════════════════════════════════════════════════════════════════════
 // ADMIN — GET ALL USERS (avec pagination)
 // ══════════════════════════════════════════════════════════════════════════
-export const getAllUsersService = async ({ page = 1, limit = 20, search = "" }) => {
+// REPLACE the entire getAllUsersService function
+export const getAllUsersService = async ({ page = 1, limit = 20, search = "", role = "", status = "" }) => {
   const offset = (page - 1) * limit;
 
+  const conditions = [];
+  const params     = [];
+
   if (search) {
-    // Query principale : LIMIT=$1, OFFSET=$2, search=$3
-    const [usersResult, countResult] = await Promise.all([
-      database.query(
-        `SELECT id, name, email, avatar, role, is_verified, is_active,
-                phone, city, google_id IS NOT NULL AS has_google,
-                created_at, updated_at
-         FROM users
-         WHERE name ILIKE $3 OR email ILIKE $3
-         ORDER BY created_at DESC
-         LIMIT $1 OFFSET $2`,
-        [limit, offset, `%${search}%`]
-      ),
-      database.query(
-        // ✅ COUNT séparée : search=$1 uniquement
-        `SELECT COUNT(*) FROM users WHERE name ILIKE $1 OR email ILIKE $1`,
-        [`%${search}%`]
-      ),
-    ]);
-
-    const total = parseInt(countResult.rows[0].count);
-    return { users: usersResult.rows, total, page, totalPages: Math.ceil(total / limit) };
+    params.push(`%${search}%`);
+    conditions.push(`(name ILIKE $${params.length} OR email ILIKE $${params.length})`);
   }
-  
 
-  // Sans search
+  if (role) {
+    params.push(role);
+    conditions.push(`role = $${params.length}`);
+  }
+
+  if (status === "active")     conditions.push(`is_active = true AND is_verified = true`);
+  if (status === "suspended")  conditions.push(`is_active = false`);
+  if (status === "unverified") conditions.push(`is_verified = false`);
+
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  // count params (no pagination)
+  const countParams = [...params];
+
+  // push pagination for main query
+  params.push(limit);  const limitIdx  = params.length;
+  params.push(offset); const offsetIdx = params.length;
+
   const [usersResult, countResult] = await Promise.all([
     database.query(
       `SELECT id, name, email, avatar, role, is_verified, is_active,
               phone, city, google_id IS NOT NULL AS has_google,
               created_at, updated_at
-       FROM users ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
-      [limit, offset]
+       FROM users ${where}
+       ORDER BY created_at DESC
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      params
     ),
-    database.query(`SELECT COUNT(*) FROM users`),
+    database.query(`SELECT COUNT(*) FROM users ${where}`, countParams),
   ]);
 
   const total = parseInt(countResult.rows[0].count);
@@ -906,7 +910,7 @@ export const deleteUserService = async ({ userId, requestingAdminId }) => {
     );
 
   await database.query("DELETE FROM users WHERE id = $1", [userId]);
-
+  await invalidateDashboardCache()
   return true;
 };
 
@@ -952,7 +956,7 @@ export const suspendUserService = async ({ userId, requestingAdminId }) => {
 
   if (result.rows.length === 0)
     throw new ErrorHandler("Utilisateur introuvable.", 404);
-
+  await invalidateDashboardCache()
   return result.rows[0];
 };
 
@@ -966,7 +970,7 @@ export const activateUserService = async (userId) => {
 
   if (result.rows.length === 0)
     throw new ErrorHandler("Utilisateur introuvable.", 404);
-
+  await invalidateDashboardCache()
   return result.rows[0];
 };
 
