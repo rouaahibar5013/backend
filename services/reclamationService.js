@@ -2,9 +2,11 @@ import database    from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import sendEmail    from "../utils/sendEmail.js";
 import { invalidateDashboardCache } from "../utils/cacheInvalideation.js";
+import { notifyUser, notifyAdmins } from "../utils/websocket.js";
 
 
-const VALID_STATUSES = ["en_attente", "en_cours", "resolue", "rejetee"];
+
+const VALID_STATUSES = ["en_attente", "en_cours", "urgente", "en_retard", "resolue", "rejetee"];
 
 const VALID_TYPES = [
   "produit_defectueux",
@@ -25,10 +27,12 @@ const TYPE_LABELS = {
 };
 
 const STATUS_LABELS = {
-  en_attente: "En attente",
-  en_cours:   "En cours de traitement",
-  resolue:    "Résolue",
-  rejetee:    "Rejetée",
+  en_attente : "En attente",
+  en_cours   : "En cours de traitement",
+  urgente    : "Urgente ⚡",          
+  en_retard  : "En retard ⏰",        
+  resolue    : "Résolue",
+  rejetee    : "Rejetée",
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -213,6 +217,14 @@ await invalidateDashboardCache();
     reclamation,
     order?.order_number || null
   );
+  // Notifier les admins en temps réel
+notifyAdmins({
+  type      : "NEW_RECLAMATION",
+  id        : reclamation.id,
+  user_name : user.name,
+  type_label: TYPE_LABELS[reclamation.reclamation_type],
+  message   : `Nouvelle réclamation de ${user.name}`,
+});
 
   return {
     ...reclamation,
@@ -269,12 +281,14 @@ export const getAllReclamationsService = async ({ status, type, page = 1 }) => {
        LEFT JOIN orders o ON o.id = r.order_id
        LEFT JOIN users  a ON a.id = r.admin_id
        ${where}
-       ORDER BY
-         CASE r.status
-           WHEN 'en_attente' THEN 1
-           WHEN 'en_cours'   THEN 2
-           ELSE 3
-         END,
+      ORDER BY
+  CASE r.status
+    WHEN 'urgente'    THEN 1   -- priorité maximale
+    WHEN 'en_retard'  THEN 2
+    WHEN 'en_attente' THEN 3
+    WHEN 'en_cours'   THEN 4
+    ELSE 5
+  END,
          r.created_at DESC
        LIMIT $${i} OFFSET $${i + 1}`,
       values
@@ -348,7 +362,7 @@ export const respondToReclamationService = async ({
   const current = existing.rows[0];
 
   if (["resolue", "rejetee"].includes(current.status))
-    throw new ErrorHandler("Cette réclamation est déjà clôturée.", 400);
+  throw new ErrorHandler("Cette réclamation est déjà clôturée.", 400);
 
   // Calcul deadline si délai fourni (en heures)
   let deadlineAt = null;
@@ -387,6 +401,13 @@ await invalidateDashboardCache();
     reclamation,
     current.order_number
   );
+  // Notifier le client en temps réel
+notifyUser(current.user_id, {
+  type    : "RECLAMATION_UPDATE",
+  id      : reclamation.id,
+  status  : reclamation.status,
+  message : "Votre réclamation a reçu une réponse.",
+});
 
   return {
     ...reclamation,
@@ -402,21 +423,18 @@ await invalidateDashboardCache();
 export const getReclamationStatsService = async () => {
   const result = await database.query(
     `SELECT
-       COUNT(*)                                                    AS total,
-       COUNT(*) FILTER (WHERE status = 'en_attente')              AS en_attente,
-       COUNT(*) FILTER (WHERE status = 'en_cours')                AS en_cours,
-       COUNT(*) FILTER (WHERE status = 'resolue')                 AS resolues,
-       COUNT(*) FILTER (WHERE status = 'rejetee')                 AS rejetees,
+       COUNT(*)                                                     AS total,
+       COUNT(*) FILTER (WHERE status = 'en_attente')               AS en_attente,
+       COUNT(*) FILTER (WHERE status = 'en_cours')                 AS en_cours,
+       COUNT(*) FILTER (WHERE status = 'urgente')                  AS urgentes,
+       COUNT(*) FILTER (WHERE status = 'en_retard')                AS en_retard,
+       COUNT(*) FILTER (WHERE status = 'resolue')                  AS resolues,
+       COUNT(*) FILTER (WHERE status = 'rejetee')                  AS rejetees,
        ROUND(
          AVG(
            EXTRACT(EPOCH FROM (responded_at - created_at)) / 3600
          ) FILTER (WHERE responded_at IS NOT NULL)
-       )                                                           AS avg_response_hours,
-       COUNT(*) FILTER (
-         WHERE deadline_at IS NOT NULL
-           AND deadline_at < NOW()
-           AND status NOT IN ('resolue', 'rejetee')
-       )                                                           AS en_retard
+       )                                                            AS avg_response_hours
      FROM reclamations`
   );
   return result.rows[0];
@@ -505,6 +523,14 @@ await invalidateDashboardCache();
     reclamation,
     order.order_number
   );
+
+  notifyAdmins({
+  type      : "NEW_RECLAMATION",
+  id        : reclamation.id,
+  user_name : user.name,
+  type_label: TYPE_LABELS[reclamation.reclamation_type],
+  message   : `Nouvelle réclamation (guest) de ${user.name}`,
+});
 
   return {
     ...reclamation,
