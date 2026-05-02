@@ -183,12 +183,16 @@ export const createProductService = async ({
 // ═══════════════════════════════════════════════════════════
 export const fetchAllProductsService = async ({
   search, category_id, min_rating, min_price, max_price, page = 1,
-  is_featured, supplier_id, admin = false,
+  is_featured, supplier_id, admin = false, is_active,
 }) => {
   const LIMIT  = admin === "true" ? 500 : 12;
   const offset = admin === "true" ? 0 : (page - 1) * LIMIT;
 
   const conditions = admin === "true" ? [] : ["p.is_active = true"];
+  // filtre statut explicite demandé par l'admin
+  if (admin === "true" && is_active !== undefined) {
+    conditions.push(`p.is_active = ${is_active}`);
+  }
   const values     = [];
   let   i          = 1;
 

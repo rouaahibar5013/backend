@@ -266,8 +266,9 @@ export const getAllUsers = catchAsyncErrors(async (req, res, next) => {
   if (limit > 100)
     return next(new ErrorHandler("La limite maximale par page est 100.", 400));
 
-  const data = await authService.getAllUsersService({ page, limit, search });
-
+const role   = req.query.role   || "";
+const status = req.query.status || "";
+const data = await authService.getAllUsersService({ page, limit, search, role, status });
   res.status(200).json({ success: true, ...data });
 });
 
