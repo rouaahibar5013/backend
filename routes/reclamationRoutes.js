@@ -7,6 +7,7 @@ import {
   respondToReclamation,
   getEligibleOrders,
   getReclamationStats,
+  getMyReclamations,
 } from "../controllers/reclamationController.js";
 import {
   isAuthenticated,
@@ -23,6 +24,7 @@ router.post("/guest", createGuestReclamation);  // ← nouvelle route, pas de is
 // ── USER CONNECTÉ ────────────────────────────────────────
 // Commandes éligibles pour le formulaire
 router.get("/eligible-orders", isAuthenticated, getEligibleOrders);
+router.get("/my", isAuthenticated, getMyReclamations);
 
 // Créer une réclamation
 router.post("/", isAuthenticated, createReclamation);

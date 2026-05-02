@@ -538,3 +538,22 @@ await invalidateDashboardCache();
     order_number: order.order_number,
   };
 };
+
+// ═══════════════════════════════════════════════════════════
+// SERVICE — GET MES RÉCLAMATIONS (user connecté)
+// ═══════════════════════════════════════════════════════════
+export const getMyReclamationsService = async (userId) => {
+  const result = await database.query(
+    `SELECT
+       r.id, r.reclamation_type, r.message, r.status,
+       r.admin_response, r.responded_at,
+       r.created_at, r.updated_at,
+       o.order_number
+     FROM reclamations r
+     LEFT JOIN orders o ON o.id = r.order_id
+     WHERE r.user_id = $1
+     ORDER BY r.created_at DESC`,
+    [userId]
+  );
+  return result.rows;
+};
