@@ -7,6 +7,7 @@ import ErrorHandler  from "../middlewares/errorMiddleware.js";
 import sendEmail     from "../utils/sendEmail.js";
 import { linkSubscriptionToUserService } from "./emailcampaignService.js";
 import { checkLoginBlock, recordFailedLogin, clearLoginAttempts } from "../utils/loginAttempts.js";
+import { invalidateDashboardCache } from "../utils/cacheInvalideation.js"; // ✅ ajout
 
 
 
@@ -183,7 +184,7 @@ export const registerUser = async ({
 
   // 8. Relier abonnement newsletter si email déjà inscrit anonymement
   await linkSubscriptionToUserService({ userId: user.id, email: normalizedEmail });
-
+  await invalidateDashboardCache()
   return user;
 };
 
@@ -906,7 +907,7 @@ export const deleteUserService = async ({ userId, requestingAdminId }) => {
     );
 
   await database.query("DELETE FROM users WHERE id = $1", [userId]);
-
+  await invalidateDashboardCache()
   return true;
 };
 
@@ -952,7 +953,7 @@ export const suspendUserService = async ({ userId, requestingAdminId }) => {
 
   if (result.rows.length === 0)
     throw new ErrorHandler("Utilisateur introuvable.", 404);
-
+  await invalidateDashboardCache()
   return result.rows[0];
 };
 
@@ -966,7 +967,7 @@ export const activateUserService = async (userId) => {
 
   if (result.rows.length === 0)
     throw new ErrorHandler("Utilisateur introuvable.", 404);
-
+  await invalidateDashboardCache()
   return result.rows[0];
 };
 

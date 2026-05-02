@@ -1,6 +1,7 @@
 import { v2 as cloudinary } from "cloudinary";
 import database from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
+import { invalidateOffresCache, invalidateDashboardCache } from "../utils/cacheInvalideation.js"; // ✅ ajout
 
 // ═══════════════════════════════════════════════════════════
 // HELPER — generate unique slug from french name
@@ -79,7 +80,8 @@ export const createCategoryService = async ({
       JSON.stringify(images), parent_id || null,
     ]
   );
-
+await invalidateOffresCache();    // ✅ nouvelle catégorie → page offres
+  await invalidateDashboardCache();
   return result.rows[0];
 };
 
@@ -215,7 +217,8 @@ export const updateCategoryService = async ({
       categoryId,
     ]
   );
-
+await invalidateOffresCache();    // ✅ nouvelle catégorie → page offres
+  await invalidateDashboardCache();
   return result.rows[0];
 };
 
@@ -251,4 +254,6 @@ export const deleteCategoryService = async (categoryId) => {
       .filter(i => i.public_id)
       .map(i => cloudinary.uploader.destroy(i.public_id))
   );
+  await invalidateOffresCache();    // ✅ nouvelle catégorie → page offres
+  await invalidateDashboardCache();
 };

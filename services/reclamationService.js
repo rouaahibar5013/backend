@@ -462,7 +462,6 @@ export const createGuestReclamationService = async ({
     throw new ErrorHandler("Utilisateur introuvable.", 404);
 
   const user = userResult.rows[0];
-
   // ── Vérifier que l'email correspond ─────────────────────
   if (user.email.toLowerCase() !== email.trim().toLowerCase())
     throw new ErrorHandler(
@@ -497,6 +496,7 @@ export const createGuestReclamationService = async ({
   );
 
   const reclamation = result.rows[0];
+await invalidateDashboardCache();
 
   // ── Email confirmation au guest ──────────────────────────
   await sendReclamationConfirmationEmail(

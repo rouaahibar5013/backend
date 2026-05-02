@@ -1038,6 +1038,7 @@ export const handleStripeWebhookService = async (payload, signature) => {
         await sendPaymentFailedEmail(user.email, user.name, order);
         console.log(`❌ Paiement échoué — commande ${order.order_number}`);
       }
+       await invalidateDashboardCache();
       break;
     }
 
@@ -1048,6 +1049,7 @@ export const handleStripeWebhookService = async (payload, signature) => {
         "UPDATE orders SET payment_status = 'rembourse' WHERE payment_id = $1",
         [charge.payment_intent]
       );
+      await invalidateDashboardCache();
       break;
     }
 
@@ -1407,6 +1409,7 @@ export const updateDeliveryService = async ({
       [orderId]
     );
     const order = orderResult.rows[0];
+     await invalidateDashboardCache();
 
     // ✅ Email notification au client
     if (order) {
