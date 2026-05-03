@@ -58,7 +58,7 @@ export const initWebSocket = (httpServer) => {
       console.error(`[WS] Erreur client ${userId}:`, err.message);
     });
 
-    console.log(`[WS] Connecté: ${userId} (${role || "user"})`);
+    console.log(`[WS] Connecté: ${userId} (${role || "user"}) — adminIds actuels: [${[...adminIds].join(', ')}]`);
   });
 
   console.log("[WS] WebSocket server initialisé");
@@ -85,7 +85,7 @@ export const notifyAdmins = (payload) => {
   if (recentAdminNotifications.length > MAX_BUFFER) {
     recentAdminNotifications.shift();
   }
-
+console.log(`[WS] notifyAdmins: ${payload.type} → adminIds: [${[...adminIds].join(', ')}]`);
   const message = JSON.stringify(payload);
   adminIds.forEach(adminId => {
     clients.get(adminId)?.forEach(ws => {
