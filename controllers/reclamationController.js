@@ -8,6 +8,7 @@ import {
   respondToReclamationService,
   getEligibleOrdersService,
   getReclamationStatsService,
+  getMyReclamationsService,
 } from "../services/reclamationService.js";
 
 // ═══════════════════════════════════════════════════════════
@@ -117,4 +118,12 @@ export const createGuestReclamation = catchAsyncErrors(async (req, res, next) =>
     message:    "Réclamation enregistrée. Vous recevrez une réponse par email.",
     reclamation,
   });
+});
+
+// ═══════════════════════════════════════════════════════════
+// — GET MES RÉCLAMATIONS (user connecté)
+// ═══════════════════════════════════════════════════════════
+export const getMyReclamations = catchAsyncErrors(async (req, res, next) => {
+  const reclamations = await getMyReclamationsService(req.user.id);
+  res.status(200).json({ reclamations });
 });

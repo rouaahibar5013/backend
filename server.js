@@ -1,8 +1,10 @@
 import dotenv from "dotenv";
 dotenv.config(); // 👈 must be first before reading process.env
-
+import { createServer } from "http";
 import app from "./app.js";
 import { v2 as cloudinary } from "cloudinary";
+import { initWebSocket }             from "./utils/websocket.js";           // ← ajouter
+import { startReclamationScheduler } from "./utils/reclamationScheduler.js";
 
 // Configure Cloudinary once
 cloudinary.config({
@@ -11,6 +13,10 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-app.listen(process.env.PORT, () => {
+const server = createServer(app);
+initWebSocket(server);
+startReclamationScheduler();
+
+server.listen(process.env.PORT, () => {
   console.log(`Server is running on port ${process.env.PORT}`);
 });

@@ -26,13 +26,11 @@ const uploadProductImages = async (imageFiles) => {
 // ✅ Retourne l'id du type (la valeur est stockée dans product_variant_attributes)
 // ═══════════════════════════════════════════════════════════
 const upsertAttributeType = async (type_fr) => {
-  // Chercher le type existant
   let typeResult = await database.query(
     "SELECT id FROM attribute_types WHERE name_fr ILIKE $1",
     [type_fr.trim()]
   );
 
-  // Créer si inexistant
   if (typeResult.rows.length === 0) {
     typeResult = await database.query(
       "INSERT INTO attribute_types (name_fr) VALUES ($1) RETURNING id",
@@ -80,14 +78,12 @@ export const createProductService = async ({
   slug, variants, userId, files,
   is_active, is_featured, is_new,
 }) => {
-  // Valider catégorie
   const category = await database.query(
     "SELECT id FROM categories WHERE id = $1", [category_id]
   );
   if (category.rows.length === 0)
     throw new ErrorHandler("Catégorie introuvable.", 404);
 
-  // Valider fournisseur si fourni
   if (supplier_id) {
     const supplier = await database.query(
       "SELECT id FROM suppliers WHERE id = $1", [supplier_id]
@@ -96,7 +92,6 @@ export const createProductService = async ({
       throw new ErrorHandler("Fournisseur introuvable.", 404);
   }
 
-  // Générer le slug si non fourni
   const finalSlug = slug || name_fr
     .toLowerCase()
     .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -104,13 +99,11 @@ export const createProductService = async ({
     .replace(/(^-|-$)/g, "")
     + "-" + Date.now();
 
-  // Upload images
   let uploadedImages = [];
   if (files && files.images) {
     uploadedImages = await uploadProductImages(files.images);
   }
 
-  // Insérer le produit
   const productResult = await database.query(
     `INSERT INTO products
        (name_fr, description_fr, ethical_info_fr, origin, certifications,
@@ -142,7 +135,6 @@ export const createProductService = async ({
   const product         = productResult.rows[0];
   const createdVariants = [];
 
-  // Créer les variants + leurs attributs
   for (const variant of variants) {
     const {
       price, cost_price,
@@ -167,13 +159,13 @@ export const createProductService = async ({
 
     const newVariant = variantResult.rows[0];
 
-    // ✅ Insérer attributs avec la nouvelle structure
     const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : attributes;
     await insertVariantAttributes(newVariant.id, parsedAttrs);
 
     createdVariants.push(newVariant);
   }
- await invalidateOffresCache();    // ✅ nouveau produit → page offres
+
+  await invalidateOffresCache();
   await invalidateDashboardCache();
   return { product, variants: createdVariants };
 };
@@ -189,7 +181,7 @@ export const fetchAllProductsService = async ({
   const offset = admin === "true" ? 0 : (page - 1) * LIMIT;
 
   const conditions = admin === "true" ? [] : ["p.is_active = true"];
-  // filtre statut explicite demandé par l'admin
+  // FIX 1: backtick manquant sur le filtre is_active admin
   if (admin === "true" && is_active !== undefined) {
     conditions.push(`p.is_active = ${is_active}`);
   }
@@ -197,10 +189,12 @@ export const fetchAllProductsService = async ({
   let   i          = 1;
 
   if (category_id) {
+    // FIX 2: backticks manquants
     conditions.push(`(p.category_id = $${i} OR c.parent_id = $${i})`);
     values.push(category_id); i++;
   }
   if (min_rating) {
+    // FIX 3: backtick manquant
     conditions.push(`p.rating_avg >= $${i}`);
     values.push(min_rating); i++;
   }
@@ -208,10 +202,12 @@ export const fetchAllProductsService = async ({
     conditions.push("p.is_featured = true");
   }
   if (supplier_id) {
+    // FIX 4: backtick manquant
     conditions.push(`p.supplier_id = $${i}`);
     values.push(supplier_id); i++;
   }
   if (search) {
+    // FIX 5: backticks manquants
     conditions.push(`(p.name_fr ILIKE $${i} OR p.description_fr ILIKE $${i})`);
     values.push(`%${search}%`); i++;
   }
@@ -264,6 +260,7 @@ export const fetchAllProductsService = async ({
     values.push(max_price); i++;
   }
 
+  // FIX 6: backtick manquant sur la construction du WHERE
   const WHERE       = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
   const countValues = [...values];
   values.push(LIMIT, offset);
@@ -279,8 +276,9 @@ export const fetchAllProductsService = async ({
     database.query(
       `SELECT DISTINCT ON (p.id)
          p.id, p.name_fr, p.slug, p.images,
-         p.rating_avg, p.rating_count,
-         p.is_featured, p.is_active, p.is_new,
+         (SELECT ROUND(AVG(r.rating)::numeric, 2) FROM review r WHERE r.product_id = p.id) AS rating_avg,
+        (SELECT COUNT(*) FROM review r WHERE r.product_id = p.id)::int AS rating_count,
+        p.is_featured, p.is_active, p.is_new,
          p.created_at,
          c.id      AS category_id,
          c.name_fr AS category_name,
@@ -353,6 +351,7 @@ export const fetchSingleProductService = async (productId, admin = false, alread
   const col    = isUuid ? "id" : "slug";
 
   if (!admin && !alreadyViewed) {
+    // FIX 7 & 8: backticks manquants sur les deux queries fire-and-forget
     database.query(`UPDATE products SET views_count = views_count + 1 WHERE ${col} = $1`, [productId]);
     database.query(`INSERT INTO product_views (product_id) SELECT id FROM products WHERE ${col} = $1`, [productId]);
   }
@@ -374,27 +373,26 @@ export const fetchSingleProductService = async (productId, admin = false, alread
          COALESCE(
            json_agg(
              json_build_object(
-               'review_id',   r.id,
-               'rating',      r.rating,
-               'title',       r.title,
-               'comment',     r.comment,
-               'is_verified', r.is_verified_purchase,
-               'helpful',     r.helpful_count,
-               'created_at',  r.created_at,
+               'review_id',  r.id,
+               'rating',     r.rating,
+               'comment',    r.comment,
+               'created_at', r.created_at,
+               'updated_at', r.updated_at,
                'reviewer', json_build_object(
                  'id',     u.id,
                  'name',   u.name,
                  'avatar', u.avatar
                )
              )
-           ) FILTER (WHERE r.id IS NOT NULL AND r.is_approved = true),
+             ORDER BY r.created_at DESC
+           ) FILTER (WHERE r.id IS NOT NULL),
            '[]'
          ) AS reviews
        FROM products p
        LEFT JOIN categories c  ON c.id  = p.category_id
        LEFT JOIN categories pc ON pc.id = c.parent_id
        LEFT JOIN suppliers  s  ON s.id  = p.supplier_id
-       LEFT JOIN reviews    r  ON r.product_id = p.id
+       LEFT JOIN review     r  ON r.product_id = p.id
        LEFT JOIN users      u  ON u.id  = r.user_id
        WHERE p.${col} = $1 ${admin ? "" : "AND p.is_active = true"}
        GROUP BY p.id, c.id, c.name_fr, c.slug,
@@ -403,7 +401,6 @@ export const fetchSingleProductService = async (productId, admin = false, alread
                 s.region, s.is_certified_bio`,
       [productId]
     ),
-    // ✅ Nouveau JOIN — pva.value_fr directement, plus de attribute_values
     database.query(
       `SELECT
          pv.*,
@@ -413,16 +410,15 @@ export const fetchSingleProductService = async (productId, admin = false, alread
          COALESCE(
            json_agg(
              json_build_object(
-               'type_fr',    at.name_fr,
-               'unit',       at.unit,
-               'value_fr',   pva.value_fr
+               'type_fr',  at.name_fr,
+               'unit',     at.unit,
+               'value_fr', pva.value_fr
              )
              ORDER BY at.name_fr
            ) FILTER (WHERE at.id IS NOT NULL),
            '[]'
          ) AS attributes
        FROM product_variants pv
-       -- ✅ JOIN direct sur pva — plus besoin de passer par attribute_values
        LEFT JOIN product_variant_attributes pva ON pva.variant_id = pv.id
        LEFT JOIN attribute_types            at  ON at.id = pva.attribute_type_id
        LEFT JOIN LATERAL (
@@ -436,7 +432,7 @@ export const fetchSingleProductService = async (productId, admin = false, alread
          LIMIT 1
        ) active_promo ON true
        WHERE pv.product_id = (SELECT id FROM products WHERE ${col} = $1)
-      ${admin ? "" : "AND pv.is_active = true"}
+       ${admin ? "" : "AND pv.is_active = true"}
        GROUP BY pv.id, active_promo.discount_type, active_promo.discount_value, active_promo.expires_at
        ORDER BY pv.price ASC`,
       [productId]
@@ -459,8 +455,9 @@ export const fetchFeaturedProductsService = async (limit = 8) => {
   const result = await database.query(
     `SELECT DISTINCT ON (p.id)
        p.id, p.name_fr, p.slug, p.images,
-       p.rating_avg, p.rating_count,
-       p.is_featured, p.is_new,
+       (SELECT ROUND(AVG(r.rating)::numeric, 2) FROM review r WHERE r.product_id = p.id) AS rating_avg,
+        (SELECT COUNT(*) FROM review r WHERE r.product_id = p.id)::int AS rating_count,
+        p.is_featured, p.is_new,
        p.created_at,
        c.id      AS category_id,
        c.name_fr AS category_name,
@@ -577,7 +574,8 @@ export const updateProductService = async ({
       productId,
     ]
   );
- await invalidateOffresCache()
+
+  await invalidateOffresCache();
   return result.rows[0];
 };
 
@@ -614,10 +612,10 @@ export const addVariantService = async ({
 
   const variant = variantResult.rows[0];
 
-  // ✅ Insérer attributs avec nouvelle structure
   const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : attributes;
   await insertVariantAttributes(variant.id, parsedAttrs);
- await invalidateOffresCache()
+
+  await invalidateOffresCache();
   return variant;
 };
 
@@ -643,9 +641,9 @@ export const updateVariantService = async ({
     return isNaN(n) ? null : n;
   };
 
-  const newPrice       = safeNum(price)       ?? v.price;
-  const newCostPrice   = safeNum(cost_price)  ?? v.cost_price;
-  const newStock       = safeNum(stock)       ?? v.stock;
+  const newPrice       = safeNum(price)        ?? v.price;
+  const newCostPrice   = safeNum(cost_price)   ?? v.cost_price;
+  const newStock       = safeNum(stock)        ?? v.stock;
   const newWeightGrams = safeNum(weight_grams) ?? v.weight_grams;
 
   if (newStock < 0)
@@ -671,18 +669,16 @@ export const updateVariantService = async ({
 
   const updatedVariant = result.rows[0];
 
-  // ✅ Mise à jour des attributs avec nouvelle structure
   if (attributes && attributes.length > 0) {
-    // Supprimer les anciens attributs du variant
     await database.query(
       "DELETE FROM product_variant_attributes WHERE variant_id = $1",
       [variantId]
     );
-    // Insérer les nouveaux
     const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : attributes;
     await insertVariantAttributes(variantId, parsedAttrs);
   }
- await invalidateOffresCache()
+
+  await invalidateOffresCache();
   return updatedVariant;
 };
 
@@ -700,7 +696,8 @@ export const deleteVariantService = async (variantId) => {
   await database.query(
     "DELETE FROM product_variants WHERE id = $1", [variantId]
   );
-   await invalidateOffresCache()
+
+  await invalidateOffresCache();
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -722,6 +719,7 @@ export const deleteProductService = async (productId) => {
 
   // CASCADE supprime variants + attributes automatiquement
   await database.query("DELETE FROM products WHERE id = $1", [productId]);
-   await invalidateOffresCache();    // ✅ produit supprimé → page offres
+
+  await invalidateOffresCache();
   await invalidateDashboardCache();
 };
