@@ -1051,5 +1051,25 @@ export const adminUpdateUserService = async ({
     ]
   );
 
-  return result.rows[0];
+
+  const updated = result.rows[0];
+
+  // ✅ AJOUT : notifier via WebSocket si is_active a changé
+  const newIsActive = is_active ?? current.is_active;
+  if (newIsActive !== current.is_active) {
+    if (newIsActive === false) {
+      notifyUser(userId, {
+        type:    "ACCOUNT_SUSPENDED",
+        message: "Votre compte a été suspendu. Contactez le support.",
+      });
+    } else {
+      notifyUser(userId, {
+        type:    "ACCOUNT_ACTIVATED",
+        message: "Votre compte a été réactivé. Bienvenue !",
+      });
+    }
+    await invalidateDashboardCache();
+  }
+
+  return updated;
 };
