@@ -24,7 +24,9 @@ export const getHomeDataService = async () => {
     database.query(
       `SELECT
          p.id, p.name_fr, p.slug, p.images,
-         p.rating_avg, p.rating_count, p.origin,
+         (SELECT ROUND(AVG(r.rating)::numeric, 2) FROM review r WHERE r.product_id = p.id) AS rating_avg,
+          (SELECT COUNT(*) FROM review r WHERE r.product_id = p.id)::int AS rating_count,
+          p.origin,
          (p.created_at >= NOW() - INTERVAL '30 days') AS is_new,
          s.name AS supplier_name,
          s.slug AS supplier_slug,
@@ -85,7 +87,9 @@ export const getHomeDataService = async () => {
     database.query(
       `SELECT
          p.id, p.name_fr, p.slug, p.images,
-         p.rating_avg, p.rating_count, p.origin,
+         (SELECT ROUND(AVG(r.rating)::numeric, 2) FROM review r WHERE r.product_id = p.id) AS rating_avg,
+          (SELECT COUNT(*) FROM review r WHERE r.product_id = p.id)::int AS rating_count,
+          p.origin,
          (p.created_at >= NOW() - INTERVAL '30 days') AS is_new,
          s.name AS supplier_name,
          s.slug AS supplier_slug,
