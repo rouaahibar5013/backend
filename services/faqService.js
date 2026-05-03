@@ -1,6 +1,7 @@
 import database    from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import sendEmail    from "../utils/sendEmail.js";
+import { notifyAdmins } from "../utils/websocket.js";
 
 
 // ═══════════════════════════════════════════════════════════
@@ -172,6 +173,9 @@ export const askQuestionService = async ({ userId, user_name, user_email, questi
     await sendAnswerEmail(cleanEmail, cleanName, cleanQuestion, matchedFaq.answer_fr)
       .catch(err => console.error("Auto-answer email error:", err.message));
 
+
+
+
     return {
       question:      result.rows[0],
       auto_answered: true,
@@ -191,6 +195,14 @@ export const askQuestionService = async ({ userId, user_name, user_email, questi
      RETURNING *`,
     [userId || null, cleanName, cleanEmail, cleanQuestion]
   );
+
+  notifyAdmins({
+  type      : "NEW_FAQ_QUESTION",
+  id        : result.rows[0].id,
+  user_name : cleanName,
+  question  : cleanQuestion,
+  message   : `❓ Nouvelle question de ${cleanName}`,
+});
 
   const adminEmail = process.env.ADMIN_EMAIL;
   if (adminEmail) {

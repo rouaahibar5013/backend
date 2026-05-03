@@ -7,7 +7,8 @@ import ErrorHandler  from "../middlewares/errorMiddleware.js";
 import sendEmail     from "../utils/sendEmail.js";
 import { linkSubscriptionToUserService } from "./emailcampaignService.js";
 import { checkLoginBlock, recordFailedLogin, clearLoginAttempts } from "../utils/loginAttempts.js";
-import { invalidateDashboardCache } from "../utils/cacheInvalideation.js"; // ✅ ajout
+import { invalidateDashboardCache } from "../utils/cacheInvalideation.js"; 
+import { notifyUser } from "../utils/websocket.js";
 
 
 
@@ -956,7 +957,11 @@ export const suspendUserService = async ({ userId, requestingAdminId }) => {
 
   if (result.rows.length === 0)
     throw new ErrorHandler("Utilisateur introuvable.", 404);
-  await invalidateDashboardCache()
+  await invalidateDashboardCache();
+   notifyUser(userId, {
+    type    : "ACCOUNT_SUSPENDED",
+    message : "Votre compte a été suspendu. Contactez le support.",
+  });
   return result.rows[0];
 };
 
@@ -970,7 +975,11 @@ export const activateUserService = async (userId) => {
 
   if (result.rows.length === 0)
     throw new ErrorHandler("Utilisateur introuvable.", 404);
-  await invalidateDashboardCache()
+  await invalidateDashboardCache();
+ notifyUser(userId, {
+    type    : "ACCOUNT_ACTIVATED",
+    message : "Votre compte a été réactivé. Bienvenue !",
+  });
   return result.rows[0];
 };
 

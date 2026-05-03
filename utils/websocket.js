@@ -52,7 +52,7 @@ export const initWebSocket = (httpServer) => {
 
 // ─── Notifier un user spécifique (client) ─────────────────────
 export const notifyUser = (userId, payload) => {
-  const sockets = clients.get(userId);
+  const sockets = clients.get(String(userId));
   if (!sockets) return;
 
   const message = JSON.stringify(payload);
