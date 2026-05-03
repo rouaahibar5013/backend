@@ -406,6 +406,7 @@ notifyUser(current.user_id, {
   type    : "RECLAMATION_UPDATE",
   id      : reclamation.id,
   status  : reclamation.status,
+  admin_response : reclamation.admin_response,
   message : "Votre réclamation a reçu une réponse.",
 });
 
