@@ -11,25 +11,28 @@ import { getUserById } from "../services/authService.js";
 // Attaches the user to req.user for the next middleware
 // ═══════════════════════════════════════════════════════════
 
-export const isAuthenticated = async (req, res, next) => {
+export const isAuthenticated = catchAsyncErrors(async (req, res, next) => {
   const token = req.cookies?.token;
-
   if (!token)
     return next(new ErrorHandler("Non authentifié. Veuillez vous connecter.", 401));
 
-  // ✅ Vérifier la blacklist Redis avant tout
   const revoked = await isTokenBlacklisted(token);
   if (revoked)
     return next(new ErrorHandler("Session révoquée. Veuillez vous reconnecter.", 401));
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = await getUserById(decoded.id); // votre logique existante
+    const user = await getUserById(decoded.id);
+
+    if (user.is_active === false)
+      return next(new ErrorHandler("Votre compte a été suspendu. Contactez le support.", 403));
+
+    req.user = user;
     next();
   } catch {
     return next(new ErrorHandler("Token invalide ou expiré.", 401));
   }
-};
+});
 
 
 // ═══════════════════════════════════════════════════════════
