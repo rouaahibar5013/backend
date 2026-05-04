@@ -7,7 +7,8 @@ import ErrorHandler  from "../middlewares/errorMiddleware.js";
 import sendEmail     from "../utils/sendEmail.js";
 import { linkSubscriptionToUserService } from "./emailcampaignService.js";
 import { checkLoginBlock, recordFailedLogin, clearLoginAttempts } from "../utils/loginAttempts.js";
-import { invalidateDashboardCache } from "../utils/cacheInvalideation.js"; // ✅ ajout
+import { invalidateDashboardCache } from "../utils/cacheInvalideation.js"; 
+import { notifyUser } from "../utils/websocket.js";
 
 
 
@@ -17,7 +18,7 @@ import { invalidateDashboardCache } from "../utils/cacheInvalideation.js"; // �
 
 /**
  * Valide la force du mot de passe.
- * Règles : 8+ caractères, 1 minuscule, 1 majuscule, 1 chiffre, 1 caractère spécial.
+ * Règles : 10+ caractères, 1 minuscule, 1 majuscule, 1 chiffre, 1 caractère spécial.
  */
 export const validatePassword = (password) => {
   if (!password || typeof password !== "string")
@@ -324,16 +325,17 @@ export const loginUser = async ({ email, password, ip}) => {
     );
 
 
- try {
-    await checkLoginBlock(user.id, ip);
-  } catch (err) {
-    if (err.message.startsWith("BLOCKED:")) {
-      const minutes = err.message.split(":")[1];
-      throw new ErrorHandler(
-        `Compte temporairement bloqué après trop d'échecs. Réessayez dans ${minutes} minute(s).`, 429
-      );
-    }
+try {
+  await checkLoginBlock(user.id, ip);
+} catch (err) {
+  if (err.message.startsWith("BLOCKED:")) {
+    const minutes = err.message.split(":")[1];
+    throw new ErrorHandler(
+      `Compte temporairement bloqué après trop d'échecs. Réessayez dans ${minutes} minute(s).`, 429
+    );
   }
+  throw err; // ← re-throw anything unexpected
+}
 
 
 
@@ -956,7 +958,12 @@ export const suspendUserService = async ({ userId, requestingAdminId }) => {
 
   if (result.rows.length === 0)
     throw new ErrorHandler("Utilisateur introuvable.", 404);
-  await invalidateDashboardCache()
+  await invalidateDashboardCache();
+   notifyUser(userId, {
+    type    : "ACCOUNT_SUSPENDED",
+    message : "Votre compte a été suspendu. Contactez le support.",
+     userId  : String(userId),
+  });
   return result.rows[0];
 };
 
@@ -970,7 +977,7 @@ export const activateUserService = async (userId) => {
 
   if (result.rows.length === 0)
     throw new ErrorHandler("Utilisateur introuvable.", 404);
-  await invalidateDashboardCache()
+  await invalidateDashboardCache();
   return result.rows[0];
 };
 
@@ -1042,5 +1049,21 @@ export const adminUpdateUserService = async ({
     ]
   );
 
-  return result.rows[0];
+
+  const updated = result.rows[0];
+
+  // ✅ AJOUT : notifier via WebSocket si is_active a changé
+  const newIsActive = is_active ?? current.is_active;
+  if (newIsActive !== current.is_active) {
+    if (newIsActive === false) {
+      notifyUser(userId, {
+        type:    "ACCOUNT_SUSPENDED",
+        message: "Votre compte a été suspendu. Contactez le support.",
+        userId:  String(userId),
+      });
+    }
+    await invalidateDashboardCache();
+  }
+
+  return updated;
 };

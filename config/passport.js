@@ -27,8 +27,12 @@ passport.use(
         );
 
         if (existingUser.rows.length > 0) {
-          // User exists → update google_id if not set yet
           const user = existingUser.rows[0];
+
+          // ✅ Block suspended accounts
+          if (user.is_active === false) {
+            return done(null, false);
+          }
 
           if (!user.google_id) {
             await database.query(
@@ -37,11 +41,11 @@ passport.use(
             );
           }
 
-      const refreshed = await database.query(
-  "SELECT id, name, email, avatar, role, is_verified, google_id FROM users WHERE id = $1",
-  [existingUser.rows[0].id]
-);
-return done(null, refreshed.rows[0]);
+          const refreshed = await database.query(
+            "SELECT id, name, email, avatar, role, is_verified, is_active, google_id FROM users WHERE id = $1",
+            [user.id]
+          );
+          return done(null, refreshed.rows[0]);
         }
 
         // ── User doesn't exist → create a new account ─────

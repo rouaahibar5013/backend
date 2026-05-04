@@ -6,6 +6,7 @@ import { createGuestAccountService } from "./authService.js";
 import { exportOrderToOdoo } from "./odooService.js";
 import PDFDocument from "pdfkit";
 import { invalidateDashboardCache } from "../utils/cacheInvalideation.js";
+import { notifyUser } from "../utils/websocket.js";
 
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -998,6 +999,14 @@ export const handleStripeWebhookService = async (payload, signature) => {
         const pdfBuffer = await generateInvoicePDF(order, items, user.name);
         await sendOrderConfirmationEmail(user.email, order, user.name, pdfBuffer);
         console.log(`✅ Email + PDF envoyés — commande ${order.order_number}`);
+      
+        notifyUser(order.user_id, {
+    type         : "ORDER_CONFIRMED",
+    id           : order.id,
+    order_number : order.order_number,
+    message      : `✅ Commande #${order.order_number} confirmée !`,
+  });
+      
       }
        await invalidateDashboardCache();
       break;
@@ -1037,6 +1046,13 @@ export const handleStripeWebhookService = async (payload, signature) => {
       if (user) {
         await sendPaymentFailedEmail(user.email, user.name, order);
         console.log(`❌ Paiement échoué — commande ${order.order_number}`);
+      notifyUser(order.user_id, {
+    type         : "ORDER_PAYMENT_FAILED",
+    id           : order.id,
+    order_number : order.order_number,
+    message      : `❌ Paiement échoué — commande #${order.order_number}`,
+  });
+     
       }
        await invalidateDashboardCache();
       break;
@@ -1282,6 +1298,15 @@ export const updateOrderStatusService = async ({ orderId, status }) => {
  
   if (user) {
     await sendOrderStatusEmail(order, user.name, user.email);
+    notifyUser(order.user_id, {
+    type         : "ORDER_STATUS_UPDATE",
+    id           : orderId,
+    order_number : order.order_number,
+    status,
+    message      : `Votre commande #${order.order_number} est maintenant : ${status}`,
+  });
+  
+  
   }
  
   return { message: `Statut mis à jour : ${status}` };
@@ -1362,6 +1387,14 @@ export const cancelOrderService = async ({ orderId, reason }) => {
         </div>
       `,
     }).catch(err => console.error("Cancel email error:", err.message));
+  
+   notifyUser(order.user_id, {
+    type         : "ORDER_CANCELLED",
+    id           : orderId,
+    order_number : order.order_number,
+    message      : `🚫 Commande #${order.order_number} annulée.`,
+  });
+  
   }
 await invalidateDashboardCache(); // ✅ ajout ici
 
