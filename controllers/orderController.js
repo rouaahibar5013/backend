@@ -318,36 +318,17 @@ export const getAllOrders = catchAsyncErrors(async (req, res, next) => {
   res.status(200).json({ success: true, ...data });
 });
 
-export const updateOrderStatus = catchAsyncErrors(async (req, res, next) => {
-  console.log("=== DEBUG updateOrderStatus ===");
-  console.log("Body reçu :", req.body);
+export const updateOrderStatus = catchAsyncErrors(async (req, res, next) => { 
 
   // Extraire le statut (il est envoyé comme clé d'objet)
-  let status = null;
-  const bodyKeys = Object.keys(req.body);
+  const status = req.body.status;
 
-  if (bodyKeys.length > 0) {
-    status = bodyKeys[0];        // ex: "expediee", "livree", "en cours", etc.
-  }
+if (!status)
+  return next(new ErrorHandler("Le statut est obligatoire.", 400));
 
-  if (!status) 
-    return next(new ErrorHandler("Le statut est obligatoire.", 400));
+const statusKey = status.toString().trim().toLowerCase();
+const dbStatus = statusMap[statusKey] || statusKey;
 
-  console.log("Statut détecté (brut) :", status);
-
-  // Nettoyage
-  const statusKey = status.toString().trim().toLowerCase();
-  const dbStatus = statusMap[statusKey];
-
-  if (!dbStatus) {
-    console.log("Statut non trouvé dans le mapping :", statusKey);
-    return next(new ErrorHandler(
-      `Statut invalide : ${status}. Valeurs acceptées : En attente, Confirmée, En cours, Expédiée, Livrée, Annulée, Remboursée`, 
-      400
-    ));
-  }
-
-  console.log("Statut converti pour BDD :", dbStatus);
 
   if (!isUUID(req.params.orderId))
     return next(new ErrorHandler("ID de commande invalide.", 400));
