@@ -1268,7 +1268,7 @@ export const updateOrderStatusService = async ({ orderId, status }) => {
  
   // Sync automatique livraison
   const deliveryMap = {
-    expediee: "UPDATE deliveries SET status = 'expedie', shipped_at = NOW() WHERE order_id = $1",
+    expediee: "UPDATE deliveries SET status = 'expediee', shipped_at = NOW() WHERE order_id = $1",
     livree:   "UPDATE deliveries SET status = 'livre',   delivered_at = NOW() WHERE order_id = $1",
   };
  
