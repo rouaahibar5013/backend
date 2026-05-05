@@ -25,9 +25,7 @@ export const createReview = catchAsyncErrors(async (req, res, next) => {
   if (!rating || rating < 1 || rating > 5)
     return next(new ErrorHandler("La note doit être entre 1 et 5.", 400));
 
-  if (!comment || comment.trim().length < 10)
-    return next(new ErrorHandler("Le commentaire doit contenir au moins 10 caractères.", 400));
-
+ 
   if (comment.trim().length > 1000)
     return next(new ErrorHandler("Le commentaire ne peut pas dépasser 1000 caractères.", 400));
 
@@ -55,9 +53,7 @@ export const updateReview = catchAsyncErrors(async (req, res, next) => {
   if (rating && (rating < 1 || rating > 5))
     return next(new ErrorHandler("La note doit être entre 1 et 5.", 400));
 
-  if (comment && comment.trim().length < 10)
-    return next(new ErrorHandler("Le commentaire doit contenir au moins 10 caractères.", 400));
-
+ 
   if (comment && comment.trim().length > 1000)
     return next(new ErrorHandler("Le commentaire ne peut pas dépasser 1000 caractères.", 400));
 
