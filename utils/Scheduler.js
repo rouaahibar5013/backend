@@ -3,7 +3,7 @@ import database from "../database/db.js";
 import sendEmail from "./sendEmail.js";
 import { notifyUser, notifyAdmins } from "./websocket.js";
 
-export const startReclamationScheduler = () => {
+export const startScheduler = () => {
 
   // ════════════════════════════════════════════════════════════
   // RÈGLE 1 — Toutes les 15 min
@@ -187,4 +187,24 @@ cron.schedule("0 * * * *", async () => {
   } catch (err) {
     console.error("[Scheduler] Règle 3 erreur:", err.message);
   }
-});}
+});
+
+// ════════════════════════════════════════════════════════════
+// RÈGLE 4 — Tous les jours à minuit
+// is_new = true + created_at > 30 jours → is_new = false
+// ════════════════════════════════════════════════════════════
+cron.schedule("0 0 * * *", async () => {
+  try {
+    const result = await database.query(
+      `UPDATE products
+       SET is_new = false, updated_at = NOW()
+       WHERE is_new = true
+       AND created_at < NOW() - INTERVAL '30 days'`
+    );
+    console.log(`[Scheduler] is_new expiré: ${result.rowCount} produit(s)`);
+  } catch (err) {
+    console.error("[Scheduler] Règle 4 erreur:", err.message);
+  }
+});
+
+}

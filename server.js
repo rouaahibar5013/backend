@@ -4,7 +4,7 @@ import { createServer } from "http";
 import app from "./app.js";
 import { v2 as cloudinary } from "cloudinary";
 import { initWebSocket }             from "./utils/websocket.js";           // ← ajouter
-import { startReclamationScheduler } from "./utils/reclamationScheduler.js";
+import { startScheduler } from "./utils/Scheduler.js";
 
 // Configure Cloudinary once
 cloudinary.config({
@@ -15,7 +15,7 @@ cloudinary.config({
 
 const server = createServer(app);
 initWebSocket(server);
-startReclamationScheduler();
+startScheduler();
 
 server.listen(process.env.PORT, () => {
   console.log(`Server is running on port ${process.env.PORT}`);

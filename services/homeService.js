@@ -3,7 +3,7 @@ import database from "../database/db.js";
 export const getHomeDataService = async () => {
 
  
-  const [categoriesResult, newProductsResult, trendingProductsResult] = await Promise.all([
+  const [categoriesResult, newProductsResult, trendingProductsResult , featuredProductsResult] = await Promise.all([
 
     // ── Catégories parentes — rien à changer ──────────────
     database.query(
@@ -77,8 +77,8 @@ export const getHomeDataService = async () => {
        ) vp_active ON true
 
        WHERE p.is_active = true
-      AND (p.is_new = true OR p.created_at >= NOW() - INTERVAL '30 days')
-      ORDER BY p.is_new DESC, p.created_at DESC
+        AND p.is_new = true
+      ORDER BY p.created_at DESC
       LIMIT 6
       `
     ),
@@ -151,11 +151,63 @@ export const getHomeDataService = async () => {
        LIMIT 6`
     ),
 
+    // ── Coup de cœur —  ────────────────────────────────
+    database.query(
+      `SELECT DISTINCT ON (p.id)
+         p.id, p.name_fr, p.slug, p.images,
+         (SELECT ROUND(AVG(r.rating)::numeric, 2) FROM review r WHERE r.product_id = p.id) AS rating_avg,
+         (SELECT COUNT(*) FROM review r WHERE r.product_id = p.id)::int AS rating_count,
+         p.origin,
+         s.name AS supplier_name,
+         s.slug AS supplier_slug,
+
+         pv_main.id    AS cheapest_variant_id,
+         pv_main.price AS price,
+
+         vp_active.discount_type  AS promo_type,
+         vp_active.discount_value AS promo_value,
+         vp_active.expires_at     AS promo_expires_at,
+
+         CASE
+           WHEN vp_active.discount_type = 'percent' THEN
+             ROUND((pv_main.price - (pv_main.price * vp_active.discount_value / 100))::numeric, 3)
+           WHEN vp_active.discount_type = 'fixed' THEN
+             GREATEST(ROUND((pv_main.price - vp_active.discount_value)::numeric, 3), 0)
+           ELSE pv_main.price
+         END AS min_price,
+
+         pv_main.price AS original_min_price
+
+       FROM products p
+       LEFT JOIN suppliers s ON s.id = p.supplier_id
+
+       LEFT JOIN LATERAL (
+         SELECT id, price FROM product_variants
+         WHERE product_id = p.id AND is_active = true
+         ORDER BY created_at ASC LIMIT 1
+       ) pv_main ON true
+
+       LEFT JOIN LATERAL (
+         SELECT discount_type, discount_value, expires_at
+         FROM variant_promotions
+         WHERE variant_id = pv_main.id
+           AND is_active  = true
+           AND starts_at <= NOW()
+           AND expires_at >= NOW()
+         ORDER BY created_at DESC LIMIT 1
+       ) vp_active ON true
+
+       WHERE p.is_active = true AND p.is_featured = true
+       ORDER BY p.id, p.created_at DESC
+       LIMIT 6`
+    ),
+
   ]);
 
   return {
     categories:       categoriesResult.rows,
     newProducts:      newProductsResult.rows,
     trendingProducts: trendingProductsResult.rows,
+    featuredProducts: featuredProductsResult.rows, 
   };
 };
