@@ -29,6 +29,11 @@ const verifyPurchase = async ({ userId, productId }) => {
 // CREATE REVIEW (publiée directement)
 // ═══════════════════════════════════════════════════════════
 export const createReviewService = async ({ productId, userId, rating, comment }) => {
+  // Ajouter AVANT la vérification du produit
+if (!rating || rating < 1 || rating > 5)
+  throw new ErrorHandler("La note doit être comprise entre 1 et 5.", 400);
+  
+  
   // ── Vérifier produit existe ──────────────────────────────
   const product = await database.query(
     "SELECT id FROM products WHERE id = $1 AND is_active = true",
@@ -71,8 +76,8 @@ export const getProductReviewsService = async (productId) => {
          r.rating,
          r.comment,
          r.created_at,
-         u.name   AS user_name,
-         u.avatar AS user_avatar
+        COALESCE(u.name,   'Anonyme') AS user_name,
+        COALESCE(u.avatar, null)      AS user_avatar
        FROM review r
        LEFT JOIN users u ON u.id = r.user_id
        WHERE r.product_id = $1
@@ -114,6 +119,10 @@ export const getProductReviewsService = async (productId) => {
 // UPDATE REVIEW (user — seulement la sienne)
 // ═══════════════════════════════════════════════════════════
 export const updateReviewService = async ({ reviewId, userId, rating, comment }) => {
+  
+  // Ajouter EN DÉBUT de fonction
+if (rating !== undefined && (rating < 1 || rating > 5))
+  throw new ErrorHandler("La note doit être comprise entre 1 et 5.", 400);
   const review = await database.query(
     "SELECT * FROM review WHERE id = $1 AND user_id = $2",
     [reviewId, userId]
@@ -211,8 +220,8 @@ export const getAllReviewsService = async ({ rating, date_from, date_to, page = 
          r.rating,
          r.comment,
          r.created_at,
-         u.name    AS user_name,
-         u.email   AS user_email,
+         COALESCE(u.name,  'Anonyme') AS user_name,
+COALESCE(u.email, 'Inconnu') AS user_email,
          p.name_fr AS product_name,
          p.id      AS product_id
        FROM review r
