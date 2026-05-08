@@ -1,0 +1,64 @@
+import database from "../database/db.js";
+
+class VariantPromotion {
+  static async findActiveByVariantId(variantId) {
+    const result = await database.query(
+      `SELECT discount_type, discount_value
+       FROM variant_promotions
+       WHERE variant_id = $1
+         AND is_active  = true
+         AND starts_at <= NOW()
+         AND expires_at > NOW()
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [variantId]
+    );
+    return result.rows[0] || null;
+  }
+
+  static async findByVariantId(variantId) {
+    const result = await database.query(
+      "SELECT * FROM variant_promotions WHERE variant_id = $1 ORDER BY created_at DESC",
+      [variantId]
+    );
+    return result.rows;
+  }
+
+  static async create({ variant_id, discount_type, discount_value, starts_at, expires_at }) {
+    const result = await database.query(
+      `INSERT INTO variant_promotions (variant_id, discount_type, discount_value, starts_at, expires_at)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [variant_id, discount_type, discount_value, starts_at || new Date(), expires_at]
+    );
+    return result.rows[0];
+  }
+
+  // ─── Désactiver toutes les promos actives d'un variant ─
+  static async deactivateAllByVariantId(variantId) {
+    await database.query(
+      "UPDATE variant_promotions SET is_active = false, updated_at = NOW() WHERE variant_id = $1 AND is_active = true",
+      [variantId]
+    );
+  }
+
+  // ─── Toggle is_active ─────────────────────────────────
+  static async toggle(id, is_active) {
+    const result = await database.query(
+      "UPDATE variant_promotions SET is_active = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
+      [is_active, id]
+    );
+    return result.rows[0] || null;
+  }
+
+  // ─── Supprimer avec confirmation ──────────────────────
+  static async delete(id) {
+    const result = await database.query(
+      "DELETE FROM variant_promotions WHERE id = $1 RETURNING id",
+      [id]
+    );
+    return result.rows[0] || null;
+  }
+}
+
+export default VariantPromotion;

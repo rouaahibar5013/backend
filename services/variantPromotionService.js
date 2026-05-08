@@ -1,16 +1,10 @@
-import database from "../database/db.js";
+import { VariantPromotion } from "../models/index.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
-import { invalidateOffresCache } from "../utils/cacheInvalideation.js"; // ✅ ajout
+import { invalidateOffresCache } from "../utils/cacheInvalideation.js";
 
 
 export const getVariantPromotionsService = async (variantId) => {
-  const result = await database.query(
-    `SELECT * FROM variant_promotions
-     WHERE variant_id = $1
-     ORDER BY created_at DESC`,
-    [variantId]
-  );
-  return result.rows;
+  return await VariantPromotion.findByVariantId(variantId);
 };
 
 export const createVariantPromotionService = async ({
@@ -23,41 +17,27 @@ export const createVariantPromotionService = async ({
   if (new Date(expires_at) <= new Date(starts_at))
     throw new ErrorHandler("expires_at doit être après starts_at.", 400);
 
-  // Désactiver les promos actives existantes
-  await database.query(
-    `UPDATE variant_promotions SET is_active = false
-     WHERE variant_id = $1 AND is_active = true`,
-    [variantId]
-  );
+  await VariantPromotion.deactivateAllByVariantId(variantId);
 
-  const result = await database.query(
-    `INSERT INTO variant_promotions
-       (variant_id, discount_type, discount_value, starts_at, expires_at, is_active)
-     VALUES ($1, $2, $3, $4, $5, true)
-     RETURNING *`,
-    [variantId, discount_type, discount_value, starts_at, expires_at]
-  );
+  const promo = await VariantPromotion.create({
+    variant_id: variantId, discount_type, discount_value, starts_at, expires_at,
+  });
+
   await invalidateOffresCache();
-  return result.rows[0];
+  return promo;
 };
 
 export const toggleVariantPromotionService = async (promoId, is_active) => {
-  const result = await database.query(
-    `UPDATE variant_promotions SET is_active = $1, updated_at = now()
-     WHERE id = $2 RETURNING *`,
-    [is_active, promoId]
-  );
-  if (result.rows.length === 0)
+  const promo = await VariantPromotion.toggle(promoId, is_active);
+  if (!promo)
     throw new ErrorHandler("Promotion introuvable.", 404);
   await invalidateOffresCache();
-  return result.rows[0];
+  return promo;
 };
 
 export const deleteVariantPromotionService = async (promoId) => {
-  const result = await database.query(
-    "DELETE FROM variant_promotions WHERE id = $1 RETURNING id", [promoId]
-  );
-  if (result.rows.length === 0)
+  const deleted = await VariantPromotion.delete(promoId);
+  if (!deleted)
     throw new ErrorHandler("Promotion introuvable.", 404);
   await invalidateOffresCache();
 };

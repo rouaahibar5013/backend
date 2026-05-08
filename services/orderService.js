@@ -1,5 +1,4 @@
 import Stripe from "stripe";
-import database from "../database/db.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import sendEmail from "../utils/sendEmail.js";
 import { createGuestAccountService } from "./authService.js";
@@ -8,13 +7,21 @@ import PDFDocument from "pdfkit";
 import { invalidateDashboardCache } from "../utils/cacheInvalideation.js";
 import { notifyUser } from "../utils/websocket.js";
 
+// ─── Models ───────────────────────────────────────────────
+import {
+  Order,
+  OrderItem,
+  Delivery,
+  ProductVariant,
+  VariantPromotion,
+  Promotion,
+  User,
+} from "../models/index.js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ═══════════════════════════════════════════════════════════
 // CONSTANTES — Livraison
-// SHIPPING_FREE_THRESHOLD : au-dessus → livraison gratuite
-// SHIPPING_COST           : en-dessous → montant à payer
 // ═══════════════════════════════════════════════════════════
 const SHIPPING_FREE_THRESHOLD = parseFloat(process.env.SHIPPING_FREE_THRESHOLD || "100");
 const SHIPPING_COST           = parseFloat(process.env.SHIPPING_COST           || "9.90");
@@ -88,11 +95,8 @@ const sendOrderConfirmationEmail = async (toEmail, order, customerName, pdfBuffe
 
 // ═══════════════════════════════════════════════════════════
 // HELPER — Email notification changement de statut commande
-// ✅ Appelé dans updateOrderStatusService après chaque UPDATE
 // ═══════════════════════════════════════════════════════════
 const sendOrderStatusEmail = async (order, userName, userEmail) => {
- 
-  // Configuration par statut : couleur, icône, titre, message
   const statusConfig = {
     confirmee: {
       color:   "#166534",
@@ -125,27 +129,18 @@ const sendOrderStatusEmail = async (order, userName, userEmail) => {
       message: "Votre remboursement a été effectué. Il apparaîtra sur votre compte sous 3 à 5 jours ouvrés.",
     },
   };
- 
+
   const config = statusConfig[order.status];
-  if (!config) return; // Pas d'email pour les statuts non listés
- 
-  // Bloc tracking number si disponible
-  const trackingBlock = order.tracking_number
-    ? `<p><strong>Numéro de suivi :</strong> ${order.tracking_number}</p>`
-    : "";
- 
-  // Bloc transporteur si disponible
-  const carrierBlock = order.carrier
-    ? `<p><strong>Transporteur :</strong> ${order.carrier}</p>`
-    : "";
- 
-  // Bloc date estimée si disponible
+  if (!config) return;
+
+  const trackingBlock  = order.tracking_number ? `<p><strong>Numéro de suivi :</strong> ${order.tracking_number}</p>` : "";
+  const carrierBlock   = order.carrier         ? `<p><strong>Transporteur :</strong> ${order.carrier}</p>`            : "";
   const estimatedBlock = order.estimated_date
     ? `<p><strong>Date de livraison estimée :</strong> ${new Date(order.estimated_date).toLocaleDateString("fr-FR", {
         day: "2-digit", month: "long", year: "numeric",
       })}</p>`
     : "";
- 
+
   await sendEmail({
     to:      userEmail,
     subject: `${config.icon} Commande #${order.order_number} — ${config.title} — GOFFA 🧺`,
@@ -163,15 +158,12 @@ const sendOrderStatusEmail = async (order, userName, userEmail) => {
                       margin: 20px 0; border-left: 4px solid ${config.color};">
             <p><strong>N° de commande :</strong> #${order.order_number}</p>
             <p><strong>Total :</strong> ${parseFloat(order.total_price).toFixed(2)} CHF</p>
-            ${trackingBlock}
-            ${carrierBlock}
-            ${estimatedBlock}
+            ${trackingBlock}${carrierBlock}${estimatedBlock}
           </div>
           <div style="text-align: center; margin-top: 24px;">
             <a href="${process.env.FRONTEND_URL}/commandes/${order.id}"
                style="background: ${config.color}; color: white; padding: 12px 28px;
-                      border-radius: 6px; text-decoration: none;
-                      font-weight: bold; display: inline-block;">
+                      border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
               Suivre ma commande →
             </a>
           </div>
@@ -225,7 +217,6 @@ const sendPaymentFailedEmail = async (toEmail, customerName, order) => {
 
 // ═══════════════════════════════════════════════════════════
 // HELPER — Générer facture PDF
-// ✅ Utilise les données enrichies par JOIN (pas de snapshots)
 // ═══════════════════════════════════════════════════════════
 const generateInvoicePDF = (order, orderItems, customerName) => {
   return new Promise((resolve, reject) => {
@@ -237,17 +228,8 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
     doc.on("end",   ()    => resolve(Buffer.concat(buffers)));
     doc.on("error", reject);
 
-    // ── En-tête ──────────────────────────────────────────
-    doc
-      .fillColor("#166534")
-      .fontSize(26)
-      .font("Helvetica-Bold")
-      .text("GOFFA", 50, 50);
-
-    doc
-      .fontSize(10)
-      .fillColor("#4b5563")
-      .font("Helvetica")
+    doc.fillColor("#166534").fontSize(26).font("Helvetica-Bold").text("GOFFA", 50, 50);
+    doc.fontSize(10).fillColor("#4b5563").font("Helvetica")
       .text("Artisanat ", 50, 80)
       .text("Email : contact@goffa.ch", 50, 95)
       .text("Site : www.goffa.ch", 50, 110);
@@ -269,18 +251,16 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
 
     doc.moveTo(50, 135).lineTo(545, 135).strokeColor("#166534").lineWidth(2).stroke();
 
-    // ── Infos livraison ───────────────────────────────────
     doc.fillColor("#166534").fontSize(12).font("Helvetica-Bold").text("Adresse de livraison", 50, 155);
     doc.fontSize(10).fillColor("#374151").font("Helvetica")
-      .text(`Nom : ${order.shipping_full_name}`,               50, 173)
-      .text(`Adresse : ${order.shipping_address}`,             50, 188)
-      .text(`Ville : ${order.shipping_city}`,                  50, 203)
+      .text(`Nom : ${order.shipping_full_name}`,                  50, 173)
+      .text(`Adresse : ${order.shipping_address}`,                50, 188)
+      .text(`Ville : ${order.shipping_city}`,                     50, 203)
       .text(`Gouvernorat : ${order.shipping_governorate || "—"}`, 50, 218)
       .text(`Code postal : ${order.shipping_postal_code || "—"}`, 50, 233)
-      .text(`Pays : ${order.shipping_country || "CH"}`,        50, 248)
-      .text(`Téléphone : ${order.shipping_phone || "—"}`,      50, 263);
+      .text(`Pays : ${order.shipping_country || "CH"}`,           50, 248)
+      .text(`Téléphone : ${order.shipping_phone || "—"}`,         50, 263);
 
-    // ── Infos facturation ─────────────────────────────────
     doc.fillColor("#166534").fontSize(12).font("Helvetica-Bold").text("Adresse de facturation", 300, 155);
     doc.fontSize(10).fillColor("#374151").font("Helvetica")
       .text(`Nom : ${order.billing_full_name || order.shipping_full_name}`, 300, 173)
@@ -289,9 +269,7 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
       .text(`Mode paiement : ${paymentLabel}`,                              300, 218)
       .text(`Devise : CHF`,                                                  300, 233);
 
-    // ── Tableau articles ─────────────────────────────────
     const tableTop = 295;
-
     doc.fillColor("#166534").rect(50, tableTop, pageWidth, 24).fill();
     doc.fillColor("#ffffff").fontSize(10).font("Helvetica-Bold")
       .text("Produit",    60,  tableTop + 7)
@@ -311,12 +289,9 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
         doc.fillColor("#f0fdf4").rect(50, y - 4, pageWidth, rowHeight).fill();
       }
 
-      // Attributs dynamiques (depuis JOIN)
       let details = "—";
       if (item.variant_details && Array.isArray(item.variant_details) && item.variant_details.length > 0) {
-        details = item.variant_details
-          .map(a => `${a.attribute_type}: ${a.attribute_value}`)
-          .join(", ");
+        details = item.variant_details.map(a => `${a.attribute_type}: ${a.attribute_value}`).join(", ");
       }
 
       doc.fillColor("#111827").fontSize(9).font("Helvetica-Bold")
@@ -334,8 +309,6 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
     }
 
     doc.moveTo(50, y + 2).lineTo(545, y + 2).strokeColor("#166534").lineWidth(0.5).stroke();
-
-    // ── Totaux ───────────────────────────────────────────
     y += 16;
     const totalsX     = 350;
     const totalsWidth = 195;
@@ -355,9 +328,7 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
     doc.fillColor("#374151")
       .text("Frais de livraison :", totalsX, y, { width: totalsWidth, align: "left" })
       .text(
-        parseFloat(order.shipping_cost) === 0
-          ? "Gratuit"
-          : `${parseFloat(order.shipping_cost).toFixed(2)} CHF`,
+        parseFloat(order.shipping_cost) === 0 ? "Gratuit" : `${parseFloat(order.shipping_cost).toFixed(2)} CHF`,
         totalsX, y, { width: totalsWidth, align: "right" }
       );
     y += 14;
@@ -369,26 +340,10 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
       .text("TOTAL :", totalsX, y, { width: totalsWidth, align: "left" })
       .text(`${parseFloat(order.total_price).toFixed(2)} CHF`, totalsX, y, { width: totalsWidth, align: "right" });
 
-    // ── Pied de page ─────────────────────────────────────
-    doc
-      .moveTo(50, 750)
-      .lineTo(545, 750)
-      .strokeColor("#e5e7eb")
-      .lineWidth(1)
-      .stroke();
-
-    doc
-      .fontSize(9)
-      .fillColor("#9ca3af")
-      .font("Helvetica")
-      .text(
-        "Merci pour votre commande ! Pour toute question : contact@goffa.tn",
-        50, 760, { align: "center", width: pageWidth }
-      )
-      .text(
-        "GOFFA — Artisanat  authentique",
-        50, 775, { align: "center", width: pageWidth }
-      );
+    doc.moveTo(50, 750).lineTo(545, 750).strokeColor("#e5e7eb").lineWidth(1).stroke();
+    doc.fontSize(9).fillColor("#9ca3af").font("Helvetica")
+      .text("Merci pour votre commande ! Pour toute question : contact@goffa.tn", 50, 760, { align: "center", width: pageWidth })
+      .text("GOFFA — Artisanat authentique", 50, 775, { align: "center", width: pageWidth });
 
     doc.end();
   });
@@ -409,9 +364,7 @@ const sendStockAlertEmail = async (productName, sku, stock) => {
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: ${isOutOfStock ? "#dc2626" : "#f59e0b"}; padding: 20px; border-radius: 8px 8px 0 0;">
-          <h2 style="color: white; margin: 0;">
-            ${isOutOfStock ? "🔴 Rupture de stock" : "🟡 Stock faible"}
-          </h2>
+          <h2 style="color: white; margin: 0;">${isOutOfStock ? "🔴 Rupture de stock" : "🟡 Stock faible"}</h2>
         </div>
         <div style="padding: 20px; background: #fef2f2; border-radius: 0 0 8px 8px;">
           <p><strong>Produit :</strong> ${productName}</p>
@@ -433,50 +386,8 @@ const sendStockAlertEmail = async (productName, sku, stock) => {
 };
 
 // ═══════════════════════════════════════════════════════════
-// HELPER — Récupérer articles d'une commande avec JOIN complet
-// Utilisé pour PDF, getSingleOrder, getMyOrders
-// ═══════════════════════════════════════════════════════════
-const fetchOrderItemsWithDetails = async (orderId) => {
-  const result = await database.query(
-    `SELECT
-       oi.id,
-       oi.order_id,
-       oi.variant_id,
-       oi.quantity,
-       oi.price_at_order,
-       oi.created_at,
-       p.name_fr           AS product_name_fr,
-       p.images->0->>'url' AS product_image,
-       pv.sku,
-       -- ✅ Nouveau JOIN — pva.value_fr directement, plus d'attribute_values
-       COALESCE(
-         json_agg(
-           json_build_object(
-             'attribute_type',  at.name_fr,
-             'attribute_value', pva.value_fr
-           )
-           ORDER BY at.name_fr
-         ) FILTER (WHERE at.id IS NOT NULL),
-         '[]'
-       ) AS variant_details
-     FROM order_items oi
-     LEFT JOIN product_variants          pv  ON pv.id = oi.variant_id
-     LEFT JOIN products                   p  ON p.id  = pv.product_id
-     -- ✅ JOIN direct sur pva — attribute_type_id disponible directement
-     LEFT JOIN product_variant_attributes pva ON pva.variant_id = pv.id
-     LEFT JOIN attribute_types            at  ON at.id = pva.attribute_type_id
-     WHERE oi.order_id = $1
-     GROUP BY oi.id, p.name_fr, p.images, pv.sku`,
-    [orderId]
-  );
-  return result.rows;
-};
- 
-
-// ═══════════════════════════════════════════════════════════
 // HELPER — Calculer articles de la commande
 // ✅ Applique automatiquement les variant_promotions actives
-// ✅ Le prix promotionnel devient price_at_order
 // ═══════════════════════════════════════════════════════════
 const calculateOrderItems = async (items) => {
   let subtotal   = 0;
@@ -488,45 +399,23 @@ const calculateOrderItems = async (items) => {
     if (!variant_id || !quantity || quantity < 1)
       throw new ErrorHandler("Chaque article doit avoir un variant_id et une quantité valide.", 400);
 
-    // ✅ Récupérer le variant + infos produit
-    const variantResult = await database.query(
-      `SELECT
-         pv.id, pv.price, pv.stock, pv.low_stock_threshold, pv.sku, pv.is_active,
-         p.name_fr AS product_name_fr
-       FROM product_variants pv
-       LEFT JOIN products p ON p.id = pv.product_id
-       WHERE pv.id = $1 AND pv.is_active = true AND p.is_active = true`,
-      [variant_id]
-    );
+    // ✅ Model : récupérer le variant actif
+    const variant = await ProductVariant.findActiveById(variant_id);
 
-    if (variantResult.rows.length === 0)
+    if (!variant)
       throw new ErrorHandler(`Variante ${variant_id} introuvable ou inactive.`, 404);
 
-    const variant = variantResult.rows[0];
-
-    // ✅ Vérifier si une promotion active existe pour ce variant
-    const promoResult = await database.query(
-      `SELECT discount_type, discount_value
-       FROM variant_promotions
-       WHERE variant_id = $1
-         AND is_active  = true
-         AND starts_at <= NOW()
-         AND expires_at > NOW()
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [variant_id]
-    );
+    // ✅ Model : vérifier si une promo active existe pour ce variant
+    const promo = await VariantPromotion.findActiveByVariantId(variant_id);
 
     // ✅ Calculer le prix final (avec ou sans promo variant)
     let finalPrice = parseFloat(variant.price);
 
-    if (promoResult.rows.length > 0) {
-      const vp = promoResult.rows[0];
-      if (vp.discount_type === "percent") {
-        finalPrice = finalPrice * (1 - parseFloat(vp.discount_value) / 100);
+    if (promo) {
+      if (promo.discount_type === "percent") {
+        finalPrice = finalPrice * (1 - parseFloat(promo.discount_value) / 100);
       } else {
-        // fixed
-        finalPrice = Math.max(0, finalPrice - parseFloat(vp.discount_value));
+        finalPrice = Math.max(0, finalPrice - parseFloat(promo.discount_value));
       }
       finalPrice = parseFloat(finalPrice.toFixed(3));
     }
@@ -537,7 +426,6 @@ const calculateOrderItems = async (items) => {
       variant_id,
       quantity,
       price_at_order:       finalPrice,
-      // ✅ Utilisés uniquement pour alertes stock — non stockés en DB
       _product_name_fr:     variant.product_name_fr,
       _low_stock_threshold: variant.low_stock_threshold || 5,
       _sku:                 variant.sku,
@@ -551,20 +439,11 @@ const calculateOrderItems = async (items) => {
 // HELPER — Appliquer code promo sur le subtotal
 // ═══════════════════════════════════════════════════════════
 const applyPromoCode = async (code, subtotal) => {
-  const promo = await database.query(
-    `SELECT * FROM promotions
-     WHERE UPPER(code) = UPPER($1)
-       AND is_active   = true
-       AND starts_at  <= NOW()
-       AND expires_at >= NOW()
-       AND (max_uses IS NULL OR used_count < max_uses)`,
-    [code]
-  );
+  // ✅ Model : chercher le code promo actif
+  const p = await Promotion.findByCode(code);
 
-  if (promo.rows.length === 0)
+  if (!p)
     throw new ErrorHandler("Code promo invalide ou expiré.", 400);
-
-  const p = promo.rows[0];
 
   if (p.min_order_amount && subtotal < parseFloat(p.min_order_amount))
     throw new ErrorHandler(
@@ -589,34 +468,22 @@ const applyPromoCode = async (code, subtotal) => {
 // HELPER — Insérer les articles + gérer le stock
 // ═══════════════════════════════════════════════════════════
 const insertOrderItems = async (orderId, orderItems) => {
-  const settings = await database.query(
-    "SELECT stock_managed_by FROM odoo_settings LIMIT 1"
-  );
-  const stockManagedBy = settings.rows[0]?.stock_managed_by || "backend";
-
   for (const item of orderItems) {
-    // ✅ INSERT simplifié — plus de snapshots
-    await database.query(
-      `INSERT INTO order_items (order_id, variant_id, quantity, price_at_order)
-       VALUES ($1, $2, $3, $4)`,
-      [orderId, item.variant_id, item.quantity, item.price_at_order]
-    );
+    // ✅ Model : insérer l'article
+    await OrderItem.create({
+      orderId,
+      variantId:    item.variant_id,
+      quantity:     item.quantity,
+      priceAtOrder: item.price_at_order,
+    });
 
-    if (stockManagedBy === "backend") {
-      await database.query(
-        "UPDATE product_variants SET stock = GREATEST(stock - $1, 0) WHERE id = $2",
-        [item.quantity, item.variant_id]
-      );
+    // ✅ Model : décrémenter le stock
+    await ProductVariant.decrementStock(item.variant_id, item.quantity);
 
-      const updatedVariant = await database.query(
-        "SELECT stock, low_stock_threshold, sku FROM product_variants WHERE id = $1",
-        [item.variant_id]
-      );
-
-      const v = updatedVariant.rows[0];
-      if (v && v.stock <= (v.low_stock_threshold || 5)) {
-        await sendStockAlertEmail(item._product_name_fr, v.sku, v.stock);
-      }
+    // ✅ Model : vérifier le stock après décrémentation
+    const updated = await ProductVariant.findById(item.variant_id);
+    if (updated && updated.stock <= (updated.low_stock_threshold || 5)) {
+      await sendStockAlertEmail(item._product_name_fr, updated.sku, updated.stock);
     }
   }
 };
@@ -625,162 +492,31 @@ const insertOrderItems = async (orderId, orderItems) => {
 // HELPER — Restaurer le stock (annulation / paiement échoué)
 // ═══════════════════════════════════════════════════════════
 const restoreStock = async (orderId) => {
-  const settings = await database.query(
-    "SELECT stock_managed_by FROM odoo_settings LIMIT 1"
-  );
-  const stockManagedBy = settings.rows[0]?.stock_managed_by || "backend";
+  // ✅ Model : récupérer les articles de la commande
+  const items = await OrderItem.findByOrderIdSimple(orderId);
 
-  if (stockManagedBy !== "backend") return;
-
-  const items = await database.query(
-    "SELECT variant_id, quantity FROM order_items WHERE order_id = $1",
-    [orderId]
-  );
-
-  for (const item of items.rows) {
+  for (const item of items) {
     if (item.variant_id) {
-      await database.query(
-        "UPDATE product_variants SET stock = stock + $1 WHERE id = $2",
-        [item.quantity, item.variant_id]
-      );
+      // ✅ Model : restaurer le stock
+      await ProductVariant.incrementStock(item.variant_id, item.quantity);
     }
   }
-};
-
-// ═══════════════════════════════════════════════════════════
-// HELPER — Construire et insérer la commande en DB
-// ✅ Avec billing_*, shipping_*, sans promo_code
-// ✅ Calcul frais de livraison selon seuil
-// ═══════════════════════════════════════════════════════════
-const buildAndInsertOrder = async ({
-  userId, payment_method,
-  subtotal, discountAmount, promoId,
-  billing_full_name, billing_phone,
-  billing_address, billing_city,
-  billing_governorate, billing_postal_code, billing_country,
-  shipping_full_name, shipping_phone,
-  shipping_address, shipping_city,
-  shipping_governorate, shipping_postal_code, shipping_country,
-  notes,
-}) => {
-  // ✅ Calcul frais de livraison selon seuil
-  const subtotalAfterDiscount = subtotal - discountAmount;
-  const shippingCost          = calculateShippingCost(subtotalAfterDiscount);
-  const totalPrice            = parseFloat((subtotalAfterDiscount + shippingCost).toFixed(3));
-
-  const orderResult = await database.query(
-    `INSERT INTO orders (
-       user_id, status, payment_method, payment_status,
-       subtotal, shipping_cost, discount_amount, total_price,
-       promo_id,
-       billing_full_name,   billing_phone,
-       billing_address,     billing_city,
-       billing_governorate, billing_postal_code, billing_country,
-       shipping_full_name,   shipping_phone,
-       shipping_address,     shipping_city,
-       shipping_governorate, shipping_postal_code, shipping_country,
-       notes
-     ) VALUES (
-       $1, 'en_attente', $2, 'en_attente',
-       $3, $4, $5, $6,
-       $7,
-       $8,  $9,
-       $10, $11,
-       $12, $13, $14,
-       $15, $16,
-       $17, $18,
-       $19, $20, $21,
-       $22
-     ) RETURNING *`,
-    [
-      userId,         payment_method,
-      subtotal,       shippingCost,   discountAmount, totalPrice,
-      promoId || null,
-      billing_full_name    || null, billing_phone       || null,
-      billing_address      || null, billing_city        || null,
-      billing_governorate  || null, billing_postal_code || null,
-      billing_country      || "CH",
-      shipping_full_name,            shipping_phone       || null,
-      shipping_address,              shipping_city,
-      shipping_governorate || null,  shipping_postal_code || null,
-      shipping_country     || "CH",
-      notes || null,
-    ]
-  );
-
-  return { order: orderResult.rows[0], totalPrice };
-};
-
-// ═══════════════════════════════════════════════════════════
-// HELPER — Mettre à jour le profil user après commande
-// ✅ Billing + Shipping sauvegardés dans users
-// ✅ phone/address/city (auth) intouchables
-// ✅ S'applique aussi aux guests
-// ═══════════════════════════════════════════════════════════
-const updateUserAfterOrder = async (userId, {
-  billing_full_name,    billing_phone,
-  billing_address,      billing_city,
-  billing_governorate,  billing_postal_code,  billing_country,
-  shipping_full_name,   shipping_phone,
-  shipping_address,     shipping_city,
-  shipping_governorate, shipping_postal_code, shipping_country,
-}) => {
-  if (!userId) return;
-
-  await database.query(
-    `UPDATE users SET
-       billing_full_name    = COALESCE($1,  billing_full_name),
-       billing_phone        = COALESCE($2,  billing_phone),
-       billing_address      = COALESCE($3,  billing_address),
-       billing_city         = COALESCE($4,  billing_city),
-       billing_governorate  = COALESCE($5,  billing_governorate),
-       billing_postal_code  = COALESCE($6,  billing_postal_code),
-       billing_country      = COALESCE($7,  billing_country),
-       shipping_full_name   = COALESCE($8,  shipping_full_name),
-       shipping_phone       = COALESCE($9,  shipping_phone),
-       shipping_address     = COALESCE($10, shipping_address),
-       shipping_city        = COALESCE($11, shipping_city),
-       shipping_governorate = COALESCE($12, shipping_governorate),
-       shipping_postal_code = COALESCE($13, shipping_postal_code),
-       shipping_country     = COALESCE($14, shipping_country),
-       updated_at = NOW()
-     WHERE id = $15`,
-    [
-      billing_full_name    || null, billing_phone       || null,
-      billing_address      || null, billing_city        || null,
-      billing_governorate  || null, billing_postal_code || null,
-      billing_country      || null,
-      shipping_full_name   || null, shipping_phone      || null,
-      shipping_address     || null, shipping_city       || null,
-      shipping_governorate || null, shipping_postal_code || null,
-      shipping_country     || null,
-      userId,
-    ]
-  );
 };
 
 // ═══════════════════════════════════════════════════════════
 // HELPER — Finaliser la commande (articles + livraison + promo)
 // ═══════════════════════════════════════════════════════════
 const finalizeOrder = async ({ order, orderItems, promoId }) => {
-  // Insérer les articles
   await insertOrderItems(order.id, orderItems);
 
-  // Créer l'entrée livraison
-  await database.query(
-    "INSERT INTO deliveries (order_id, status) VALUES ($1, 'en_preparation')",
-    [order.id]
-  );
+  // ✅ Model : créer la livraison
+  await Delivery.create(order.id);
 
-  // Incrémenter used_count de la promo
+  // ✅ Model : incrémenter used_count de la promo
   if (promoId) {
-    await database.query(
-      "UPDATE promotions SET used_count = used_count + 1 WHERE id = $1",
-      [promoId]
-    );
+    await Promotion.incrementUsed(promoId);
   }
 
-  // Export vers Odoo si activé
   await exportOrderToOdoo(order.id).catch(err =>
     console.error("Odoo export error:", err.message)
   );
@@ -788,13 +524,10 @@ const finalizeOrder = async ({ order, orderItems, promoId }) => {
 
 // ═══════════════════════════════════════════════════════════
 // HELPER — Créer paiement Stripe
-// ✅ CHF — Card + Twint
 // ═══════════════════════════════════════════════════════════
 const createStripePayment = async (totalPrice, orderId, customerEmail, payment_method) => {
-  // ✅ Stripe exige des centimes entiers en CHF
   const amountInCents = Math.round(totalPrice * 100);
 
-  // ✅ Twint exige minimum 0.50 CHF
   if (amountInCents < 50)
     throw new ErrorHandler("Le montant minimum pour un paiement en ligne est 0.50 CHF.", 400);
 
@@ -834,6 +567,10 @@ export const createOrderService = async ({
     promoId        = result.promoId;
   }
 
+  const subtotalAfterDiscount = subtotal - discountAmount;
+  const shippingCost          = calculateShippingCost(subtotalAfterDiscount);
+  const totalPrice            = parseFloat((subtotalAfterDiscount + shippingCost).toFixed(3));
+
   const addressData = {
     billing_full_name,    billing_phone,
     billing_address,      billing_city,
@@ -843,24 +580,23 @@ export const createOrderService = async ({
     shipping_governorate, shipping_postal_code, shipping_country,
   };
 
-  const { order, totalPrice } = await buildAndInsertOrder({
+  // ✅ Model : créer la commande
+  const order = await Order.create({
     userId, payment_method,
-    subtotal, discountAmount, promoId,
-    ...addressData, notes,
+    subtotal, shippingCost, discountAmount, totalPrice,
+    promoId,
+    ...addressData,
+    notes,
   });
 
   await finalizeOrder({ order, orderItems, promoId });
 
-  // ✅ Mettre à jour profil user avec dernières infos billing/shipping
-  await updateUserAfterOrder(userId, addressData);
+  // ✅ Model : mettre à jour les adresses du profil user
+  await User.updateAddresses(userId, addressData);
 
-  // ✅ Créer paiement Stripe
+  // ✅ Stripe
   const paymentIntent = await createStripePayment(totalPrice, order.id, userEmail, payment_method);
-
-  await database.query(
-    "UPDATE orders SET payment_id = $1 WHERE id = $2",
-    [paymentIntent.id, order.id]
-  );
+  await Order.updatePaymentId(order.id, paymentIntent.id);
   order.payment_id = paymentIntent.id;
 
   return {
@@ -870,18 +606,15 @@ export const createOrderService = async ({
       client_secret: paymentIntent.client_secret,
     },
     shipping_info: {
-      shipping_cost:          parseFloat(order.shipping_cost),
+      shipping_cost:           parseFloat(order.shipping_cost),
       free_shipping_threshold: SHIPPING_FREE_THRESHOLD,
-      is_free:                parseFloat(order.shipping_cost) === 0,
+      is_free:                 parseFloat(order.shipping_cost) === 0,
     },
   };
 };
 
 // ═══════════════════════════════════════════════════════════
 // SERVICE — CREATE GUEST ORDER (user non connecté)
-// ✅ Crée compte automatiquement
-// ✅ Envoie email pour compléter le compte
-// ✅ Met à jour billing/shipping du compte créé
 // ═══════════════════════════════════════════════════════════
 export const createGuestOrderService = async ({
   items, payment_method,
@@ -894,8 +627,6 @@ export const createGuestOrderService = async ({
   shipping_governorate, shipping_postal_code, shipping_country,
   promo_code, notes,
 }) => {
-  // ✅ Créer ou récupérer le compte guest
-  // createGuestAccountService ne stocke que name, email, phone (colonnes auth)
   const user = await createGuestAccountService({ name, email, phone });
 
   const { subtotal, orderItems } = await calculateOrderItems(items);
@@ -909,6 +640,10 @@ export const createGuestOrderService = async ({
     promoId        = result.promoId;
   }
 
+  const subtotalAfterDiscount = subtotal - discountAmount;
+  const shippingCost          = calculateShippingCost(subtotalAfterDiscount);
+  const totalPrice            = parseFloat((subtotalAfterDiscount + shippingCost).toFixed(3));
+
   const addressData = {
     billing_full_name,    billing_phone,
     billing_address,      billing_city,
@@ -918,24 +653,23 @@ export const createGuestOrderService = async ({
     shipping_governorate, shipping_postal_code, shipping_country,
   };
 
-  const { order, totalPrice } = await buildAndInsertOrder({
+  // ✅ Model : créer la commande guest
+  const order = await Order.create({
     userId: user.id, payment_method,
-    subtotal, discountAmount, promoId,
-    ...addressData, notes,
+    subtotal, shippingCost, discountAmount, totalPrice,
+    promoId,
+    ...addressData,
+    notes,
   });
 
   await finalizeOrder({ order, orderItems, promoId });
 
-  // ✅ Mettre à jour profil guest avec billing/shipping
-  await updateUserAfterOrder(user.id, addressData);
+  // ✅ Model : mettre à jour les adresses du compte guest
+  await User.updateAddresses(user.id, addressData);
 
-  // ✅ Créer paiement Stripe
+  // ✅ Stripe
   const paymentIntent = await createStripePayment(totalPrice, order.id, email, payment_method);
-
-  await database.query(
-    "UPDATE orders SET payment_id = $1 WHERE id = $2",
-    [paymentIntent.id, order.id]
-  );
+  await Order.updatePaymentId(order.id, paymentIntent.id);
   order.payment_id = paymentIntent.id;
   order.is_guest   = true;
 
@@ -955,7 +689,6 @@ export const createGuestOrderService = async ({
 
 // ═══════════════════════════════════════════════════════════
 // SERVICE — STRIPE WEBHOOK
-// ✅ Sécurisé avec signature Stripe
 // ═══════════════════════════════════════════════════════════
 export const handleStripeWebhookService = async (payload, signature) => {
   let event;
@@ -976,39 +709,29 @@ export const handleStripeWebhookService = async (payload, signature) => {
     case "payment_intent.succeeded": {
       const pi = event.data.object;
 
-      const updateResult = await database.query(
-        `UPDATE orders
-         SET payment_status = 'paye', status = 'confirmee'
-         WHERE payment_id = $1
-         RETURNING *`,
-        [pi.id]
-      );
-
-      const order = updateResult.rows[0];
+      // ✅ Model : confirmer le paiement
+      const order = await Order.confirmPayment(pi.id);
       if (!order) break;
 
-      const userResult = await database.query(
-        "SELECT email, name FROM users WHERE id = $1",
-        [order.user_id]
-      );
-      const user = userResult.rows[0];
+      // ✅ Model : récupérer l'utilisateur
+      const user = await User.findById(order.user_id);
 
       if (user) {
-        // ✅ Récupérer articles avec JOIN complet (plus de snapshots)
-        const items     = await fetchOrderItemsWithDetails(order.id);
+        // ✅ Model : récupérer les articles avec détails
+        const items     = await OrderItem.findByOrderId(order.id);
         const pdfBuffer = await generateInvoicePDF(order, items, user.name);
         await sendOrderConfirmationEmail(user.email, order, user.name, pdfBuffer);
         console.log(`✅ Email + PDF envoyés — commande ${order.order_number}`);
-      
+
         notifyUser(order.user_id, {
-    type         : "ORDER_CONFIRMED",
-    id           : order.id,
-    order_number : order.order_number,
-    message      : `✅ Commande #${order.order_number} confirmée !`,
-  });
-      
+          type:         "ORDER_CONFIRMED",
+          id:           order.id,
+          order_number: order.order_number,
+          message:      `✅ Commande #${order.order_number} confirmée !`,
+        });
       }
-       await invalidateDashboardCache();
+
+      await invalidateDashboardCache();
       break;
     }
 
@@ -1016,55 +739,39 @@ export const handleStripeWebhookService = async (payload, signature) => {
     case "payment_intent.payment_failed": {
       const pi = event.data.object;
 
-      const updateResult = await database.query(
-        `UPDATE orders
-         SET payment_status = 'echoue', status = 'annulee',
-             cancelled_reason = 'Paiement échoué'
-         WHERE payment_id = $1
-         RETURNING *`,
-        [pi.id]
-      );
-
-      const order = updateResult.rows[0];
+      // ✅ Model : marquer paiement échoué
+      const order = await Order.markPaymentFailed(pi.id);
       if (!order) break;
 
-      // Annuler la livraison
-      await database.query(
-        "UPDATE deliveries SET status = 'retourne' WHERE order_id = $1",
-        [order.id]
-      );
+      // ✅ Model : annuler la livraison
+      await Delivery.markReturned(order.id);
 
-      // Restaurer le stock
+      // ✅ Helper : restaurer le stock
       await restoreStock(order.id);
 
-      // Email client
-      const userResult = await database.query(
-        "SELECT email, name FROM users WHERE id = $1",
-        [order.user_id]
-      );
-      const user = userResult.rows[0];
+      // ✅ Model : récupérer l'utilisateur
+      const user = await User.findById(order.user_id);
       if (user) {
         await sendPaymentFailedEmail(user.email, user.name, order);
         console.log(`❌ Paiement échoué — commande ${order.order_number}`);
-      notifyUser(order.user_id, {
-    type         : "ORDER_PAYMENT_FAILED",
-    id           : order.id,
-    order_number : order.order_number,
-    message      : `❌ Paiement échoué — commande #${order.order_number}`,
-  });
-     
+
+        notifyUser(order.user_id, {
+          type:         "ORDER_PAYMENT_FAILED",
+          id:           order.id,
+          order_number: order.order_number,
+          message:      `❌ Paiement échoué — commande #${order.order_number}`,
+        });
       }
-       await invalidateDashboardCache();
+
+      await invalidateDashboardCache();
       break;
     }
 
     // ── Remboursement ─────────────────────────────────────
     case "charge.refunded": {
       const charge = event.data.object;
-      await database.query(
-        "UPDATE orders SET payment_status = 'rembourse' WHERE payment_id = $1",
-        [charge.payment_intent]
-      );
+      // ✅ Model : marquer remboursé
+      await Order.markRefunded(charge.payment_intent);
       await invalidateDashboardCache();
       break;
     }
@@ -1080,94 +787,25 @@ export const handleStripeWebhookService = async (payload, signature) => {
 // SERVICE — GET MY ORDERS (user connecté)
 // ═══════════════════════════════════════════════════════════
 export const getMyOrdersService = async (userId) => {
-  const result = await database.query(
-    `SELECT
-       o.id, o.order_number, o.status, o.payment_method,
-       o.payment_status, o.subtotal, o.discount_amount,
-       o.shipping_cost, o.total_price,
-       o.shipping_address, o.shipping_city, o.created_at,
-       pr.code AS promo_code,
-       d.status          AS delivery_status,
-       d.tracking_number,
-       d.carrier,
-       d.estimated_date,
-       COUNT(oi.id)      AS item_count,
-       COALESCE(
-         json_agg(
-           json_build_object(
-             'id',             oi.id,
-             'variant_id',     oi.variant_id,
-             'product_name',   p.name_fr,
-             'variant_details', (
-               SELECT COALESCE(
-                 json_agg(
-                   json_build_object(
-                     'attribute_type',  at2.name_fr,
-                     'attribute_value', pva2.value_fr
-                   )
-                 ),
-                 '[]'
-               )
-               FROM product_variant_attributes pva2
-               JOIN attribute_types at2 ON at2.id = pva2.attribute_type_id
-               WHERE pva2.variant_id = oi.variant_id
-             ),
-             'quantity',       oi.quantity,
-             'unit_price',     oi.price_at_order,
-             'product_image',  p.images->0->>'url'
-           )
-         ) FILTER (WHERE oi.id IS NOT NULL), '[]'
-       ) AS items
-     FROM orders o
-     LEFT JOIN deliveries        d   ON d.order_id  = o.id
-     LEFT JOIN order_items       oi  ON oi.order_id = o.id
-     LEFT JOIN product_variants  pv  ON pv.id       = oi.variant_id
-     LEFT JOIN products          p   ON p.id        = pv.product_id
-     LEFT JOIN promotions        pr  ON pr.id       = o.promo_id
-     WHERE o.user_id = $1
-     GROUP BY o.id, d.status, d.tracking_number, d.carrier, d.estimated_date, pr.code
-     ORDER BY o.created_at DESC`,
-    [userId]
-  );
- 
-  return result.rows;
+  // ✅ Model : commandes de l'utilisateur
+  return await Order.findByUser(userId);
 };
 
 // ═══════════════════════════════════════════════════════════
 // SERVICE — GET SINGLE ORDER
 // ═══════════════════════════════════════════════════════════
 export const getSingleOrderService = async ({ orderId, userId, role }) => {
-  const condition = role === "admin" ? "o.id = $1" : "o.id = $1 AND o.user_id = $2";
-  const values    = role === "admin" ? [orderId]   : [orderId, userId];
+  // ✅ Model : chercher par ID (admin) ou ID + user (client)
+  const order = role === "admin"
+    ? await Order.findById(orderId)
+    : await Order.findByIdAndUser(orderId, userId);
 
-  const [orderResult, itemsResult] = await Promise.all([
-    database.query(
-      `SELECT
-         o.*,
-         -- Promo via JOIN
-         pr.code            AS promo_code,
-         pr.discount_type   AS promo_discount_type,
-         pr.discount_value  AS promo_discount_value,
-         d.status           AS delivery_status,
-         d.tracking_number,
-         d.carrier,
-         d.estimated_date,
-         d.delivered_at,
-         d.notes            AS delivery_notes
-       FROM orders o
-       LEFT JOIN deliveries d  ON d.order_id = o.id
-       LEFT JOIN promotions pr ON pr.id = o.promo_id
-       WHERE ${condition}`,
-      values
-    ),
-    fetchOrderItemsWithDetails(orderId),
-  ]);
-
-  if (orderResult.rows.length === 0)
+  if (!order)
     throw new ErrorHandler("Commande introuvable.", 404);
 
-  const order  = orderResult.rows[0];
-  order.items  = itemsResult;
+  // ✅ Model : articles avec détails complets
+  order.items = await OrderItem.findByOrderId(orderId);
+
   order.shipping_info = {
     free_shipping_threshold: SHIPPING_FREE_THRESHOLD,
     shipping_cost_amount:    SHIPPING_COST,
@@ -1181,152 +819,82 @@ export const getSingleOrderService = async ({ orderId, userId, role }) => {
 // SERVICE — GET ALL ORDERS (admin)
 // ═══════════════════════════════════════════════════════════
 export const getAllOrdersService = async ({ status, payment_status, page = 1 }) => {
-  const limit  = 10;
-  const offset = (page - 1) * limit;
-
-  const conditions = [];
-  const values     = [];
-  let   index      = 1;
-
-  if (status)         { conditions.push(`o.status = $${index}`);         values.push(status);         index++; }
-  if (payment_status) { conditions.push(`o.payment_status = $${index}`); values.push(payment_status); index++; }
-
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const countValues = [...values];
-  values.push(limit, offset);
-
-  const [totalResult, result] = await Promise.all([
-    database.query(`SELECT COUNT(*) FROM orders o ${whereClause}`, countValues),
-    database.query(
-      `SELECT
-         o.id, o.order_number, o.status, o.payment_method,
-         o.payment_status, o.total_price, o.shipping_cost, o.created_at,
-         u.name            AS customer_name,
-         u.email           AS customer_email,
-         pr.code           AS promo_code,
-         d.status          AS delivery_status,
-         d.tracking_number,
-         COUNT(oi.id)      AS item_count
-       FROM orders o
-       LEFT JOIN users       u   ON u.id  = o.user_id
-       LEFT JOIN deliveries  d   ON d.order_id = o.id
-       LEFT JOIN order_items oi  ON oi.order_id = o.id
-       LEFT JOIN promotions  pr  ON pr.id = o.promo_id
-       ${whereClause}
-       GROUP BY o.id, u.name, u.email, d.status, d.tracking_number, pr.code
-       ORDER BY o.created_at DESC
-       LIMIT $${index} OFFSET $${index + 1}`,
-      values
-    ),
-  ]);
-
-  return {
-    totalOrders: parseInt(totalResult.rows[0].count),
-    totalPages:  Math.ceil(parseInt(totalResult.rows[0].count) / limit),
-    page,
-    orders:      result.rows,
-  };
+  // ✅ Model : toutes les commandes avec filtres
+  return await Order.findAll({ status, payment_status, page });
 };
 
 // ═══════════════════════════════════════════════════════════
 // SERVICE — UPDATE ORDER STATUS (admin)
-// ✅ Email automatique au client à chaque changement
 // ═══════════════════════════════════════════════════════════
 export const updateOrderStatusService = async ({ orderId, status }) => {
   const validStatuses = [
     "en_attente", "confirmee", "en_preparation",
     "expediee", "livree", "annulee", "remboursee",
   ];
- 
+
   if (!validStatuses.includes(status))
     throw new ErrorHandler(
       `Statut invalide. Valeurs acceptées : ${validStatuses.join(", ")}`, 400
     );
- 
-  const orderResult = await database.query(
-    "SELECT * FROM orders WHERE id = $1", [orderId]
-  );
-  if (orderResult.rows.length === 0)
+
+  // ✅ Model : récupérer la commande
+  const order = await Order.findById(orderId);
+  if (!order)
     throw new ErrorHandler("Commande introuvable.", 404);
- 
-  const order = orderResult.rows[0];
- 
+
   if (status === "annulee") {
     throw new ErrorHandler(
       "Pour annuler, utilisez la route PATCH /cancel qui requiert une raison d'annulation.",
       400
     );
   }
- 
-  // Mettre à jour le statut
-  await database.query(
-    "UPDATE orders SET status = $1 WHERE id = $2",
-    [status, orderId]
-  );
+
+  // ✅ Model : mettre à jour le statut
+  await Order.updateStatus(orderId, status);
   await invalidateDashboardCache();
   order.status = status;
- 
-  // Sync automatique livraison
-  const deliveryMap = {
-    expediee: "UPDATE deliveries SET status = 'expediee', shipped_at = NOW() WHERE order_id = $1",
-    livree:   "UPDATE deliveries SET status = 'livre',   delivered_at = NOW() WHERE order_id = $1",
-  };
- 
-  if (deliveryMap[status]) {
-    await database.query(deliveryMap[status], [orderId]);
-  }
- 
-  // ✅ Récupérer tracking + carrier pour l'email si expédiée
+
+  // ✅ Model : sync livraison selon statut
+  if (status === "expediee") await Delivery.markShipped(orderId);
+  if (status === "livree")   await Delivery.markDelivered(orderId);
+
+  // ✅ Récupérer tracking pour l'email si expédiée
   if (status === "expediee") {
-    const deliveryResult = await database.query(
-      "SELECT tracking_number, carrier, estimated_date FROM deliveries WHERE order_id = $1",
-      [orderId]
-    );
-    if (deliveryResult.rows.length > 0) {
-      order.tracking_number = deliveryResult.rows[0].tracking_number;
-      order.carrier         = deliveryResult.rows[0].carrier;
-      order.estimated_date  = deliveryResult.rows[0].estimated_date;
+    const delivery = await Delivery.findByOrderId(orderId);
+    if (delivery) {
+      order.tracking_number = delivery.tracking_number;
+      order.carrier         = delivery.carrier;
+      order.estimated_date  = delivery.estimated_date;
     }
   }
- 
-  // ✅ Envoyer l'email au client
-  const userResult = await database.query(
-    "SELECT name, email FROM users WHERE id = $1",
-    [order.user_id]
-  );
-  const user = userResult.rows[0];
- 
+
+  // ✅ Model : récupérer l'utilisateur pour l'email
+  const user = await User.findById(order.user_id);
   if (user) {
     await sendOrderStatusEmail(order, user.name, user.email);
     notifyUser(order.user_id, {
-    type         : "ORDER_STATUS_UPDATE",
-    id           : orderId,
-    order_number : order.order_number,
-    status,
-    message      : `Votre commande #${order.order_number} est maintenant : ${status}`,
-  });
-  
-  
+      type:         "ORDER_STATUS_UPDATE",
+      id:           orderId,
+      order_number: order.order_number,
+      status,
+      message:      `Votre commande #${order.order_number} est maintenant : ${status}`,
+    });
   }
- 
+
   return { message: `Statut mis à jour : ${status}` };
 };
+
 // ═══════════════════════════════════════════════════════════
-// SERVICE — CANCEL ORDER (admin uniquement)
-// ✅ Restaure le stock
-// ✅ Rembourse via Stripe si paiement effectué
+// SERVICE — CANCEL ORDER (admin)
 // ═══════════════════════════════════════════════════════════
 export const cancelOrderService = async ({ orderId, reason }) => {
   if (!reason || reason.trim() === "")
     throw new ErrorHandler("Une raison d'annulation est obligatoire.", 400);
 
-  const orderResult = await database.query(
-    "SELECT * FROM orders WHERE id = $1", [orderId]
-  );
-  if (orderResult.rows.length === 0)
+  // ✅ Model : récupérer la commande
+  const order = await Order.findById(orderId);
+  if (!order)
     throw new ErrorHandler("Commande introuvable.", 404);
-
-  const order = orderResult.rows[0];
 
   if (order.status === "annulee")
     throw new ErrorHandler("Cette commande est déjà annulée.", 400);
@@ -1334,31 +902,20 @@ export const cancelOrderService = async ({ orderId, reason }) => {
   if (order.status === "livree")
     throw new ErrorHandler("Impossible d'annuler une commande déjà livrée.", 400);
 
-  // ✅ Restaurer le stock
+  // ✅ Helper : restaurer le stock
   await restoreStock(orderId);
 
-  // ✅ Rembourser via Stripe si déjà payé
+  // ✅ Stripe : rembourser si déjà payé
   if (order.payment_status === "paye" && order.payment_id) {
     await stripe.refunds.create({ payment_intent: order.payment_id });
   }
 
-  await Promise.all([
-    database.query(
-      "UPDATE orders SET status = 'annulee', cancelled_reason = $1 WHERE id = $2",
-      [reason.trim(), orderId]
-    ),
-    database.query(
-      "UPDATE deliveries SET status = 'retourne' WHERE order_id = $1",
-      [orderId]
-    ),
-  ]);
+  // ✅ Model : annuler commande + livraison
+  await Order.cancel(orderId, reason.trim());
+  await Delivery.markReturned(orderId);
 
-  // Email client
-  const userResult = await database.query(
-    "SELECT email, name FROM users WHERE id = $1", [order.user_id]
-  );
-  const user = userResult.rows[0];
-
+  // ✅ Model : email client
+  const user = await User.findById(order.user_id);
   if (user) {
     await sendEmail({
       to:      user.email,
@@ -1387,78 +944,49 @@ export const cancelOrderService = async ({ orderId, reason }) => {
         </div>
       `,
     }).catch(err => console.error("Cancel email error:", err.message));
-  
-   notifyUser(order.user_id, {
-    type         : "ORDER_CANCELLED",
-    id           : orderId,
-    order_number : order.order_number,
-    message      : `🚫 Commande #${order.order_number} annulée.`,
-  });
-  
-  }
-await invalidateDashboardCache(); // ✅ ajout ici
 
+    notifyUser(order.user_id, {
+      type:         "ORDER_CANCELLED",
+      id:           orderId,
+      order_number: order.order_number,
+      message:      `🚫 Commande #${order.order_number} annulée.`,
+    });
+  }
+
+  await invalidateDashboardCache();
   return { message: "Commande annulée avec succès." };
 };
 
 // ═══════════════════════════════════════════════════════════
 // SERVICE — UPDATE DELIVERY (admin)
-// ✅ Carrier, tracking, estimated_date, status, notes
 // ═══════════════════════════════════════════════════════════
 export const updateDeliveryService = async ({
   orderId, carrier, tracking_number, estimated_date, status, notes,
 }) => {
-  const delivery = await database.query(
-    "SELECT * FROM deliveries WHERE order_id = $1", [orderId]
-  );
-  if (delivery.rows.length === 0)
+  const existing = await Delivery.findByOrderId(orderId);
+  if (!existing)
     throw new ErrorHandler("Livraison introuvable.", 404);
 
-  const current = delivery.rows[0];
-
-  const result = await database.query(
-    `UPDATE deliveries
-     SET carrier         = $1,
-         tracking_number = $2,
-         estimated_date  = $3,
-         status          = $4,
-         notes           = $5
-     WHERE order_id = $6
-     RETURNING *`,
-    [
-      carrier         ?? current.carrier,
-      tracking_number ?? current.tracking_number,
-      estimated_date  ?? current.estimated_date,
-      status          ?? current.status,
-      notes           ?? current.notes,
-      orderId,
-    ]
-  );
+  // ✅ Model : mettre à jour la livraison
+  const delivery = await Delivery.update(orderId, { carrier, tracking_number, estimated_date, status, notes });
 
   // ✅ Sync order status + email si livraison confirmée
   if (status === "livre") {
-    const orderResult = await database.query(
-      "UPDATE orders SET status = 'livree' WHERE id = $1 RETURNING *",
-      [orderId]
-    );
-    const order = orderResult.rows[0];
-     await invalidateDashboardCache();
+    await Order.updateStatus(orderId, "livree");
+    await invalidateDashboardCache();
 
-    // ✅ Email notification au client
+    const order = await Order.findById(orderId);
     if (order) {
-      const userResult = await database.query(
-        "SELECT name, email FROM users WHERE id = $1",
-        [order.user_id]
-      );
-      const user = userResult.rows[0];
+      const user = await User.findById(order.user_id);
       if (user) {
         await sendOrderStatusEmail(order, user.name, user.email);
       }
     }
   }
 
-  return result.rows[0];
+  return delivery;
 };
+
 // ═══════════════════════════════════════════════════════════
 // SERVICE — ADMIN UPDATE ORDER SHIPPING INFO
 // ═══════════════════════════════════════════════════════════
@@ -1468,61 +996,30 @@ export const adminUpdateOrderShippingService = async ({
   shipping_address,   shipping_city,
   shipping_governorate, shipping_postal_code,
 }) => {
-  const orderResult = await database.query(
-    "SELECT * FROM orders WHERE id = $1", [orderId]
-  );
-  if (orderResult.rows.length === 0)
+  const existing = await Order.findById(orderId);
+  if (!existing)
     throw new ErrorHandler("Commande introuvable.", 404);
 
-  const current = orderResult.rows[0];
-
-  const result = await database.query(
-    `UPDATE orders
-     SET shipping_full_name   = $1,
-         shipping_phone       = $2,
-         shipping_address     = $3,
-         shipping_city        = $4,
-         shipping_governorate = $5,
-         shipping_postal_code = $6,
-         updated_at = NOW()
-     WHERE id = $7
-     RETURNING *`,
-    [
-      shipping_full_name   ?? current.shipping_full_name,
-      shipping_phone       ?? current.shipping_phone,
-      shipping_address     ?? current.shipping_address,
-      shipping_city        ?? current.shipping_city,
-      shipping_governorate ?? current.shipping_governorate,
-      shipping_postal_code ?? current.shipping_postal_code,
-      orderId,
-    ]
-  );
-
-  return result.rows[0];
+  // ✅ Model : mettre à jour les infos de livraison
+  return await Order.updateShipping(orderId, {
+    shipping_full_name, shipping_phone,
+    shipping_address,   shipping_city,
+    shipping_governorate, shipping_postal_code,
+  });
 };
 
 // ═══════════════════════════════════════════════════════════
-// SERVICE — VALIDATE PROMO CODE (sans créer de commande)
-// ✅ Retourne le montant de réduction et les infos frais de livraison
+// SERVICE — VALIDATE PROMO CODE
 // ═══════════════════════════════════════════════════════════
 export const validatePromoService = async ({ code, subtotal }) => {
   if (!code || !subtotal)
     throw new ErrorHandler("Code et sous-total requis.", 400);
 
-  const promo = await database.query(
-    `SELECT * FROM promotions
-     WHERE UPPER(code) = UPPER($1)
-       AND is_active   = true
-       AND starts_at  <= NOW()
-       AND expires_at >= NOW()
-       AND (max_uses IS NULL OR used_count < max_uses)`,
-    [code]
-  );
+  // ✅ Model : chercher le code promo
+  const p = await Promotion.findByCode(code);
 
-  if (promo.rows.length === 0)
+  if (!p)
     throw new ErrorHandler("Code promo invalide ou expiré.", 400);
-
-  const p = promo.rows[0];
 
   if (p.min_order_amount && subtotal < parseFloat(p.min_order_amount))
     throw new ErrorHandler(
@@ -1542,16 +1039,16 @@ export const validatePromoService = async ({ code, subtotal }) => {
   const shippingCost          = calculateShippingCost(subtotalAfterDiscount);
 
   return {
-    valid:                   true,
-    promoCode:               p.code.toUpperCase(),
-    discountType:            p.discount_type,
-    discountValue:           parseFloat(p.discount_value),
+    valid:                  true,
+    promoCode:              p.code.toUpperCase(),
+    discountType:           p.discount_type,
+    discountValue:          parseFloat(p.discount_value),
     discountAmount,
-    originalAmount:          parseFloat(subtotal.toFixed(2)),
+    originalAmount:         parseFloat(subtotal.toFixed(2)),
     subtotalAfterDiscount,
     shippingCost,
-    totalAmount:             parseFloat((subtotalAfterDiscount + shippingCost).toFixed(2)),
-    freeShippingThreshold:   SHIPPING_FREE_THRESHOLD,
+    totalAmount:            parseFloat((subtotalAfterDiscount + shippingCost).toFixed(2)),
+    freeShippingThreshold:  SHIPPING_FREE_THRESHOLD,
     label: p.discount_type === "percent"
       ? `-${p.discount_value}%`
       : `-${p.discount_value} CHF`,
@@ -1559,18 +1056,17 @@ export const validatePromoService = async ({ code, subtotal }) => {
 };
 
 // ═══════════════════════════════════════════════════════════
-// SERVICE — GET SHIPPING COST INFO (utilisé par le frontend)
-// ✅ Permet d'afficher les frais de livraison en temps réel
+// SERVICE — GET SHIPPING COST INFO
 // ═══════════════════════════════════════════════════════════
 export const getShippingCostService = (subtotal) => {
-  const shippingCost         = calculateShippingCost(subtotal);
-  const remainingForFree     = Math.max(0, SHIPPING_FREE_THRESHOLD - subtotal);
+  const shippingCost     = calculateShippingCost(subtotal);
+  const remainingForFree = Math.max(0, SHIPPING_FREE_THRESHOLD - subtotal);
 
   return {
-    shipping_cost:             shippingCost,
-    free_shipping_threshold:   SHIPPING_FREE_THRESHOLD,
-    is_free:                   shippingCost === 0,
-    remaining_for_free:        parseFloat(remainingForFree.toFixed(2)),
+    shipping_cost:           shippingCost,
+    free_shipping_threshold: SHIPPING_FREE_THRESHOLD,
+    is_free:                 shippingCost === 0,
+    remaining_for_free:      parseFloat(remainingForFree.toFixed(2)),
   };
 };
 
@@ -1578,21 +1074,6 @@ export const getShippingCostService = (subtotal) => {
 // SERVICE — GET LOW STOCK PRODUCTS (admin dashboard)
 // ═══════════════════════════════════════════════════════════
 export const getLowStockProductsService = async () => {
-  const result = await database.query(
-    `SELECT
-       p.id, p.name_fr, p.slug,
-       pv.id    AS variant_id,
-       pv.sku,
-       pv.stock,
-       pv.low_stock_threshold
-     FROM product_variants pv
-     LEFT JOIN products p ON p.id = pv.product_id
-     WHERE pv.stock  <= pv.low_stock_threshold
-       AND p.is_active  = true
-       AND pv.is_active = true
-     ORDER BY pv.stock ASC
-     LIMIT 20`
-  );
-
-  return result.rows;
+  // ✅ Model : produits en stock faible
+  return await ProductVariant.findLowStock();
 };
