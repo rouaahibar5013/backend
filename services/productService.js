@@ -26,25 +26,18 @@ const uploadProductImages = async (imageFiles) => {
 // ✅ Retourne l'id du type (la valeur est stockée dans product_variant_attributes)
 // ═══════════════════════════════════════════════════════════
 const upsertAttributeType = async (type_fr, unit) => {
-  let typeResult = await database.query(
-    "SELECT id FROM attribute_types WHERE name_fr ILIKE $1",
-    [type_fr.trim()]
+  const result = await database.query(
+    `INSERT INTO attribute_types (name_fr, unit)
+     VALUES ($1, $2)
+     ON CONFLICT (name_fr) DO UPDATE
+       SET unit = CASE
+         WHEN $2::text IS NOT NULL THEN EXCLUDED.unit
+         ELSE attribute_types.unit
+       END
+     RETURNING id`,
+    [type_fr.trim(), unit?.trim() || null]
   );
-  if (typeResult.rows.length === 0) {
-    typeResult = await database.query(
-      "INSERT INTO attribute_types (name_fr, unit) VALUES ($1, $2) RETURNING id",
-      [type_fr.trim(), unit?.trim() || null]
-    );
-  } else {
-    // Update unit if provided
-    if (unit !== undefined) {
-      await database.query(
-        "UPDATE attribute_types SET unit = $1 WHERE id = $2",
-        [unit?.trim() || null, typeResult.rows[0].id]
-      );
-    }
-  }
-  return typeResult.rows[0].id;
+  return result.rows[0].id;
 };
 
 // ═══════════════════════════════════════════════════════════
