@@ -25,20 +25,19 @@ const uploadProductImages = async (imageFiles) => {
 // ✅ Nouvelle logique : attribute_values supprimée
 // ✅ Retourne l'id du type (la valeur est stockée dans product_variant_attributes)
 // ═══════════════════════════════════════════════════════════
-const upsertAttributeType = async (type_fr) => {
-  let typeResult = await database.query(
-    "SELECT id FROM attribute_types WHERE name_fr ILIKE $1",
-    [type_fr.trim()]
+const upsertAttributeType = async (type_fr, unit) => {
+  const result = await database.query(
+    `INSERT INTO attribute_types (name_fr, unit)
+     VALUES ($1, $2)
+     ON CONFLICT (name_fr) DO UPDATE
+       SET unit = CASE
+         WHEN $2::text IS NOT NULL THEN EXCLUDED.unit
+         ELSE attribute_types.unit
+       END
+     RETURNING id`,
+    [type_fr.trim(), unit?.trim() || null]
   );
-
-  if (typeResult.rows.length === 0) {
-    typeResult = await database.query(
-      "INSERT INTO attribute_types (name_fr) VALUES ($1) RETURNING id",
-      [type_fr.trim()]
-    );
-  }
-
-  return typeResult.rows[0].id;
+  return result.rows[0].id;
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -49,12 +48,12 @@ const insertVariantAttributes = async (variantId, attributes) => {
   if (!attributes || attributes.length === 0) return;
 
   for (const attr of attributes) {
-    const { type_fr, value_fr } = attr;
+    const { type_fr, value_fr, unit } = attr;
 
     if (!type_fr || !value_fr)
       throw new ErrorHandler("Chaque attribut doit avoir type_fr et value_fr.", 400);
 
-    const typeId = await upsertAttributeType(type_fr);
+    const typeId = await upsertAttributeType(type_fr, unit);
 
     await database.query(
       `INSERT INTO product_variant_attributes (variant_id, attribute_type_id, value_fr)
@@ -146,8 +145,8 @@ export const createProductService = async ({
     const variantResult = await database.query(
       `INSERT INTO product_variants
          (product_id, sku, price, cost_price,
-          stock, low_stock_threshold, weight_grams, barcode)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+          stock, low_stock_threshold, weight_grams, barcode, is_active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8, true)
        RETURNING *`,
       [
         product.id, sku || null,
@@ -181,12 +180,14 @@ export const fetchAllProductsService = async ({
   const offset = admin === "true" ? 0 : (page - 1) * LIMIT;
 
   const conditions = admin === "true" ? [] : ["p.is_active = true"];
-  // FIX 1: backtick manquant sur le filtre is_active admin
-  if (admin === "true" && is_active !== undefined) {
-    conditions.push(`p.is_active = ${is_active}`);
-  }
   const values     = [];
   let   i          = 1;
+
+  if (admin === "true" && is_active !== undefined) {
+    conditions.push(`p.is_active = $${i}`);
+    values.push(is_active === "true" || is_active === true);
+    i++;
+  }
 
   if (category_id) {
     // FIX 2: backticks manquants
@@ -411,7 +412,6 @@ export const fetchSingleProductService = async (productId, admin = false, alread
            json_agg(
              json_build_object(
                'type_fr',  at.name_fr,
-               'unit',     at.unit,
                'value_fr', pva.value_fr
              )
              ORDER BY at.name_fr
@@ -599,8 +599,8 @@ export const addVariantService = async ({
   const variantResult = await database.query(
     `INSERT INTO product_variants
        (product_id, sku, price, cost_price,
-        stock, low_stock_threshold, weight_grams, barcode)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        stock, low_stock_threshold, weight_grams, barcode, is_active)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8, true)
      RETURNING *`,
     [
       productId, sku || null,
