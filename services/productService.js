@@ -412,7 +412,6 @@ export const fetchSingleProductService = async (productId, admin = false, alread
            json_agg(
              json_build_object(
                'type_fr',  at.name_fr,
-               'unit',     at.unit,
                'value_fr', pva.value_fr
              )
              ORDER BY at.name_fr
