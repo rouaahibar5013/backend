@@ -21,7 +21,33 @@ export const suggererRecettes = catchAsyncErrors(async (req, res) => {
             [variantIds]
         ),
         db.query(
-            `SELECT id, name_fr FROM products WHERE is_active = true LIMIT 50`
+            `SELECT
+                p.id,
+                p.name_fr,
+                p.is_featured,
+                p.is_new,
+                p.rating_avg,
+                p.images,
+                c.name_fr AS categorie_fr,
+                MIN(pv.price)::numeric AS prix_min,
+                MIN(
+                    CASE
+                        WHEN vp.discount_type = 'percent'
+                            THEN ROUND(pv.price * (1 - vp.discount_value / 100), 2)
+                        WHEN vp.discount_type = 'fixed'
+                            THEN ROUND(pv.price - vp.discount_value, 2)
+                    END
+                )::numeric AS prix_promo
+            FROM products p
+            LEFT JOIN categories c ON c.id = p.category_id
+            LEFT JOIN product_variants pv ON pv.product_id = p.id AND pv.is_active = true
+            LEFT JOIN variant_promotions vp
+                ON vp.variant_id = pv.id
+                AND vp.is_active = true
+                AND now() BETWEEN vp.starts_at AND vp.expires_at
+            WHERE p.is_active = true
+            GROUP BY p.id, p.name_fr, p.is_featured, p.is_new, p.rating_avg, p.images, c.name_fr
+            LIMIT 50`
         )
     ]);
 

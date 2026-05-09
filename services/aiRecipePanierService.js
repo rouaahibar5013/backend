@@ -29,13 +29,19 @@ Sinon, 1 recette mondiale en JSON strict:
 
         const recetteAvecId = {
             ...recette,
-            suggestionGoffa: (recette.suggestionGoffa || []).map(nom => {
-                const produit = catalogue.find(p =>
-                    p.name_fr.toLowerCase().includes(nom.toLowerCase()) ||
-                    nom.toLowerCase().includes(p.name_fr.toLowerCase())
-                );
-                return { nom, slug: produit?.id || null };
-            })
+            suggestionGoffa: (recette.suggestionGoffa || [])
+                .map(nom => {
+                    const produit = catalogue.find(p =>
+                        p.name_fr.toLowerCase().includes(nom.toLowerCase()) ||
+                        nom.toLowerCase().includes(p.name_fr.toLowerCase())
+                    );
+                    if (!produit) return null;
+                    return {
+                        ...produit,
+                        raison_ia: `Complète parfaitement cette recette`
+                    };
+                })
+                .filter(Boolean)
         };
 
         cache.set(cacheKey, recetteAvecId);
