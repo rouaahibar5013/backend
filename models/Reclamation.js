@@ -8,10 +8,10 @@ class Reclamation {
          u.name  AS user_name,  u.email AS user_email,
          a.name  AS admin_name,
          o.order_number
-       FROM reclamations r
-       LEFT JOIN users  u ON u.id = r.user_id
-       LEFT JOIN users  a ON a.id = r.admin_id
-       LEFT JOIN orders o ON o.id = r.order_id
+       FROM complaint r
+       LEFT JOIN "user"  u ON u.id = r.user_id
+       LEFT JOIN "user"  a ON a.id = r.admin_id
+       LEFT JOIN "order" o ON o.id = r.order_id
        WHERE r.id = $1`,
       [id]
     );
@@ -29,10 +29,10 @@ class Reclamation {
          o.status       AS order_status,
          o.total_price  AS order_total,
          o.created_at   AS order_date
-       FROM reclamations r
-       LEFT JOIN users  u ON u.id = r.user_id
-       LEFT JOIN users  a ON a.id = r.admin_id
-       LEFT JOIN orders o ON o.id = r.order_id
+       FROM complaint r
+       LEFT JOIN "user"  u ON u.id = r.user_id
+       LEFT JOIN "user"  a ON a.id = r.admin_id
+       LEFT JOIN "order" o ON o.id = r.order_id
        WHERE r.id = $1`,
       [id]
     );
@@ -43,12 +43,12 @@ class Reclamation {
   static async findByUserId(userId) {
     const result = await database.query(
       `SELECT
-         r.id, r.reclamation_type, r.message, r.status,
+         r.id, r.complaint_type, r.message, r.status,
          r.admin_response, r.responded_at,
          r.created_at, r.updated_at,
          o.order_number
-       FROM reclamations r
-       LEFT JOIN orders o ON o.id = r.order_id
+       FROM complaint r
+       LEFT JOIN "order" o ON o.id = r.order_id
        WHERE r.user_id = $1
        ORDER BY r.created_at DESC`,
       [userId]
@@ -59,10 +59,10 @@ class Reclamation {
   // ─── Réclamation active d'un type pour une commande ──
   static async findActiveByOrderAndType(orderId, userId, reclamationType) {
     const result = await database.query(
-      `SELECT id FROM reclamations
+      `SELECT id FROM complaint
        WHERE order_id         = $1
          AND user_id          = $2
-         AND reclamation_type = $3
+         AND complaint_type = $3
          AND status NOT IN ('resolue', 'rejetee')`,
       [orderId, userId, reclamationType]
     );
@@ -77,17 +77,17 @@ class Reclamation {
     let   i          = 1;
 
     if (status) { conditions.push(`r.status = $${i}`);           values.push(status); i++; }
-    if (type)   { conditions.push(`r.reclamation_type = $${i}`); values.push(type);   i++; }
+    if (type)   { conditions.push(`r.complaint_type = $${i}`); values.push(type);   i++; }
 
     const where       = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
     const countValues = [...values];
     values.push(limit, offset);
 
     const [totalResult, result] = await Promise.all([
-      database.query(`SELECT COUNT(*) FROM reclamations r ${where}`, countValues),
+      database.query(`SELECT COUNT(*) FROM complaint r ${where}`, countValues),
       database.query(
         `SELECT
-           r.id, r.reclamation_type, r.message, r.status,
+           r.id, r.complaint_type, r.message, r.status,
            r.admin_response, r.responded_at,
            r.resolution_delay, r.deadline_at,
            r.created_at, r.updated_at,
@@ -99,10 +99,10 @@ class Reclamation {
            o.total_price  AS order_total,
            o.created_at   AS order_date,
            a.name         AS admin_name
-         FROM reclamations r
-         LEFT JOIN users  u ON u.id = r.user_id
-         LEFT JOIN orders o ON o.id = r.order_id
-         LEFT JOIN users  a ON a.id = r.admin_id
+         FROM complaint r
+         LEFT JOIN "user"  u ON u.id = r.user_id
+         LEFT JOIN "order" o ON o.id = r.order_id
+         LEFT JOIN "user"  a ON a.id = r.admin_id
          ${where}
          ORDER BY
            CASE r.status
@@ -127,12 +127,12 @@ class Reclamation {
   }
 
   // ─── Créer ────────────────────────────────────────────
-  static async create({ user_id, order_id, reclamation_type, message, deadline_at }) {
+  static async create({ user_id, order_id, complaint_type, message, deadline_at }) {
     const result = await database.query(
-      `INSERT INTO reclamations (user_id, order_id, reclamation_type, message, deadline_at)
+      `INSERT INTO complaint (user_id, order_id, complaint_type, message, deadline_at)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [user_id, order_id || null, reclamation_type, message, deadline_at || null]
+      [user_id, order_id || null, complaint_type, message, deadline_at || null]
     );
     return result.rows[0];
   }
@@ -140,7 +140,7 @@ class Reclamation {
   // ─── Répondre (admin — complet) ───────────────────────
   static async respondFull(id, { admin_id, admin_response, status, resolution_delay, deadline_at }) {
     const result = await database.query(
-      `UPDATE reclamations
+      `UPDATE complaint
        SET status           = $1,
            admin_response   = $2,
            admin_id         = $3,
@@ -158,7 +158,7 @@ class Reclamation {
   // ─── Répondre (simple) ────────────────────────────────
   static async respond(id, { admin_id, admin_response, status }) {
     const result = await database.query(
-      `UPDATE reclamations
+      `UPDATE complaint
        SET admin_id       = $1,
            admin_response = $2,
            status         = $3,
@@ -174,7 +174,7 @@ class Reclamation {
   // ─── Mettre à jour le statut ──────────────────────────
   static async updateStatus(id, status) {
     const result = await database.query(
-      "UPDATE reclamations SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
+      "UPDATE complaint SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
       [status, id]
     );
     return result.rows[0];
@@ -196,7 +196,7 @@ class Reclamation {
              EXTRACT(EPOCH FROM (responded_at - created_at)) / 3600
            ) FILTER (WHERE responded_at IS NOT NULL)
          )                                                            AS avg_response_hours
-       FROM reclamations`
+       FROM complaint`
     );
     return result.rows[0];
   }
@@ -216,9 +216,9 @@ class Reclamation {
       `SELECT r.*,
          u.name AS user_name, u.email AS user_email,
          o.order_number
-       FROM reclamations r
-       LEFT JOIN users  u ON u.id = r.user_id
-       LEFT JOIN orders o ON o.id = r.order_id
+       FROM complaint r
+       LEFT JOIN "user"  u ON u.id = r.user_id
+       LEFT JOIN "order" o ON o.id = r.order_id
        ${where}
        ORDER BY r.created_at DESC
        LIMIT $${idx - 1} OFFSET $${idx}`,

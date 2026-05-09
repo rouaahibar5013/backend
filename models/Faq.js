@@ -4,7 +4,7 @@ class Faq {
   // ─── Trouver par ID ───────────────────────────────────
   static async findById(id) {
     const result = await database.query(
-      "SELECT * FROM faqs WHERE id = $1", [id]
+      "SELECT * FROM faq WHERE id = $1", [id]
     );
     return result.rows[0] || null;
   }
@@ -12,7 +12,7 @@ class Faq {
   // ─── Toutes les FAQs (admin) ──────────────────────────
   static async findAll() {
     const result = await database.query(
-      "SELECT * FROM faqs ORDER BY frequency DESC, category, order_index ASC"
+      "SELECT * FROM faq ORDER BY frequency DESC, category, order_index ASC"
     );
     return result.rows;
   }
@@ -32,7 +32,7 @@ class Faq {
       `SELECT
          id, category, question_fr, answer_fr,
          similarity(question_fr, $1) AS score
-       FROM faqs
+       FROM faq
        WHERE is_active = true
          AND (
            question_fr ILIKE $2
@@ -53,7 +53,7 @@ class Faq {
       `SELECT
          id, question_fr, answer_fr, category,
          similarity(question_fr, $1) AS score
-       FROM faqs
+       FROM faq
        WHERE is_active = true
          AND (
            to_tsvector('french', question_fr) @@ plainto_tsquery('french', $1)
@@ -76,7 +76,7 @@ class Faq {
   // ─── Créer ────────────────────────────────────────────
   static async create({ category, question_fr, answer_fr, order_index = 0 }) {
     const result = await database.query(
-      `INSERT INTO faqs (category, question_fr, answer_fr, order_index)
+      `INSERT INTO faq (category, question_fr, answer_fr, order_index)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
       [category, question_fr, answer_fr, order_index]
@@ -87,7 +87,7 @@ class Faq {
   // ─── Créer depuis une question user (admin) ───────────
   static async createFromQuestion({ category, question_fr, answer_fr }) {
     const result = await database.query(
-      `INSERT INTO faqs (category, question_fr, answer_fr, order_index, frequency)
+      `INSERT INTO faq (category, question_fr, answer_fr, order_index, frequency)
        VALUES ($1, $2, $3, 0, 1)
        RETURNING id`,
       [category, question_fr, answer_fr]
@@ -98,7 +98,7 @@ class Faq {
   // ─── Mettre à jour ────────────────────────────────────
   static async update(id, { category, question_fr, answer_fr, order_index, is_active }) {
     const result = await database.query(
-      `UPDATE faqs
+      `UPDATE faq
        SET category    = $1,
            question_fr = $2,
            answer_fr   = $3,
@@ -115,7 +115,7 @@ class Faq {
   // ─── Toggle is_active ─────────────────────────────────
   static async toggle(id, is_active) {
     const result = await database.query(
-      "UPDATE faqs SET is_active = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
+      "UPDATE faq SET is_active = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
       [is_active, id]
     );
     return result.rows[0];
@@ -123,7 +123,7 @@ class Faq {
 
   // ─── Supprimer ────────────────────────────────────────
   static async delete(id) {
-    await database.query("DELETE FROM faqs WHERE id = $1", [id]);
+    await database.query("DELETE FROM faq WHERE id = $1", [id]);
   }
 }
 

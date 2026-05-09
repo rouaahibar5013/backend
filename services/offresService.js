@@ -1,6 +1,7 @@
 import database from "../database/db.js";
 import { getCache, setCache } from "../config/redis.js";
 import { TTL } from "../utils/cacheInvalideation.js";
+import { Promotion } from "../models/index.js";
 
 
 const OFFRES_CACHE_KEY = "offres:homepage";
@@ -172,21 +173,6 @@ await setCache(OFFRES_CACHE_KEY, offresResult, OFFRES_CACHE_TTL);
 // VALIDATE PROMO CODE
 // ═══════════════════════════════════════════════════════════
 export const validatePromoCodeService = async (code) => {
-  const result = await database.query(
-    `SELECT
-       id, code, description_fr,
-       discount_type, discount_value, min_order_amount,
-       expires_at, max_uses, used_count
-     FROM promotions
-     WHERE UPPER(code) = UPPER($1)
-     AND   is_active   = true
-     AND   starts_at  <= NOW()
-
-     AND   expires_at >= NOW()
-     AND   (max_uses IS NULL OR used_count < max_uses)`,
-    [code]
-  );
-  if (result.rows.length === 0) return null;
-  return result.rows[0];
+  return await Promotion.findValidByCode(code);
 };
 

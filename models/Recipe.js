@@ -3,14 +3,14 @@ import database from "../database/db.js";
 class Recipe {
   static async findById(id) {
     const result = await database.query(
-      "SELECT * FROM recipes WHERE id = $1", [id]
+      "SELECT * FROM recipe WHERE id = $1", [id]
     );
     return result.rows[0] || null;
   }
 
   static async findBySlug(slug) {
     const result = await database.query(
-      "SELECT * FROM recipes WHERE slug = $1", [slug]
+      "SELECT * FROM recipe WHERE slug = $1", [slug]
     );
     return result.rows[0] || null;
   }
@@ -18,7 +18,7 @@ class Recipe {
   // ─── Trouver par slug (public uniquement) ────────────
   static async findBySlugPublic(slug) {
     const result = await database.query(
-      "SELECT * FROM recipes WHERE slug = $1 AND is_published = true", [slug]
+      "SELECT * FROM recipe WHERE slug = $1 AND is_published = true", [slug]
     );
     return result.rows[0] || null;
   }
@@ -39,7 +39,7 @@ class Recipe {
     values.push(limit, offset);
 
     const [totalResult, result] = await Promise.all([
-      database.query(`SELECT COUNT(*) FROM recipes r ${whereClause}`, countValues),
+      database.query(`SELECT COUNT(*) FROM recipe r ${whereClause}`, countValues),
       database.query(
         `SELECT
            r.id, r.title_fr, r.slug,
@@ -47,9 +47,9 @@ class Recipe {
            r.prep_time, r.cook_time, r.servings,
            r.difficulty, r.category,
            r.is_featured, r.views_count, r.created_at,
-           (SELECT COUNT(*) FROM recipe_ingredients ri
+           (SELECT COUNT(*) FROM recipe_ingredient ri
             WHERE ri.recipe_id = r.id) AS ingredients_count
-         FROM recipes r
+         FROM recipe r
          ${whereClause}
          ORDER BY r.is_featured DESC, r.created_at DESC
          LIMIT $${index} OFFSET $${index + 1}`,
@@ -72,9 +72,9 @@ class Recipe {
          id, title_fr, slug, cover_image,
          prep_time, cook_time, difficulty, category,
          views_count, created_at,
-         (SELECT COUNT(*) FROM recipe_ingredients ri
-          WHERE ri.recipe_id = recipes.id) AS ingredients_count
-       FROM recipes
+         (SELECT COUNT(*) FROM recipe_ingredient ri
+          WHERE ri.recipe_id = recipe.id) AS ingredients_count
+       FROM recipe
        WHERE is_published = true AND is_featured = true
        ORDER BY created_at DESC
        LIMIT 6`
@@ -89,9 +89,9 @@ class Recipe {
          r.id, r.title_fr, r.slug, r.category,
          r.difficulty, r.is_published, r.is_featured,
          r.views_count, r.created_at,
-         (SELECT COUNT(*) FROM recipe_ingredients ri WHERE ri.recipe_id = r.id) AS ingredients_count,
-         (SELECT COUNT(*) FROM recipe_steps       rs WHERE rs.recipe_id = r.id) AS steps_count
-       FROM recipes r
+         (SELECT COUNT(*) FROM recipe_ingredient ri WHERE ri.recipe_id = r.id) AS ingredients_count,
+         (SELECT COUNT(*) FROM recipe_step       rs WHERE rs.recipe_id = r.id) AS steps_count
+       FROM recipe r
        ORDER BY r.created_at DESC`
     );
     return result.rows;
@@ -99,7 +99,7 @@ class Recipe {
 
   static async create(data) {
     const result = await database.query(
-      `INSERT INTO recipes
+      `INSERT INTO recipe
          (title_fr, slug, description_fr, cover_image, prep_time,
           cook_time, servings, difficulty, category, is_published, is_featured, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
@@ -117,7 +117,7 @@ class Recipe {
   // ─── Update complet ───────────────────────────────────
   static async updateFull(id, data) {
     const result = await database.query(
-      `UPDATE recipes
+      `UPDATE recipe
        SET title_fr       = $1,  description_fr = $2,
            cover_image    = $3,  prep_time      = $4,
            cook_time      = $5,  servings       = $6,
@@ -139,7 +139,7 @@ class Recipe {
   // ─── Update simple (COALESCE) ─────────────────────────
   static async update(id, data) {
     const result = await database.query(
-      `UPDATE recipes
+      `UPDATE recipe
        SET title_fr       = COALESCE($1, title_fr),
            description_fr = COALESCE($2, description_fr),
            is_published   = COALESCE($3, is_published),
@@ -154,12 +154,12 @@ class Recipe {
 
   static async incrementViews(id) {
     await database.query(
-      "UPDATE recipes SET views_count = views_count + 1 WHERE id = $1", [id]
+      "UPDATE recipe SET views_count = views_count + 1 WHERE id = $1", [id]
     );
   }
 
   static async delete(id) {
-    await database.query("DELETE FROM recipes WHERE id = $1", [id]);
+    await database.query("DELETE FROM recipe WHERE id = $1", [id]);
   }
 }
 

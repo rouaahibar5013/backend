@@ -4,7 +4,7 @@ class EmailSubscription {
   // ─── Trouver par email ────────────────────────────────
   static async findByEmail(email) {
     const result = await database.query(
-      "SELECT * FROM email_subscriptions WHERE email = $1", [email]
+      "SELECT * FROM email_subscription WHERE email = $1", [email]
     );
     return result.rows[0] || null;
   }
@@ -12,7 +12,7 @@ class EmailSubscription {
   // ─── Tous les abonnés actifs ──────────────────────────
   static async findAllActive() {
     const result = await database.query(
-      "SELECT email, name FROM email_subscriptions WHERE is_active = true"
+      "SELECT email, name FROM email_subscription WHERE is_active = true"
     );
     return result.rows;
   }
@@ -21,7 +21,7 @@ class EmailSubscription {
   static async findAllWithUser() {
     const result = await database.query(
       `SELECT es.*, u.name AS user_name
-       FROM email_subscriptions es
+       FROM email_subscription es
        LEFT JOIN users u ON u.id = es.user_id
        ORDER BY es.subscribed_at DESC`
     );
@@ -31,7 +31,7 @@ class EmailSubscription {
   // ─── Créer un abonnement ──────────────────────────────
   static async create({ userId, email, name }) {
     const result = await database.query(
-      `INSERT INTO email_subscriptions (user_id, email, name)
+      `INSERT INTO email_subscription (user_id, email, name)
        VALUES ($1, $2, $3) RETURNING *`,
       [userId || null, email, name || null]
     );
@@ -41,7 +41,7 @@ class EmailSubscription {
   // ─── Réactiver un abonnement ──────────────────────────
   static async reactivate(email, name) {
     const result = await database.query(
-      `UPDATE email_subscriptions
+      `UPDATE email_subscription
        SET is_active = true, unsubscribed_at = NULL, name = $1
        WHERE email = $2 RETURNING *`,
       [name, email]
@@ -52,7 +52,7 @@ class EmailSubscription {
   // ─── Désactiver un abonnement ─────────────────────────
   static async deactivate(email) {
     const result = await database.query(
-      `UPDATE email_subscriptions
+      `UPDATE email_subscription
        SET is_active = false, unsubscribed_at = NOW()
        WHERE email = $1 RETURNING *`,
       [email]
@@ -63,7 +63,7 @@ class EmailSubscription {
   // ─── Lier à un user (après register/login) ────────────
   static async linkToUser(userId, email) {
     await database.query(
-      `UPDATE email_subscriptions
+      `UPDATE email_subscription
        SET user_id = $1
        WHERE email = $2 AND user_id IS NULL`,
       [userId, email]

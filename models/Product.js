@@ -4,7 +4,7 @@ class Product {
   // ─── Trouver par ID ───────────────────────────────────
   static async findById(id) {
     const result = await database.query(
-      "SELECT * FROM products WHERE id = $1", [id]
+      "SELECT * FROM product WHERE id = $1", [id]
     );
     return result.rows[0] || null;
   }
@@ -12,7 +12,7 @@ class Product {
   // ─── Trouver par slug ─────────────────────────────────
   static async findBySlug(slug) {
     const result = await database.query(
-      "SELECT * FROM products WHERE slug = $1 AND is_active = true", [slug]
+      "SELECT * FROM product WHERE slug = $1 AND is_active = true", [slug]
     );
     return result.rows[0] || null;
   }
@@ -33,8 +33,8 @@ class Product {
 
     const result = await database.query(
       `SELECT p.*, c.name_fr AS category_name
-       FROM products p
-       LEFT JOIN categories c ON c.id = p.category_id
+       FROM product p
+       LEFT JOIN category c ON c.id = p.category_id
        ${whereClause}
        ORDER BY p.created_at DESC
        LIMIT $${index} OFFSET $${index + 1}`,
@@ -84,10 +84,10 @@ class Product {
           ELSE pv2.price
         END
       )
-      FROM product_variants pv2
+      FROM product_variant pv2
       LEFT JOIN LATERAL (
         SELECT discount_type, discount_value
-        FROM variant_promotions vp2
+        FROM variant_promotion vp2
         WHERE vp2.variant_id = pv2.id
           AND vp2.is_active = true
           AND vp2.starts_at <= NOW()
@@ -105,7 +105,7 @@ class Product {
 
     const [totalResult, result] = await Promise.all([
       database.query(
-        `SELECT COUNT(DISTINCT p.id) FROM products p LEFT JOIN categories c ON c.id = p.category_id ${WHERE}`,
+        `SELECT COUNT(DISTINCT p.id) FROM product p LEFT JOIN category c ON c.id = p.category_id ${WHERE}`,
         countValues
       ),
       database.query(
@@ -117,16 +117,16 @@ class Product {
            c.id      AS category_id, c.name_fr AS category_name, c.slug AS category_slug,
            s.id      AS supplier_id, s.name AS supplier_name, s.slug AS supplier_slug, s.is_certified_bio,
            ${promoSubquery} AS min_price,
-           (SELECT pv2.id FROM product_variants pv2
+           (SELECT pv2.id FROM product_variant pv2
             WHERE pv2.product_id = p.id AND pv2.is_active = true
             ORDER BY pv2.price ASC LIMIT 1) AS cheapest_variant_id,
-           (SELECT COALESCE(SUM(pv2.stock), 0) FROM product_variants pv2
+           (SELECT COALESCE(SUM(pv2.stock), 0) FROM product_variant pv2
             WHERE pv2.product_id = p.id AND pv2.is_active = true) AS total_stock,
-           (SELECT MIN(pv2.price) FROM product_variants pv2
+           (SELECT MIN(pv2.price) FROM product_variant pv2
             WHERE pv2.product_id = p.id AND pv2.is_active = true) AS original_min_price
-         FROM products p
-         LEFT JOIN categories c ON c.id = p.category_id
-         LEFT JOIN suppliers  s ON s.id = p.supplier_id
+         FROM product p
+         LEFT JOIN category c ON c.id = p.category_id
+         LEFT JOIN supplier  s ON s.id = p.supplier_id
          ${WHERE}
          ORDER BY p.id, p.created_at DESC
          LIMIT $${i} OFFSET $${i + 1}`,
@@ -173,12 +173,12 @@ class Product {
              ) FILTER (WHERE r.id IS NOT NULL),
              '[]'
            ) AS reviews
-         FROM products p
-         LEFT JOIN categories c  ON c.id  = p.category_id
-         LEFT JOIN categories pc ON pc.id = c.parent_id
-         LEFT JOIN suppliers  s  ON s.id  = p.supplier_id
+         FROM product p
+         LEFT JOIN category c  ON c.id  = p.category_id
+         LEFT JOIN category pc ON pc.id = c.parent_id
+         LEFT JOIN supplier  s  ON s.id  = p.supplier_id
          LEFT JOIN review     r  ON r.product_id = p.id
-         LEFT JOIN users      u  ON u.id  = r.user_id
+         LEFT JOIN "user"      u  ON u.id  = r.user_id
          WHERE p.${col} = $1 ${admin ? "" : "AND p.is_active = true"}
          GROUP BY p.id, c.id, c.name_fr, c.slug,
                   pc.name_fr, pc.slug,
@@ -199,19 +199,19 @@ class Product {
              ) FILTER (WHERE at.id IS NOT NULL),
              '[]'
            ) AS attributes
-         FROM product_variants pv
-         LEFT JOIN product_variant_attributes pva ON pva.variant_id = pv.id
-         LEFT JOIN attribute_types            at  ON at.id = pva.attribute_type_id
+         FROM product_variant pv
+         LEFT JOIN product_variant_attribute pva ON pva.variant_id = pv.id
+         LEFT JOIN attribute_type           at  ON at.id = pva.attribute_type_id
          LEFT JOIN LATERAL (
            SELECT discount_type, discount_value, expires_at
-           FROM variant_promotions vp
+           FROM variant_promotion vp
            WHERE vp.variant_id = pv.id
              AND vp.is_active  = true
              AND vp.starts_at <= NOW()
              AND vp.expires_at > NOW()
            ORDER BY vp.created_at DESC LIMIT 1
          ) active_promo ON true
-         WHERE pv.product_id = (SELECT id FROM products WHERE ${col} = $1)
+         WHERE pv.product_id = (SELECT id FROM product WHERE ${col} = $1)
          ${admin ? "" : "AND pv.is_active = true"}
          GROUP BY pv.id, active_promo.discount_type, active_promo.discount_value, active_promo.expires_at
          ORDER BY pv.price ASC`,
@@ -243,10 +243,10 @@ class Product {
               ELSE pv2.price
             END
           )
-          FROM product_variants pv2
+          FROM product_variant pv2
           LEFT JOIN LATERAL (
             SELECT discount_type, discount_value
-            FROM variant_promotions vp2
+            FROM variant_promotion vp2
             WHERE vp2.variant_id = pv2.id
               AND vp2.is_active = true
               AND vp2.starts_at <= NOW()
@@ -254,16 +254,16 @@ class Product {
             ORDER BY vp2.created_at DESC LIMIT 1
           ) vp ON true
           WHERE pv2.product_id = p.id AND pv2.is_active = true) AS min_price,
-         (SELECT pv2.id FROM product_variants pv2
+         (SELECT pv2.id FROM product_variant pv2
           WHERE pv2.product_id = p.id AND pv2.is_active = true
           ORDER BY pv2.price ASC LIMIT 1) AS cheapest_variant_id,
-         (SELECT COALESCE(SUM(pv2.stock), 0) FROM product_variants pv2
+         (SELECT COALESCE(SUM(pv2.stock), 0) FROM product_variant pv2
           WHERE pv2.product_id = p.id AND pv2.is_active = true) AS total_stock,
-         (SELECT MIN(pv2.price) FROM product_variants pv2
+         (SELECT MIN(pv2.price) FROM product_variant pv2
           WHERE pv2.product_id = p.id AND pv2.is_active = true) AS original_min_price
-       FROM products p
-       LEFT JOIN categories c ON c.id = p.category_id
-       LEFT JOIN suppliers  s ON s.id = p.supplier_id
+       FROM product p
+       LEFT JOIN category c ON c.id = p.category_id
+       LEFT JOIN supplier  s ON s.id = p.supplier_id
        WHERE p.is_active = true AND p.is_featured = true
        ORDER BY p.id, p.created_at DESC
        LIMIT $1`,
@@ -277,7 +277,7 @@ class Product {
     const offset = (page - 1) * limit;
     const result = await database.query(
       `SELECT p.*
-       FROM products p
+       FROM product p
        WHERE p.is_active = true
          AND to_tsvector('french', p.name_fr || ' ' || COALESCE(p.description_fr, ''))
              @@ plainto_tsquery('french', $1)
@@ -291,7 +291,7 @@ class Product {
   // ─── Créer ────────────────────────────────────────────
   static async create(data) {
     const result = await database.query(
-      `INSERT INTO products
+      `INSERT INTO product
          (name_fr, description_fr, slug, category_id, supplier_id, created_by,
           images, ethical_info_fr, origin, certifications,
           meta_title_fr, is_active, is_featured, is_new,
@@ -314,7 +314,7 @@ class Product {
   // ─── Update complet ───────────────────────────────────
   static async updateFull(id, data) {
     const result = await database.query(
-      `UPDATE products SET
+      `UPDATE product SET
          name_fr=$1, description_fr=$2, ethical_info_fr=$3,
          origin=$4, certifications=$5,
          usage_fr=$6, ingredients_fr=$7, precautions_fr=$8,
@@ -337,7 +337,7 @@ class Product {
   // ─── Update simple (COALESCE) ─────────────────────────
   static async update(id, data) {
     const result = await database.query(
-      `UPDATE products
+      `UPDATE product
        SET name_fr        = COALESCE($1, name_fr),
            description_fr = COALESCE($2, description_fr),
            category_id    = COALESCE($3, category_id),
@@ -358,26 +358,26 @@ class Product {
   // ─── Incrémenter les vues ─────────────────────────────
   static async incrementViews(id) {
     await database.query(
-      "UPDATE products SET views_count = views_count + 1 WHERE id = $1", [id]
+      "UPDATE product SET views_count = views_count + 1 WHERE id = $1", [id]
     );
   }
 
   // ─── Tracker une vue (fire-and-forget) ───────────────
   static trackView(productId, col = "id") {
-    database.query(`UPDATE products SET views_count = views_count + 1 WHERE ${col} = $1`, [productId]);
-    database.query(`INSERT INTO product_views (product_id) SELECT id FROM products WHERE ${col} = $1`, [productId]);
+    database.query(`UPDATE product SET views_count = views_count + 1 WHERE ${col} = $1`, [productId]);
+    database.query(`INSERT INTO product_view (product_id) SELECT id FROM product WHERE ${col} = $1`, [productId]);
   }
 
   // ─── Soft delete ─────────────────────────────────────
   static async softDelete(id) {
     await database.query(
-      "UPDATE products SET is_active = false, updated_at = NOW() WHERE id = $1", [id]
+      "UPDATE product SET is_active = false, updated_at = NOW() WHERE id = $1", [id]
     );
   }
 
   // ─── Hard delete ─────────────────────────────────────
   static async delete(id) {
-    await database.query("DELETE FROM products WHERE id = $1", [id]);
+    await database.query("DELETE FROM product WHERE id = $1", [id]);
   }
 }
 

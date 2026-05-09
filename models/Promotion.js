@@ -3,7 +3,7 @@ import database from "../database/db.js";
 class Promotion {
   static async findById(id) {
     const result = await database.query(
-      "SELECT * FROM promotions WHERE id = $1", [id]
+      "SELECT * FROM promotion WHERE id = $1", [id]
     );
     return result.rows[0] || null;
   }
@@ -11,7 +11,7 @@ class Promotion {
   // ─── Trouver par code (vérification doublon création) ─
   static async findByCode(code) {
     const result = await database.query(
-      "SELECT id FROM promotions WHERE UPPER(code) = UPPER($1)", [code]
+      "SELECT id FROM promotion WHERE UPPER(code) = UPPER($1)", [code]
     );
     return result.rows[0] || null;
   }
@@ -19,7 +19,7 @@ class Promotion {
   // ─── Trouver par code en excluant un ID (update) ──────
   static async findByCodeExcludingId(code, excludeId) {
     const result = await database.query(
-      "SELECT id FROM promotions WHERE UPPER(code) = UPPER($1) AND id != $2",
+      "SELECT id FROM promotion WHERE UPPER(code) = UPPER($1) AND id != $2",
       [code, excludeId]
     );
     return result.rows[0] || null;
@@ -32,7 +32,7 @@ class Promotion {
          id, code, description_fr,
          discount_type, discount_value, min_order_amount,
          expires_at, max_uses, used_count
-       FROM promotions
+       FROM promotion
        WHERE UPPER(code) = UPPER($1)
          AND is_active   = true
          AND starts_at  <= NOW()
@@ -46,7 +46,7 @@ class Promotion {
   static async findAll({ page = 1, limit = 20 } = {}) {
     const offset = (page - 1) * limit;
     const result = await database.query(
-      "SELECT * FROM promotions ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+      "SELECT * FROM promotion ORDER BY created_at DESC LIMIT $1 OFFSET $2",
       [limit, offset]
     );
     return result.rows;
@@ -54,13 +54,13 @@ class Promotion {
 
   static async incrementUsed(id) {
     await database.query(
-      "UPDATE promotions SET used_count = used_count + 1 WHERE id = $1", [id]
+      "UPDATE promotion SET used_count = used_count + 1 WHERE id = $1", [id]
     );
   }
 
   static async create(data) {
     const result = await database.query(
-      `INSERT INTO promotions
+      `INSERT INTO promotion
          (code, description_fr, discount_type, discount_value,
           min_order_amount, max_uses, is_active, starts_at, expires_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
@@ -78,7 +78,7 @@ class Promotion {
   // ─── Update complet ───────────────────────────────────
   static async updateFull(id, data) {
     const result = await database.query(
-      `UPDATE promotions
+      `UPDATE promotion
        SET
          code             = COALESCE(UPPER($1), code),
          description_fr   = $2,
@@ -104,7 +104,7 @@ class Promotion {
   // ─── Update simple (existant) ─────────────────────────
   static async update(id, data) {
     const result = await database.query(
-      `UPDATE promotions
+      `UPDATE promotion
        SET is_active  = COALESCE($1, is_active),
            expires_at = COALESCE($2, expires_at),
            max_uses   = COALESCE($3, max_uses),
@@ -117,7 +117,7 @@ class Promotion {
   }
 
   static async delete(id) {
-    await database.query("DELETE FROM promotions WHERE id = $1", [id]);
+    await database.query("DELETE FROM promotion WHERE id = $1", [id]);
   }
 }
 

@@ -14,9 +14,9 @@ class Order {
          d.estimated_date,
          d.delivered_at,
          d.notes           AS delivery_notes
-       FROM orders o
-       LEFT JOIN deliveries d  ON d.order_id = o.id
-       LEFT JOIN promotions pr ON pr.id = o.promo_id
+       FROM "order" o
+       LEFT JOIN delivery   d  ON d.order_id = o.id
+       LEFT JOIN promotion pr  ON pr.id = o.promo_id
        WHERE o.id = $1`,
       [id]
     );
@@ -34,9 +34,9 @@ class Order {
          d.estimated_date,
          d.delivered_at,
          d.notes           AS delivery_notes
-       FROM orders o
-       LEFT JOIN deliveries d  ON d.order_id = o.id
-       LEFT JOIN promotions pr ON pr.id = o.promo_id
+       FROM "order" o
+       LEFT JOIN delivery   d  ON d.order_id = o.id
+       LEFT JOIN promotion pr  ON pr.id = o.promo_id
        WHERE o.id = $1 AND o.user_id = $2`,
       [id, userId]
     );
@@ -46,7 +46,7 @@ class Order {
   // ─── Trouver par payment_id (Stripe webhook) ─────────
   static async findByPaymentId(paymentId) {
     const result = await database.query(
-      "SELECT * FROM orders WHERE payment_id = $1",
+      `SELECT * FROM "order" WHERE payment_id = $1`,
       [paymentId]
     );
     return result.rows[0] || null;
@@ -79,8 +79,8 @@ class Order {
                      'attribute_value', pva2.value_fr
                    )), '[]'
                  )
-                 FROM product_variant_attributes pva2
-                 JOIN attribute_types at2 ON at2.id = pva2.attribute_type_id
+                 FROM product_variant_attribute pva2
+                 JOIN attribute_type at2 ON at2.id = pva2.attribute_type_id
                  WHERE pva2.variant_id = oi.variant_id
                ),
                'quantity',      oi.quantity,
@@ -89,12 +89,12 @@ class Order {
              )
            ) FILTER (WHERE oi.id IS NOT NULL), '[]'
          ) AS items
-       FROM orders o
-       LEFT JOIN deliveries       d   ON d.order_id  = o.id
-       LEFT JOIN order_items      oi  ON oi.order_id = o.id
-       LEFT JOIN product_variants pv  ON pv.id       = oi.variant_id
-       LEFT JOIN products         p   ON p.id        = pv.product_id
-       LEFT JOIN promotions       pr  ON pr.id       = o.promo_id
+       FROM "order" o
+       LEFT JOIN delivery        d   ON d.order_id  = o.id
+       LEFT JOIN order_item      oi  ON oi.order_id = o.id
+       LEFT JOIN product_variant pv  ON pv.id       = oi.variant_id
+       LEFT JOIN product         p   ON p.id        = pv.product_id
+       LEFT JOIN promotion       pr  ON pr.id       = o.promo_id
        WHERE o.user_id = $1
        GROUP BY o.id, d.status, d.tracking_number, d.carrier, d.estimated_date, pr.code
        ORDER BY o.created_at DESC`,
@@ -118,7 +118,7 @@ class Order {
     values.push(limit, offset);
 
     const [totalResult, result] = await Promise.all([
-      database.query(`SELECT COUNT(*) FROM orders o ${whereClause}`, countValues),
+      database.query(`SELECT COUNT(*) FROM "order" o ${whereClause}`, countValues),
       database.query(
         `SELECT
            o.id, o.order_number, o.status, o.payment_method,
@@ -129,11 +129,11 @@ class Order {
            d.status         AS delivery_status,
            d.tracking_number,
            COUNT(oi.id)     AS item_count
-         FROM orders o
-         LEFT JOIN users       u   ON u.id       = o.user_id
-         LEFT JOIN deliveries  d   ON d.order_id = o.id
-         LEFT JOIN order_items oi  ON oi.order_id = o.id
-         LEFT JOIN promotions  pr  ON pr.id       = o.promo_id
+         FROM "order" o
+         LEFT JOIN "user"    u   ON u.id       = o.user_id
+         LEFT JOIN delivery  d   ON d.order_id = o.id
+         LEFT JOIN order_item oi ON oi.order_id = o.id
+         LEFT JOIN promotion  pr ON pr.id       = o.promo_id
          ${whereClause}
          GROUP BY o.id, u.name, u.email, d.status, d.tracking_number, pr.code
          ORDER BY o.created_at DESC
@@ -164,7 +164,7 @@ class Order {
     notes,
   }) {
     const result = await database.query(
-      `INSERT INTO orders (
+      `INSERT INTO "order" (
          user_id, status, payment_method, payment_status,
          subtotal, shipping_cost, discount_amount, total_price,
          promo_id,
@@ -207,7 +207,7 @@ class Order {
   // ─── Mettre à jour le statut ──────────────────────────
   static async updateStatus(id, status) {
     await database.query(
-      "UPDATE orders SET status = $1, updated_at = NOW() WHERE id = $2",
+      `UPDATE "order" SET status = $1, updated_at = NOW() WHERE id = $2`,
       [status, id]
     );
   }
@@ -215,7 +215,7 @@ class Order {
   // ─── Mettre à jour le payment_id ─────────────────────
   static async updatePaymentId(id, paymentId) {
     await database.query(
-      "UPDATE orders SET payment_id = $1 WHERE id = $2",
+      `UPDATE "order" SET payment_id = $1 WHERE id = $2`,
       [paymentId, id]
     );
   }
@@ -223,7 +223,7 @@ class Order {
   // ─── Confirmer le paiement (webhook Stripe) ───────────
   static async confirmPayment(paymentId) {
     const result = await database.query(
-      `UPDATE orders
+      `UPDATE "order"
        SET payment_status = 'paye', status = 'confirmee', updated_at = NOW()
        WHERE payment_id = $1
        RETURNING *`,
@@ -235,7 +235,7 @@ class Order {
   // ─── Marquer paiement échoué (webhook Stripe) ─────────
   static async markPaymentFailed(paymentId) {
     const result = await database.query(
-      `UPDATE orders
+      `UPDATE "order"
        SET payment_status = 'echoue', status = 'annulee',
            cancelled_reason = 'Paiement échoué', updated_at = NOW()
        WHERE payment_id = $1
@@ -248,7 +248,7 @@ class Order {
   // ─── Marquer remboursé (webhook Stripe) ───────────────
   static async markRefunded(paymentId) {
     await database.query(
-      "UPDATE orders SET payment_status = 'rembourse', updated_at = NOW() WHERE payment_id = $1",
+      `UPDATE "order" SET payment_status = 'rembourse', updated_at = NOW() WHERE payment_id = $1`,
       [paymentId]
     );
   }
@@ -256,7 +256,7 @@ class Order {
   // ─── Annuler une commande ─────────────────────────────
   static async cancel(id, reason) {
     await database.query(
-      `UPDATE orders
+      `UPDATE "order"
        SET status = 'annulee', cancelled_reason = $1, updated_at = NOW()
        WHERE id = $2`,
       [reason, id]
@@ -270,7 +270,7 @@ class Order {
     shipping_governorate, shipping_postal_code,
   }) {
     const result = await database.query(
-      `UPDATE orders
+      `UPDATE "order"
        SET shipping_full_name   = $1,
            shipping_phone       = $2,
            shipping_address     = $3,
@@ -289,30 +289,31 @@ class Order {
     );
     return result.rows[0];
   }
-  static async findEligibleForReclamation(userId) {
-  const result = await database.query(
-    `SELECT
-       o.id, o.order_number, o.status, o.total_price, o.created_at,
-       COUNT(oi.id) AS item_count
-     FROM orders o
-     LEFT JOIN order_items oi ON oi.order_id = o.id
-     WHERE o.user_id        = $1
-       AND o.payment_status = 'paye'
-       AND o.status IN ('confirmee', 'en_preparation', 'expediee', 'livree')
-     GROUP BY o.id
-     ORDER BY o.created_at DESC`,
-    [userId]
-  );
-  return result.rows;
-}
 
-static async findByOrderNumber(orderNumber) {
-  const result = await database.query(
-    "SELECT * FROM orders WHERE order_number = $1",
-    [orderNumber]
-  );
-  return result.rows[0] || null;
-}
+  static async findEligibleForReclamation(userId) {
+    const result = await database.query(
+      `SELECT
+         o.id, o.order_number, o.status, o.total_price, o.created_at,
+         COUNT(oi.id) AS item_count
+       FROM "order" o
+       LEFT JOIN order_item oi ON oi.order_id = o.id
+       WHERE o.user_id        = $1
+         AND o.payment_status = 'paye'
+         AND o.status IN ('confirmee', 'en_preparation', 'expediee', 'livree')
+       GROUP BY o.id
+       ORDER BY o.created_at DESC`,
+      [userId]
+    );
+    return result.rows;
+  }
+
+  static async findByOrderNumber(orderNumber) {
+    const result = await database.query(
+      `SELECT * FROM "order" WHERE order_number = $1`,
+      [orderNumber]
+    );
+    return result.rows[0] || null;
+  }
 }
 
 export default Order;

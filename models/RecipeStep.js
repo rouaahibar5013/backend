@@ -3,7 +3,7 @@ import database from "../database/db.js";
 class RecipeStep {
   static async findByRecipeId(recipeId) {
     const result = await database.query(
-      "SELECT * FROM recipe_steps WHERE recipe_id = $1 ORDER BY step_number ASC",
+      "SELECT * FROM recipe_step WHERE recipe_id = $1 ORDER BY step_number ASC",
       [recipeId]
     );
     return result.rows;
@@ -11,7 +11,7 @@ class RecipeStep {
 
   static async create({ recipe_id, step_number, instruction_fr, image, duration }) {
     const result = await database.query(
-      `INSERT INTO recipe_steps (recipe_id, step_number, instruction_fr, image, duration)
+      `INSERT INTO recipe_step (recipe_id, step_number, instruction_fr, image, duration)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
       [recipe_id, step_number, instruction_fr, image || null, duration || null]
@@ -20,7 +20,7 @@ class RecipeStep {
   }
 
   static async deleteByRecipeId(recipeId) {
-    await database.query("DELETE FROM recipe_steps WHERE recipe_id = $1", [recipeId]);
+    await database.query("DELETE FROM recipe_step WHERE recipe_id = $1", [recipeId]);
   }
 }
 

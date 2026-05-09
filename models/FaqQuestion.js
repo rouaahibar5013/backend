@@ -4,7 +4,7 @@ class FaqQuestion {
   // ─── Trouver par ID ───────────────────────────────────
   static async findById(id) {
     const result = await database.query(
-      "SELECT * FROM faq_questions WHERE id = $1", [id]
+      "SELECT * FROM question WHERE id = $1", [id]
     );
     return result.rows[0] || null;
   }
@@ -12,7 +12,7 @@ class FaqQuestion {
   // ─── Créer une question auto-répondue ─────────────────
   static async createAnswered({ userId, user_name, user_email, question, answer }) {
     const result = await database.query(
-      `INSERT INTO faq_questions
+      `INSERT INTO question
          (user_id, user_name, user_email, question, status, answer, answered_at)
        VALUES ($1, $2, $3, $4, 'answered', $5, NOW())
        RETURNING *`,
@@ -24,7 +24,7 @@ class FaqQuestion {
   // ─── Créer une question en attente ────────────────────
   static async createPending({ userId, user_name, user_email, question }) {
     const result = await database.query(
-      `INSERT INTO faq_questions
+      `INSERT INTO question
          (user_id, user_name, user_email, question, status)
        VALUES ($1, $2, $3, $4, 'pending')
        RETURNING *`,
@@ -46,7 +46,7 @@ class FaqQuestion {
   // ─── Marquer comme répondue ───────────────────────────
   static async markAnswered(id, answer) {
     const result = await database.query(
-      `UPDATE faq_questions
+      `UPDATE question
        SET answer = $1, status = 'answered', answered_at = NOW()
        WHERE id = $2
        RETURNING *`,
@@ -81,7 +81,7 @@ class FaqQuestion {
 
     const [totalResult, result] = await Promise.all([
       database.query(
-        `SELECT COUNT(*) FROM faq_questions fqq ${whereClause}`, countValues
+        `SELECT COUNT(*) FROM question fqq ${whereClause}`, countValues
       ),
       database.query(
         `SELECT
@@ -94,9 +94,9 @@ class FaqQuestion {
                'faq_category',          f.category
              )
            ) FILTER (WHERE flink.faq_id IS NOT NULL) AS linked_faqs
-         FROM faq_questions fqq
+         FROM question fqq
          LEFT JOIN frequent_question flink ON flink.question_id = fqq.id
-         LEFT JOIN faqs f                  ON f.id = flink.faq_id
+         LEFT JOIN faq f                  ON f.id = flink.faq_id
          ${whereClause}
          GROUP BY fqq.id
          ORDER BY fqq.created_at DESC
@@ -123,19 +123,19 @@ class FaqQuestion {
           COUNT(*) FILTER (WHERE status = 'answered')                         AS answered,
           COUNT(*) FILTER (WHERE EXISTS (
             SELECT 1 FROM frequent_question fq
-            WHERE fq.question_id = faq_questions.id
+            WHERE fq.question_id = question.id
               AND fq.matched_automatically = TRUE
           ))                                                                  AS auto_answered,
           COUNT(*) FILTER (WHERE status = 'answered' AND EXISTS (
             SELECT 1 FROM frequent_question fq
-            WHERE fq.question_id = faq_questions.id
+            WHERE fq.question_id = question.id
               AND fq.matched_automatically = FALSE
           ))                                                                  AS manually_answered
-        FROM faq_questions
+        FROM question
       `),
       database.query(`
         SELECT id, category, question_fr, frequency
-        FROM faqs
+        FROM faq
         WHERE is_active = true
         ORDER BY frequency DESC
         LIMIT 5
@@ -147,7 +147,7 @@ class FaqQuestion {
 
   // ─── Supprimer ────────────────────────────────────────
   static async delete(id) {
-    await database.query("DELETE FROM faq_questions WHERE id = $1", [id]);
+    await database.query("DELETE FROM question WHERE id = $1", [id]);
   }
 }
 

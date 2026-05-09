@@ -24,11 +24,11 @@ class OrderItem {
            ) FILTER (WHERE at.id IS NOT NULL),
            '[]'
          ) AS variant_details
-       FROM order_items oi
-       LEFT JOIN product_variants          pv  ON pv.id = oi.variant_id
-       LEFT JOIN products                   p  ON p.id  = pv.product_id
-       LEFT JOIN product_variant_attributes pva ON pva.variant_id = pv.id
-       LEFT JOIN attribute_types            at  ON at.id = pva.attribute_type_id
+       FROM order_item oi
+       LEFT JOIN product_variant          pv  ON pv.id = oi.variant_id
+       LEFT JOIN product                   p  ON p.id  = pv.product_id
+       LEFT JOIN product_variant_attribute pva ON pva.variant_id = pv.id
+       LEFT JOIN attribute_type            at  ON at.id = pva.attribute_type_id
        WHERE oi.order_id = $1
        GROUP BY oi.id, p.name_fr, p.images, pv.sku`,
       [orderId]
@@ -39,7 +39,7 @@ class OrderItem {
   // ─── Articles pour restauration du stock ─────────────
   static async findByOrderIdSimple(orderId) {
     const result = await database.query(
-      "SELECT variant_id, quantity FROM order_items WHERE order_id = $1",
+      `SELECT variant_id, quantity FROM order_item WHERE order_id = $1`,
       [orderId]
     );
     return result.rows;
@@ -48,7 +48,7 @@ class OrderItem {
   // ─── Insérer un article ───────────────────────────────
   static async create({ orderId, variantId, quantity, priceAtOrder }) {
     const result = await database.query(
-      `INSERT INTO order_items (order_id, variant_id, quantity, price_at_order)
+      `INSERT INTO order_item (order_id, variant_id, quantity, price_at_order)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
       [orderId, variantId, quantity, priceAtOrder]
