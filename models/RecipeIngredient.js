@@ -13,6 +13,25 @@ class RecipeIngredient {
     return result.rows;
   }
 
+  // ─── Avec prix produit (page publique) ───────────────
+  static async findByRecipeIdWithProduct(recipeId) {
+    const result = await database.query(
+      `SELECT
+         ri.*,
+         p.slug   AS product_slug,
+         p.images AS product_images,
+         (SELECT pv.price FROM product_variants pv
+          WHERE pv.product_id = p.id AND pv.is_active = true
+          ORDER BY pv.created_at ASC LIMIT 1) AS product_price
+       FROM recipe_ingredients ri
+       LEFT JOIN products p ON p.id = ri.product_id
+       WHERE ri.recipe_id = $1
+       ORDER BY ri.sort_order ASC`,
+      [recipeId]
+    );
+    return result.rows;
+  }
+
   static async create({ recipe_id, product_id, name_fr, quantity, is_bio, sort_order }) {
     const result = await database.query(
       `INSERT INTO recipe_ingredients (recipe_id, product_id, name_fr, quantity, is_bio, sort_order)

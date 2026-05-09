@@ -1,23 +1,44 @@
 import database from "../database/db.js";
 
 class Promotion {
+  static async findById(id) {
+    const result = await database.query(
+      "SELECT * FROM promotions WHERE id = $1", [id]
+    );
+    return result.rows[0] || null;
+  }
+
+  // ─── Trouver par code (vérification doublon création) ─
   static async findByCode(code) {
     const result = await database.query(
-      `SELECT * FROM promotions
+      "SELECT id FROM promotions WHERE UPPER(code) = UPPER($1)", [code]
+    );
+    return result.rows[0] || null;
+  }
+
+  // ─── Trouver par code en excluant un ID (update) ──────
+  static async findByCodeExcludingId(code, excludeId) {
+    const result = await database.query(
+      "SELECT id FROM promotions WHERE UPPER(code) = UPPER($1) AND id != $2",
+      [code, excludeId]
+    );
+    return result.rows[0] || null;
+  }
+
+  // ─── Valider un code promo (public) ──────────────────
+  static async findValidByCode(code) {
+    const result = await database.query(
+      `SELECT
+         id, code, description_fr,
+         discount_type, discount_value, min_order_amount,
+         expires_at, max_uses, used_count
+       FROM promotions
        WHERE UPPER(code) = UPPER($1)
          AND is_active   = true
          AND starts_at  <= NOW()
          AND expires_at >= NOW()
          AND (max_uses IS NULL OR used_count < max_uses)`,
       [code]
-    );
-    return result.rows[0] || null;
-  }
-
-  static async findById(id) {
-    const result = await database.query(
-      "SELECT * FROM promotions WHERE id = $1",
-      [id]
     );
     return result.rows[0] || null;
   }
@@ -33,8 +54,7 @@ class Promotion {
 
   static async incrementUsed(id) {
     await database.query(
-      "UPDATE promotions SET used_count = used_count + 1 WHERE id = $1",
-      [id]
+      "UPDATE promotions SET used_count = used_count + 1 WHERE id = $1", [id]
     );
   }
 
@@ -48,20 +68,47 @@ class Promotion {
       [
         data.code.toUpperCase(), data.description_fr || null,
         data.discount_type, data.discount_value,
-        data.min_order_amount || 0, data.max_uses || null,
+        data.min_order_amount || null, data.max_uses || null,
         data.is_active ?? true, data.starts_at || null, data.expires_at || null,
       ]
     );
     return result.rows[0];
   }
 
+  // ─── Update complet ───────────────────────────────────
+  static async updateFull(id, data) {
+    const result = await database.query(
+      `UPDATE promotions
+       SET
+         code             = COALESCE(UPPER($1), code),
+         description_fr   = $2,
+         discount_type    = COALESCE($3, discount_type),
+         discount_value   = COALESCE($4, discount_value),
+         min_order_amount = $5,
+         starts_at        = COALESCE($6, starts_at),
+         expires_at       = COALESCE($7, expires_at),
+         max_uses         = $8,
+         is_active        = COALESCE($9, is_active),
+         updated_at       = NOW()
+       WHERE id = $10
+       RETURNING *`,
+      [
+        data.code, data.description_fr, data.discount_type,
+        data.discount_value, data.min_order_amount, data.starts_at,
+        data.expires_at, data.max_uses, data.is_active, id,
+      ]
+    );
+    return result.rows[0];
+  }
+
+  // ─── Update simple (existant) ─────────────────────────
   static async update(id, data) {
     const result = await database.query(
       `UPDATE promotions
-       SET is_active    = COALESCE($1, is_active),
-           expires_at   = COALESCE($2, expires_at),
-           max_uses     = COALESCE($3, max_uses),
-           updated_at   = NOW()
+       SET is_active  = COALESCE($1, is_active),
+           expires_at = COALESCE($2, expires_at),
+           max_uses   = COALESCE($3, max_uses),
+           updated_at = NOW()
        WHERE id = $4
        RETURNING *`,
       [data.is_active, data.expires_at, data.max_uses, id]

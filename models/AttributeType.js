@@ -10,10 +10,25 @@ class AttributeType {
 
   static async findById(id) {
     const result = await database.query(
-      "SELECT * FROM attribute_types WHERE id = $1",
-      [id]
+      "SELECT * FROM attribute_types WHERE id = $1", [id]
     );
     return result.rows[0] || null;
+  }
+
+  // ─── Upsert (INSERT ON CONFLICT) ──────────────────────
+  static async upsert(name_fr, unit) {
+    const result = await database.query(
+      `INSERT INTO attribute_types (name_fr, unit)
+       VALUES ($1, $2)
+       ON CONFLICT (name_fr) DO UPDATE
+         SET unit = CASE
+           WHEN $2::text IS NOT NULL THEN EXCLUDED.unit
+           ELSE attribute_types.unit
+         END
+       RETURNING id`,
+      [name_fr.trim(), unit?.trim() || null]
+    );
+    return result.rows[0].id;
   }
 
   static async create({ name_fr, unit }) {

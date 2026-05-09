@@ -17,3 +17,5 @@ export { default as Recipe }                  from "./Recipe.js";
 export { default as RecipeStep }              from "./RecipeStep.js";
 export { default as RecipeIngredient }        from "./RecipeIngredient.js";
 export { default as ProductView }             from "./ProductView.js";
+export { default as Faq }         from "./Faq.js";
+export { default as FaqQuestion } from "./FaqQuestion.js";
