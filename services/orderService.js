@@ -390,41 +390,45 @@ const sendStockAlertEmail = async (productName, sku, stock) => {
 // ✅ Applique automatiquement les variant_promotions actives
 // ═══════════════════════════════════════════════════════════
 const calculateOrderItems = async (items) => {
-  let subtotal   = 0;
+
+  for (const item of items) {
+    if (!item.variant_id || !item.quantity || item.quantity < 1)
+      throw new ErrorHandler("Chaque article doit avoir un variant_id et une quantité valide.", 400);
+  }
+
+  const variantIds = items.map(i => i.variant_id);
+
+  // ✅ 2 requêtes parallèles au lieu de 2×N séquentielles
+  const [variants, promos] = await Promise.all([
+    ProductVariant.findActiveByIds(variantIds),
+    VariantPromotion.findActiveByVariantIds(variantIds),
+  ]);
+
+  const variantMap = Object.fromEntries(variants.map(v => [v.id, v]));
+  const promoMap   = Object.fromEntries(promos.map(p => [p.variant_id, p]));
+
+  let subtotal     = 0;
   const orderItems = [];
 
   for (const item of items) {
-    const { variant_id, quantity } = item;
-
-    if (!variant_id || !quantity || quantity < 1)
-      throw new ErrorHandler("Chaque article doit avoir un variant_id et une quantité valide.", 400);
-
-    // ✅ Model : récupérer le variant actif
-    const variant = await ProductVariant.findActiveById(variant_id);
-
+    const variant = variantMap[item.variant_id];
     if (!variant)
-      throw new ErrorHandler(`Variante ${variant_id} introuvable ou inactive.`, 404);
+      throw new ErrorHandler(`Variante ${item.variant_id} introuvable ou inactive.`, 404);
 
-    // ✅ Model : vérifier si une promo active existe pour ce variant
-    const promo = await VariantPromotion.findActiveByVariantId(variant_id);
-
-    // ✅ Calculer le prix final (avec ou sans promo variant)
     let finalPrice = parseFloat(variant.price);
+    const promo    = promoMap[item.variant_id];
 
     if (promo) {
-      if (promo.discount_type === "percent") {
-        finalPrice = finalPrice * (1 - parseFloat(promo.discount_value) / 100);
-      } else {
-        finalPrice = Math.max(0, finalPrice - parseFloat(promo.discount_value));
-      }
+      finalPrice = promo.discount_type === "percent"
+        ? finalPrice * (1 - parseFloat(promo.discount_value) / 100)
+        : Math.max(0, finalPrice - parseFloat(promo.discount_value));
       finalPrice = parseFloat(finalPrice.toFixed(3));
     }
 
-    subtotal += finalPrice * quantity;
-
+    subtotal += finalPrice * item.quantity;
     orderItems.push({
-      variant_id,
-      quantity,
+      variant_id:           item.variant_id,
+      quantity:             item.quantity,
       price_at_order:       finalPrice,
       _product_name_fr:     variant.product_name_fr,
       _low_stock_threshold: variant.low_stock_threshold || 5,
@@ -434,13 +438,12 @@ const calculateOrderItems = async (items) => {
 
   return { subtotal: parseFloat(subtotal.toFixed(3)), orderItems };
 };
-
 // ═══════════════════════════════════════════════════════════
 // HELPER — Appliquer code promo sur le subtotal
 // ═══════════════════════════════════════════════════════════
 const applyPromoCode = async (code, subtotal) => {
   // ✅ Model : chercher le code promo actif
-  const p = await Promotion.findByCode(code);
+const p = await Promotion.findValidByCode(code);
 
   if (!p)
     throw new ErrorHandler("Code promo invalide ou expiré.", 400);
@@ -1016,7 +1019,7 @@ export const validatePromoService = async ({ code, subtotal }) => {
     throw new ErrorHandler("Code et sous-total requis.", 400);
 
   // ✅ Model : chercher le code promo
-  const p = await Promotion.findByCode(code);
+const p = await Promotion.findValidByCode(code);
 
   if (!p)
     throw new ErrorHandler("Code promo invalide ou expiré.", 400);

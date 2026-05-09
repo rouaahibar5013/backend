@@ -9,14 +9,25 @@ import { invalidateOffresCache, invalidateDashboardCache } from "../utils/cacheI
 
 // ─── Helpers ──────────────────────────────────────────────
 const uploadProductImages = async (imageFiles) => {
-  const images   = Array.isArray(imageFiles) ? imageFiles : [imageFiles];
+  const images = Array.isArray(imageFiles) ? imageFiles : [imageFiles];
+
   const uploaded = await Promise.all(
     images.map(img =>
       cloudinary.uploader.upload(img.tempFilePath, {
-        folder: "Ecommerce_Product_Images", width: 1000, crop: "scale",
+        folder: "Ecommerce_Product_Images",
+        // ✅ Conversion auto WebP + compression automatique
+        transformation: [
+          { width: 1000, crop: "scale", fetch_format: "auto", quality: "auto" }
+        ],
+        // ✅ Générer aussi une version thumbnail au moment de l'upload
+        eager: [
+          { width: 400, crop: "scale", fetch_format: "auto", quality: "auto" },
+        ],
+        eager_async: true,
       })
     )
   );
+
   return uploaded.map(r => ({ url: r.secure_url, public_id: r.public_id }));
 };
 

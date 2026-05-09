@@ -28,6 +28,23 @@ class ProductVariant {
     return result.rows[0] || null;
   }
 
+  // ✅ NOUVEAU — batch pour calculateOrderItems (fix N+1)
+  // Remplace N appels à findActiveById par 1 seule requête
+  static async findActiveByIds(ids) {
+    const result = await database.query(
+      `SELECT
+         pv.id, pv.price, pv.stock, pv.low_stock_threshold, pv.sku, pv.is_active,
+         p.name_fr AS product_name_fr
+       FROM product_variants pv
+       LEFT JOIN products p ON p.id = pv.product_id
+       WHERE pv.id = ANY($1)
+         AND pv.is_active = true
+         AND p.is_active  = true`,
+      [ids]
+    );
+    return result.rows;
+  }
+
   static async findByProductId(productId) {
     const result = await database.query(
       `SELECT
@@ -93,7 +110,6 @@ class ProductVariant {
     return result.rows[0];
   }
 
-  // ─── Update complet (service updateVariant) ───────────
   static async updateFull(id, { price, cost_price, stock, sku, low_stock_threshold, weight_grams, is_active }) {
     const result = await database.query(
       `UPDATE product_variants SET
@@ -106,7 +122,6 @@ class ProductVariant {
     return result.rows[0];
   }
 
-  // ─── Update simple (COALESCE) ─────────────────────────
   static async update(id, { price, stock, cost_price, low_stock_threshold, is_active }) {
     const result = await database.query(
       `UPDATE product_variants
@@ -123,7 +138,6 @@ class ProductVariant {
     return result.rows[0];
   }
 
-  // ─── Supprimer ────────────────────────────────────────
   static async delete(id) {
     await database.query("DELETE FROM product_variants WHERE id = $1", [id]);
   }

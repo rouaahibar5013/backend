@@ -289,6 +289,30 @@ class Order {
     );
     return result.rows[0];
   }
+  static async findEligibleForReclamation(userId) {
+  const result = await database.query(
+    `SELECT
+       o.id, o.order_number, o.status, o.total_price, o.created_at,
+       COUNT(oi.id) AS item_count
+     FROM orders o
+     LEFT JOIN order_items oi ON oi.order_id = o.id
+     WHERE o.user_id        = $1
+       AND o.payment_status = 'paye'
+       AND o.status IN ('confirmee', 'en_preparation', 'expediee', 'livree')
+     GROUP BY o.id
+     ORDER BY o.created_at DESC`,
+    [userId]
+  );
+  return result.rows;
+}
+
+static async findByOrderNumber(orderNumber) {
+  const result = await database.query(
+    "SELECT * FROM orders WHERE order_number = $1",
+    [orderNumber]
+  );
+  return result.rows[0] || null;
+}
 }
 
 export default Order;

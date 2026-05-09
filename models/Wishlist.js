@@ -38,6 +38,10 @@ class Wishlist {
       [userId, productId]
     );
   }
+  static async clear(userId) {
+  await database.query("DELETE FROM wishlists WHERE user_id = $1", [userId]);
 }
+}
+
 
 export default Wishlist;

@@ -19,3 +19,5 @@ export { default as RecipeIngredient }        from "./RecipeIngredient.js";
 export { default as ProductView }             from "./ProductView.js";
 export { default as Faq }         from "./Faq.js";
 export { default as FaqQuestion } from "./FaqQuestion.js";
+export { default as EmailSubscription } from "./EmailSubscription.js";
+export { default as EmailCampaign }     from "./EmailCampaign.js";

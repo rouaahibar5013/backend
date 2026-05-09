@@ -1,9 +1,10 @@
 import database from "../database/db.js";
-import redis from "../config/redis.js"; // ✅ ajouter cette ligne
+import { getCache, setCache } from "../config/redis.js";
+import { TTL } from "../utils/cacheInvalideation.js";
 
 
 const OFFRES_CACHE_KEY = "offres:homepage";
-const OFFRES_CACHE_TTL = 10 * 60; // 10 minutes
+const OFFRES_CACHE_TTL = TTL.OFFRES_HOME; // 1h au lieu de 10min
 
 // ═══════════════════════════════════════════════════════════
 // HELPER — colonnes communes
@@ -77,12 +78,12 @@ const productJoins = `
 // ═══════════════════════════════════════════════════════════
 export const getOffresDataService = async () => {
  try {
-    const cached = await redis.get(OFFRES_CACHE_KEY);
-    if (cached) {
-      console.log("[Redis] Cache HIT — offres:homepage");
-      return JSON.parse(cached);
-    }
-    console.log("[Redis] Cache MISS — offres:homepage");
+const cached = await getCache(OFFRES_CACHE_KEY);
+if (cached) {
+  console.log("[Redis] Cache HIT — offres:homepage");
+  return cached;
+}
+console.log("[Redis] Cache MISS — offres:homepage");
   } catch (err) {
     console.error("[Redis] Erreur lecture cache:", err.message);
   }
@@ -159,7 +160,7 @@ export const getOffresDataService = async () => {
 
   // ✅ Sauvegarder dans Redis
   try {
-    await redis.set(OFFRES_CACHE_KEY, JSON.stringify(offresResult), "EX", OFFRES_CACHE_TTL);
+await setCache(OFFRES_CACHE_KEY, offresResult, OFFRES_CACHE_TTL);
     console.log("[Redis] Cache SET — offres:homepage");
   } catch (err) {
     console.error("[Redis] Erreur écriture cache:", err.message);
@@ -180,11 +181,11 @@ export const validatePromoCodeService = async (code) => {
      WHERE UPPER(code) = UPPER($1)
      AND   is_active   = true
      AND   starts_at  <= NOW()
+
      AND   expires_at >= NOW()
      AND   (max_uses IS NULL OR used_count < max_uses)`,
     [code]
   );
-
   if (result.rows.length === 0) return null;
   return result.rows[0];
 };

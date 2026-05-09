@@ -16,6 +16,23 @@ class VariantPromotion {
     return result.rows[0] || null;
   }
 
+  // ✅ NOUVEAU — batch pour calculateOrderItems (fix N+1)
+  // Remplace N appels à findActiveByVariantId par 1 seule requête
+  static async findActiveByVariantIds(variantIds) {
+    const result = await database.query(
+      `SELECT DISTINCT ON (variant_id)
+         variant_id, discount_type, discount_value
+       FROM variant_promotions
+       WHERE variant_id = ANY($1)
+         AND is_active  = true
+         AND starts_at <= NOW()
+         AND expires_at > NOW()
+       ORDER BY variant_id, created_at DESC`,
+      [variantIds]
+    );
+    return result.rows;
+  }
+
   static async findByVariantId(variantId) {
     const result = await database.query(
       "SELECT * FROM variant_promotions WHERE variant_id = $1 ORDER BY created_at DESC",
@@ -34,7 +51,6 @@ class VariantPromotion {
     return result.rows[0];
   }
 
-  // ─── Désactiver toutes les promos actives d'un variant ─
   static async deactivateAllByVariantId(variantId) {
     await database.query(
       "UPDATE variant_promotions SET is_active = false, updated_at = NOW() WHERE variant_id = $1 AND is_active = true",
@@ -42,7 +58,6 @@ class VariantPromotion {
     );
   }
 
-  // ─── Toggle is_active ─────────────────────────────────
   static async toggle(id, is_active) {
     const result = await database.query(
       "UPDATE variant_promotions SET is_active = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
@@ -51,7 +66,6 @@ class VariantPromotion {
     return result.rows[0] || null;
   }
 
-  // ─── Supprimer avec confirmation ──────────────────────
   static async delete(id) {
     const result = await database.query(
       "DELETE FROM variant_promotions WHERE id = $1 RETURNING id",
