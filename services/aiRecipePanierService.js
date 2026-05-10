@@ -7,17 +7,20 @@ const model = genAI.getGenerativeModel({
 });
 
 const cache = new Map();
+const CACHE_TTL = 1000 * 60 * 30;
 
 export const suggererRecettesService = async (produits, catalogue = []) => {
     const cacheKey = produits.map(p => p.name_fr).filter(Boolean).sort().join(',');
-    if (cache.has(cacheKey)) return cache.get(cacheKey);
+    const cached = cache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
 
-    const panier = produits.map(p => `${p.name_fr}(${p.category_name})`).join(',');
+    const panier = produits.map(p => p.category_name ? `${p.name_fr}(${p.category_name})` : p.name_fr).join(',');
     const catalogueNoms = catalogue.slice(0, 50).map(p => p.name_fr).join(',');
 
-    const prompt = `Chef international. Panier: ${panier}. Catalogue GOFFA: ${catalogueNoms}.
-Si aucun aliment: {"non_alimentaire":true}
-Sinon, 1 recette mondiale en JSON strict:
+    const prompt = `Tu es un chef cuisinier international. Voici les produits dans le panier d'un client: ${panier}. Catalogue GOFFA disponible: ${catalogueNoms}.
+IMPORTANT: les produits artisanaux (épices, miels, huiles, confitures, céréales, légumineuses, herbes, condiments) sont TOUS considérés comme alimentaires.
+Réponds UNIQUEMENT avec {"non_alimentaire":true} si le panier ne contient absolument aucun produit comestible (ex: textile, bijou, ustensile).
+Sinon, génère 1 recette mondiale en JSON strict:
 {"titre":"","origine":"🇯🇵 Japonaise","description":"","emoji":"","temps":"","ingredients":[{"nom":"","quantite":""}],"etapes":[""],"suggestionGoffa":["nom catalogue exact"]}`;
 
     try {
@@ -44,7 +47,7 @@ Sinon, 1 recette mondiale en JSON strict:
                 .filter(Boolean)
         };
 
-        cache.set(cacheKey, recetteAvecId);
+        cache.set(cacheKey, { data: recetteAvecId, ts: Date.now() });
         return recetteAvecId;
 
     } catch (error) {

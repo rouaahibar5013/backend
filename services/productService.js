@@ -55,6 +55,9 @@ export const createProductService = async ({
   slug, variants, userId, files,
   is_active, is_featured, is_new,
 }) => {
+if (!variants || !Array.isArray(variants) || variants.length === 0)
+  throw new ErrorHandler("Un produit doit avoir au moins un variant.", 400);
+  
   const category = await Category.findById(category_id);
   if (!category) throw new ErrorHandler("Catégorie introuvable.", 404);
 
@@ -282,7 +285,9 @@ export const updateVariantService = async ({
 export const deleteVariantService = async (variantId) => {
   const variant = await ProductVariant.findById(variantId);
   if (!variant) throw new ErrorHandler("Variant introuvable.", 404);
-
+const variantCount = await ProductVariant.countByProductId(variant.product_id);
+  if (variantCount <= 1)
+    throw new ErrorHandler("Impossible : le produit doit avoir au moins un variant.", 400);
   await ProductVariant.delete(variantId);
   await invalidateOffresCache();
 };
@@ -300,7 +305,6 @@ export const deleteProductService = async (productId) => {
       .filter(img => img.public_id)
       .map(img => cloudinary.uploader.destroy(img.public_id))
   );
-
   await Product.delete(productId);
   await invalidateOffresCache();
   await invalidateDashboardCache();

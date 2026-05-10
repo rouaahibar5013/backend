@@ -14,9 +14,9 @@ export const suggererRecettes = catchAsyncErrors(async (req, res) => {
     const [{ rows: produitsAvecCategorie }, { rows: catalogue }] = await Promise.all([
         db.query(
             `SELECT DISTINCT p.name_fr, c.name_fr as category_name
-             FROM products p
-             JOIN product_variants pv ON pv.product_id = p.id
-             JOIN categories c ON c.id = p.category_id
+             FROM product p
+             JOIN product_variant pv ON pv.product_id = p.id
+             LEFT JOIN category c ON c.id = p.category_id
              WHERE pv.id = ANY($1) AND p.is_active = true`,
             [variantIds]
         ),
@@ -38,10 +38,10 @@ export const suggererRecettes = catchAsyncErrors(async (req, res) => {
                             THEN ROUND(pv.price - vp.discount_value, 2)
                     END
                 )::numeric AS prix_promo
-            FROM products p
-            LEFT JOIN categories c ON c.id = p.category_id
-            LEFT JOIN product_variants pv ON pv.product_id = p.id AND pv.is_active = true
-            LEFT JOIN variant_promotions vp
+            FROM product p
+            LEFT JOIN category c ON c.id = p.category_id
+            LEFT JOIN product_variant pv ON pv.product_id = p.id AND pv.is_active = true
+            LEFT JOIN variant_promotion vp
                 ON vp.variant_id = pv.id
                 AND vp.is_active = true
                 AND now() BETWEEN vp.starts_at AND vp.expires_at
@@ -50,7 +50,6 @@ export const suggererRecettes = catchAsyncErrors(async (req, res) => {
             LIMIT 50`
         )
     ]);
-
-    const recettes = await suggererRecettesService(produitsAvecCategorie, catalogue);
-    return res.status(200).json({ recettes });
+    const recette = await suggererRecettesService(produitsAvecCategorie, catalogue);
+    return res.status(200).json({ recette });
 });

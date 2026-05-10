@@ -63,10 +63,14 @@ class Product {
       conditions.push(`(p.category_id = $${i} OR c.parent_id = $${i})`);
       values.push(category_id); i++;
     }
-    if (min_rating) {
-      conditions.push(`p.rating_avg >= $${i}`);
-      values.push(min_rating); i++;
-    }
+   if (min_rating) {
+  conditions.push(`
+    (SELECT COUNT(*) FROM review r WHERE r.product_id = p.id) > 0
+    AND
+    (SELECT ROUND(AVG(r.rating)::numeric, 2) FROM review r WHERE r.product_id = p.id) >= $${i}
+  `);
+  values.push(min_rating); i++;
+}
     if (is_featured) conditions.push("p.is_featured = true");
     if (supplier_id) {
       conditions.push(`p.supplier_id = $${i}`);

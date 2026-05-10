@@ -14,8 +14,8 @@ const getProduitsForAI = async () => {
       p.description_fr,
       p.slug,
       c.name_fr AS categorie_fr
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
+    FROM product p
+    LEFT JOIN category c ON p.category_id = c.id
     WHERE p.is_active = true
     ORDER BY p.is_featured DESC, p.rating_avg DESC
     LIMIT 150
@@ -62,8 +62,8 @@ const getProduitsCompletsByIds = async (ids) => {
             WHEN vp.discount_type = 'fixed'
               THEN GREATEST(pv2.price - vp.discount_value, 0)
           END
-        FROM product_variants pv2
-        JOIN variant_promotions vp ON vp.variant_id = pv2.id
+        FROM product_variant pv2
+        JOIN variant_promotion vp ON vp.variant_id = pv2.id
         WHERE pv2.product_id = p.id
           AND pv2.is_active = true
           AND vp.is_active = true
@@ -72,9 +72,9 @@ const getProduitsCompletsByIds = async (ids) => {
         ORDER BY pv2.price ASC
         LIMIT 1
       ) AS prix_promo
-    FROM products p
-    LEFT JOIN categories c ON p.category_id = c.id
-    LEFT JOIN product_variants pv 
+    FROM product p
+    LEFT JOIN category c ON p.category_id = c.id
+    LEFT JOIN product_variant pv 
       ON pv.product_id = p.id 
       AND pv.is_active = true
     WHERE p.id IN (${placeholders})
