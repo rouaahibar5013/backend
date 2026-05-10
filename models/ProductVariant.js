@@ -141,6 +141,13 @@ class ProductVariant {
   static async delete(id) {
     await database.query("DELETE FROM product_variant WHERE id = $1", [id]);
   }
+  static async countByProductId(productId) {
+  const result = await database.query(
+    "SELECT COUNT(*) FROM product_variant WHERE product_id = $1",
+    [productId]
+  );
+  return parseInt(result.rows[0].count);
+}
 }
 
 export default ProductVariant;
