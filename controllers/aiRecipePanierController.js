@@ -16,7 +16,7 @@ export const suggererRecettes = catchAsyncErrors(async (req, res) => {
             `SELECT DISTINCT p.name_fr, c.name_fr as category_name
              FROM product p
              JOIN product_variant pv ON pv.product_id = p.id
-             JOIN category c ON c.id = p.category_id
+             LEFT JOIN category c ON c.id = p.category_id
              WHERE pv.id = ANY($1) AND p.is_active = true`,
             [variantIds]
         ),
@@ -50,7 +50,6 @@ export const suggererRecettes = catchAsyncErrors(async (req, res) => {
             LIMIT 50`
         )
     ]);
-
-    const recettes = await suggererRecettesService(produitsAvecCategorie, catalogue);
-    return res.status(200).json({ recettes });
+    const recette = await suggererRecettesService(produitsAvecCategorie, catalogue);
+    return res.status(200).json({ recette });
 });
