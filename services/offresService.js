@@ -53,11 +53,11 @@ const productColumns = `
 // HELPER — jointures communes
 // ═══════════════════════════════════════════════════════════
 const productJoins = `
-  LEFT JOIN suppliers s ON s.id = p.supplier_id
+  LEFT JOIN supplier s ON s.id = p.supplier_id
 
   LEFT JOIN LATERAL (
     SELECT id, price
-    FROM product_variants
+    FROM product_variant
     WHERE product_id = p.id
     AND   is_active  = true
     ORDER BY created_at ASC LIMIT 1
@@ -65,7 +65,7 @@ const productJoins = `
 
   LEFT JOIN LATERAL (
     SELECT discount_type, discount_value, expires_at
-    FROM variant_promotions
+    FROM variant_promotion
     WHERE variant_id  = pv_main.id
     AND   is_active   = true
     AND   starts_at  <= NOW()
@@ -98,7 +98,7 @@ console.log("[Redis] Cache MISS — offres:homepage");
     // ── Offres Flash ───────────────────────────────────────
     database.query(
       `SELECT ${productColumns}
-       FROM products p
+       FROM product p
        ${productJoins}
        WHERE p.is_active                = true
        AND   pv_main.id               IS NOT NULL
@@ -110,7 +110,7 @@ console.log("[Redis] Cache MISS — offres:homepage");
     // ── Nouveautés ─────────────────────────────────────────
     database.query(
       `SELECT ${productColumns}
-       FROM products p
+       FROM product p
        ${productJoins}
        WHERE p.is_active = true
        AND   pv_main.id IS NOT NULL
@@ -125,7 +125,7 @@ console.log("[Redis] Cache MISS — offres:homepage");
     // ── Produits vedettes ──────────────────────────────────
     database.query(
       `SELECT ${productColumns}
-       FROM products p
+       FROM product p
        ${productJoins}
        WHERE p.is_active   = true
        AND   p.is_featured = true
@@ -141,7 +141,7 @@ console.log("[Redis] Cache MISS — offres:homepage");
          discount_type, discount_value,
          min_order_amount, expires_at,
          max_uses, used_count
-       FROM promotions
+       FROM promotion
        WHERE is_active  = true
        AND   starts_at <= NOW()
        AND   expires_at >= NOW()
