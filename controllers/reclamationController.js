@@ -25,15 +25,15 @@ export const getEligibleOrders = catchAsyncErrors(async (req, res, next) => {
 // ✅ Crée la réclamation + envoie email de confirmation au client
 // ═══════════════════════════════════════════════════════════
 export const createReclamation = catchAsyncErrors(async (req, res, next) => {
-  const { order_id, reclamation_type, message } = req.body;
+  const { order_id, complaint_type, message } = req.body;
 
-  if (!reclamation_type || !message)
+  if (!complaint_type || !message)
     return next(new ErrorHandler("Type et message sont obligatoires.", 400));
 
   const reclamation = await createReclamationService({
     userId: req.user.id,
     order_id,
-    reclamation_type,
+    complaint_type,
     message,
   });
 
@@ -102,15 +102,15 @@ export const getReclamationStats = catchAsyncErrors(async (req, res, next) => {
 
 // POST /api/reclamations/guest  (public — pas de isAuthenticated)
 export const createGuestReclamation = catchAsyncErrors(async (req, res, next) => {
-  const { email, order_number, reclamation_type, message } = req.body;
+  const { email, order_number, complaint_type, message } = req.body;
 
-  if (!email || !order_number || !reclamation_type || !message)
+  if (!email || !order_number || !complaint_type || !message)
     return next(new ErrorHandler(
       "Email, numéro de commande, type et message sont obligatoires.", 400
     ));
 
   const reclamation = await createGuestReclamationService({
-    email, order_number, reclamation_type, message,
+    email, order_number, complaint_type, message,
   });
 
   res.status(201).json({

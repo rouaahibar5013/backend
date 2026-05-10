@@ -3,14 +3,14 @@ import database from "../database/db.js";
 class AttributeType {
   static async findAll() {
     const result = await database.query(
-      "SELECT * FROM attribute_types ORDER BY name_fr ASC"
+      "SELECT * FROM attribute_type ORDER BY name_fr ASC"
     );
     return result.rows;
   }
 
   static async findById(id) {
     const result = await database.query(
-      "SELECT * FROM attribute_types WHERE id = $1", [id]
+      "SELECT * FROM attribute_type WHERE id = $1", [id]
     );
     return result.rows[0] || null;
   }
@@ -40,7 +40,7 @@ class AttributeType {
   }
 
   static async delete(id) {
-    await database.query("DELETE FROM attribute_types WHERE id = $1", [id]);
+    await database.query("DELETE FROM attribute_type WHERE id = $1", [id]);
   }
 }
 

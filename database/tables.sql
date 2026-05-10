@@ -281,7 +281,7 @@ CREATE TABLE IF NOT EXISTS public.reclamations (
     user_email VARCHAR(150) NOT NULL,
     user_phone VARCHAR(30) NULL,
     order_number VARCHAR(50) NULL, -- Référence à la commande (ex: ORD-12345)
-    reclamation_type VARCHAR(80) NOT NULL, -- Ex: 'Produit défectueux', 'Livraison retardée'
+    complaint_type VARCHAR(80) NOT NULL, -- Ex: 'Produit défectueux', 'Livraison retardée'
     message TEXT NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'en_attente',
     created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
@@ -306,7 +306,7 @@ CREATE INDEX IF NOT EXISTS idx_reclamations_order
     ON public.reclamations USING btree (order_number);
 
 CREATE INDEX IF NOT EXISTS idx_reclamations_type 
-    ON public.reclamations USING btree (reclamation_type);
+    ON public.reclamations USING btree (complaint_type);
 
 -- Index pour trier par date (plus récent en premier pour le SAV)
 CREATE INDEX IF NOT EXISTS idx_reclamations_created 
@@ -519,7 +519,6 @@ CREATE TABLE IF NOT EXISTS public.products (
     created_by UUID NULL,
     images JSONB NULL,             -- Tableau d'images avec URLs et metadata
     slug VARCHAR(255) NOT NULL,    -- URL friendly (ex: miel-de-nabeul-bio)
-    meta_title_fr VARCHAR(255) NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     is_featured BOOLEAN NOT NULL DEFAULT FALSE,
     rating_avg NUMERIC(3, 2) NULL DEFAULT 0,

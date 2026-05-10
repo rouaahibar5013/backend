@@ -51,7 +51,7 @@ const sendReclamationConfirmationEmail = async (toEmail, userName, reclamation, 
           <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #166534;">
             <p><strong>Référence :</strong> #${reclamation.id.slice(0, 8).toUpperCase()}</p>
             ${orderNumber ? `<p><strong>Commande concernée :</strong> #${orderNumber}</p>` : ""}
-            <p><strong>Type :</strong> ${TYPE_LABELS[reclamation.reclamation_type] || reclamation.reclamation_type}</p>
+            <p><strong>Type :</strong> ${TYPE_LABELS[reclamation.complaint_type] || reclamation.complaint_type}</p>
             <p><strong>Statut :</strong> En attente de traitement</p>
           </div>
           <p style="color: #6b7280; font-size: 13px;">
@@ -119,9 +119,9 @@ export const getEligibleOrdersService = async (userId) => {
 // CRÉER UNE RÉCLAMATION (user authentifié)
 // ═══════════════════════════════════════════════════════════
 export const createReclamationService = async ({
-  userId, order_id, reclamation_type, message,
+  userId, order_id, complaint_type, message,
 }) => {
-  if (!VALID_TYPES.includes(reclamation_type))
+  if (!VALID_TYPES.includes(complaint_type))
     throw new ErrorHandler(`Type invalide. Valeurs acceptées : ${VALID_TYPES.join(", ")}`, 400);
 
   if (!message || message.trim().length < 10)
@@ -136,14 +136,14 @@ export const createReclamationService = async ({
     if (!order)
       throw new ErrorHandler("Commande introuvable ou vous n'êtes pas autorisé à réclamer sur cette commande.", 403);
 
-    const existing = await Reclamation.findActiveByOrderAndType(order_id, userId, reclamation_type);
+    const existing = await Reclamation.findActiveByOrderAndType(order_id, userId, complaint_type);
     if (existing)
       throw new ErrorHandler("Vous avez déjà une réclamation active de ce type pour cette commande.", 409);
   }
 
   const reclamation = await Reclamation.create({
     user_id: userId, order_id: order_id || null,
-    reclamation_type, message: message.trim(),
+    complaint_type, message: message.trim(),
   });
 
   await invalidateDashboardCache();
@@ -154,7 +154,7 @@ export const createReclamationService = async ({
     type:       "NEW_RECLAMATION",
     id:         reclamation.id,
     user_name:  user.name,
-    type_label: TYPE_LABELS[reclamation.reclamation_type],
+    type_label: TYPE_LABELS[reclamation.complaint_type],
     message:    `Nouvelle réclamation de ${user.name}`,
   });
 
@@ -238,9 +238,9 @@ export const getReclamationStatsService = async () => {
 // CRÉER RÉCLAMATION GUEST
 // ═══════════════════════════════════════════════════════════
 export const createGuestReclamationService = async ({
-  email, order_number, reclamation_type, message,
+  email, order_number, complaint_type, message,
 }) => {
-  if (!VALID_TYPES.includes(reclamation_type))
+  if (!VALID_TYPES.includes(complaint_type))
     throw new ErrorHandler("Type invalide.", 400);
 
   if (!message || message.trim().length < 10)
@@ -261,13 +261,13 @@ export const createGuestReclamationService = async ({
   if (order.payment_status !== "paye")
     throw new ErrorHandler("Cette commande n'est pas encore payée.", 400);
 
-  const existing = await Reclamation.findActiveByOrderAndType(order.id, user.id, reclamation_type);
+  const existing = await Reclamation.findActiveByOrderAndType(order.id, user.id, complaint_type);
   if (existing)
     throw new ErrorHandler("Une réclamation active de ce type existe déjà pour cette commande.", 409);
 
   const reclamation = await Reclamation.create({
     user_id: user.id, order_id: order.id,
-    reclamation_type, message: message.trim(),
+    complaint_type, message: message.trim(),
   });
 
   await invalidateDashboardCache();
@@ -278,7 +278,7 @@ export const createGuestReclamationService = async ({
     type:       "NEW_RECLAMATION",
     id:         reclamation.id,
     user_name:  user.name,
-    type_label: TYPE_LABELS[reclamation.reclamation_type],
+    type_label: TYPE_LABELS[reclamation.complaint_type],
     message:    `Nouvelle réclamation (guest) de ${user.name}`,
   });
 

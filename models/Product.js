@@ -294,16 +294,15 @@ class Product {
       `INSERT INTO product
          (name_fr, description_fr, slug, category_id, supplier_id, created_by,
           images, ethical_info_fr, origin, certifications,
-          meta_title_fr, is_active, is_featured, is_new,
+         is_active, is_featured, is_new,
           usage_fr, ingredients_fr, precautions_fr)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING *`,
       [
         data.name_fr, data.description_fr, data.slug,
         data.category_id || null, data.supplier_id || null, data.created_by || null,
         data.images || null, data.ethical_info_fr || null,
         data.origin || null, data.certifications || null,
-        data.meta_title_fr || null,
         data.is_active ?? true, data.is_featured ?? false, data.is_new ?? false,
         data.usage_fr || null, data.ingredients_fr || null, data.precautions_fr || null,
       ]
