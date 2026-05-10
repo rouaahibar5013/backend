@@ -1,20 +1,15 @@
-import database    from "../database/db.js";
+import { Reclamation, User, Order } from "../models/index.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import sendEmail    from "../utils/sendEmail.js";
 import { invalidateDashboardCache } from "../utils/cacheInvalideation.js";
 import { notifyUser, notifyAdmins } from "../utils/websocket.js";
 
 
-
 const VALID_STATUSES = ["en_attente", "en_cours", "urgente", "en_retard", "resolue", "rejetee"];
 
 const VALID_TYPES = [
-  "produit_defectueux",
-  "commande_non_recue",
-  "produit_incorrect",
-  "retard_livraison",
-  "remboursement",
-  "autre",
+  "produit_defectueux", "commande_non_recue", "produit_incorrect",
+  "retard_livraison", "remboursement", "autre",
 ];
 
 const TYPE_LABELS = {
@@ -29,14 +24,15 @@ const TYPE_LABELS = {
 const STATUS_LABELS = {
   en_attente : "En attente",
   en_cours   : "En cours de traitement",
-  urgente    : "Urgente ⚡",          
-  en_retard  : "En retard ⏰",        
+  urgente    : "Urgente ⚡",
+  en_retard  : "En retard ⏰",
   resolue    : "Résolue",
   rejetee    : "Rejetée",
 };
 
+
 // ═══════════════════════════════════════════════════════════
-// HELPER — Email confirmation réclamation au client
+// HELPERS EMAIL
 // ═══════════════════════════════════════════════════════════
 const sendReclamationConfirmationEmail = async (toEmail, userName, reclamation, orderNumber) => {
   await sendEmail({
@@ -55,7 +51,7 @@ const sendReclamationConfirmationEmail = async (toEmail, userName, reclamation, 
           <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #166534;">
             <p><strong>Référence :</strong> #${reclamation.id.slice(0, 8).toUpperCase()}</p>
             ${orderNumber ? `<p><strong>Commande concernée :</strong> #${orderNumber}</p>` : ""}
-            <p><strong>Type :</strong> ${TYPE_LABELS[reclamation.reclamation_type] || reclamation.reclamation_type}</p>
+            <p><strong>Type :</strong> ${TYPE_LABELS[reclamation.complaint_type] || reclamation.complaint_type}</p>
             <p><strong>Statut :</strong> En attente de traitement</p>
           </div>
           <p style="color: #6b7280; font-size: 13px;">
@@ -67,9 +63,6 @@ const sendReclamationConfirmationEmail = async (toEmail, userName, reclamation, 
   }).catch(err => console.error("Reclamation confirmation email error:", err.message));
 };
 
-// ═══════════════════════════════════════════════════════════
-// HELPER — Email réponse admin au client
-// ═══════════════════════════════════════════════════════════
 const sendAdminResponseEmail = async (toEmail, userName, reclamation, orderNumber) => {
   const statusColor =
     reclamation.status === "resolue" ? "#166534" :
@@ -113,229 +106,82 @@ const sendAdminResponseEmail = async (toEmail, userName, reclamation, orderNumbe
   }).catch(err => console.error("Admin response email error:", err.message));
 };
 
-// ═══════════════════════════════════════════════════════════
-// SERVICE — GET COMMANDES ÉLIGIBLES
-// ✅ Affiché dans le formulaire pour que le user choisisse sa commande
-// ✅ Seulement les commandes payées et actives
-// ═══════════════════════════════════════════════════════════
-export const getEligibleOrdersService = async (userId) => {
-  const result = await database.query(
-    `SELECT
-       o.id,
-       o.order_number,
-       o.status,
-       o.total_price,
-       o.created_at,
-       COUNT(oi.id) AS item_count
-     FROM orders o
-     LEFT JOIN order_items oi ON oi.order_id = o.id
-     WHERE o.user_id        = $1
-       AND o.payment_status = 'paye'
-    AND o.status IN ('confirmee', 'en_preparation', 'expediee', 'livree')
-     GROUP BY o.id
-     ORDER BY o.created_at DESC`,
-    [userId]
-  );
-  return result.rows;
-};
 
 // ═══════════════════════════════════════════════════════════
-// SERVICE — CRÉER UNE RÉCLAMATION (user authentifié)
-// ✅ Vérifie que la commande appartient au user
-// ✅ Vérifie qu'il n'y a pas déjà une réclamation active du même type
-// ✅ Envoie email de confirmation au client
-// ✅ Zéro redondance : user_name/email/phone via user_id FK
+// GET COMMANDES ÉLIGIBLES
+// ═══════════════════════════════════════════════════════════
+export const getEligibleOrdersService = async (userId) => {
+  return await Order.findEligibleForReclamation(userId);
+};
+
+
+// ═══════════════════════════════════════════════════════════
+// CRÉER UNE RÉCLAMATION (user authentifié)
 // ═══════════════════════════════════════════════════════════
 export const createReclamationService = async ({
-  userId, order_id, reclamation_type, message,
+  userId, order_id, complaint_type, message,
 }) => {
-  if (!VALID_TYPES.includes(reclamation_type))
+  if (!VALID_TYPES.includes(complaint_type))
     throw new ErrorHandler(`Type invalide. Valeurs acceptées : ${VALID_TYPES.join(", ")}`, 400);
 
   if (!message || message.trim().length < 10)
     throw new ErrorHandler("Le message doit contenir au moins 10 caractères.", 400);
 
-  // Récupérer les infos user via FK (pas de redondance)
-  const userResult = await database.query(
-    "SELECT id, name, email, phone FROM users WHERE id = $1",
-    [userId]
-  );
-  if (userResult.rows.length === 0)
-    throw new ErrorHandler("Utilisateur introuvable.", 404);
+  const user = await User.findById(userId);
+  if (!user) throw new ErrorHandler("Utilisateur introuvable.", 404);
 
-  const user = userResult.rows[0];
-
-  // Si order_id fourni → vérifier appartenance
   let order = null;
   if (order_id) {
-    const orderResult = await database.query(
-      `SELECT id, order_number, status
-       FROM orders
-       WHERE id = $1 AND user_id = $2`,
-      [order_id, userId]
-    );
+    order = await Order.findByIdAndUser(order_id, userId);
+    if (!order)
+      throw new ErrorHandler("Commande introuvable ou vous n'êtes pas autorisé à réclamer sur cette commande.", 403);
 
-    if (orderResult.rows.length === 0)
-      throw new ErrorHandler(
-        "Commande introuvable ou vous n'êtes pas autorisé à réclamer sur cette commande.",
-        403
-      );
-
-    order = orderResult.rows[0];
-
-    // Vérifier qu'il n'y a pas déjà une réclamation active du même type
-    const existing = await database.query(
-      `SELECT id FROM reclamations
-       WHERE order_id         = $1
-         AND user_id          = $2
-         AND reclamation_type = $3
-         AND status NOT IN ('resolue', 'rejetee')`,
-      [order_id, userId, reclamation_type]
-    );
-
-    if (existing.rows.length > 0)
-      throw new ErrorHandler(
-        "Vous avez déjà une réclamation active de ce type pour cette commande.",
-        409
-      );
+    const existing = await Reclamation.findActiveByOrderAndType(order_id, userId, complaint_type);
+    if (existing)
+      throw new ErrorHandler("Vous avez déjà une réclamation active de ce type pour cette commande.", 409);
   }
 
-  // Insérer — seulement user_id + order_id comme FK
-  const result = await database.query(
-    `INSERT INTO reclamations (user_id, order_id, reclamation_type, message)
-     VALUES ($1, $2, $3, $4)
-     RETURNING *`,
-    [userId, order_id || null, reclamation_type, message.trim()]
-  );
+  const reclamation = await Reclamation.create({
+    user_id: userId, order_id: order_id || null,
+    complaint_type, message: message.trim(),
+  });
 
-  const reclamation = result.rows[0];
-await invalidateDashboardCache();
-  // Email de confirmation au client
-  await sendReclamationConfirmationEmail(
-    user.email,
-    user.name,
-    reclamation,
-    order?.order_number || null
-  );
-  // Notifier les admins en temps réel
-notifyAdmins({
-  type      : "NEW_RECLAMATION",
-  id        : reclamation.id,
-  user_name : user.name,
-  type_label: TYPE_LABELS[reclamation.reclamation_type],
-  message   : `Nouvelle réclamation de ${user.name}`,
-});
+  await invalidateDashboardCache();
 
-  return {
-    ...reclamation,
-    // Enrichi pour la réponse JSON uniquement (non stocké en DB)
-    user_name:    user.name,
-    order_number: order?.order_number || null,
-  };
+  await sendReclamationConfirmationEmail(user.email, user.name, reclamation, order?.order_number || null);
+
+  notifyAdmins({
+    type:       "NEW_RECLAMATION",
+    id:         reclamation.id,
+    user_name:  user.name,
+    type_label: TYPE_LABELS[reclamation.complaint_type],
+    message:    `Nouvelle réclamation de ${user.name}`,
+  });
+
+  return { ...reclamation, user_name: user.name, order_number: order?.order_number || null };
 };
 
+
 // ═══════════════════════════════════════════════════════════
-// SERVICE — GET TOUTES LES RÉCLAMATIONS (admin)
-// ✅ JOIN vers users + orders — zéro redondance
-// ✅ Filtres : status, type, page
-// ✅ Triées : en_attente en premier
+// GET TOUTES LES RÉCLAMATIONS (admin)
 // ═══════════════════════════════════════════════════════════
 export const getAllReclamationsService = async ({ status, type, page = 1 }) => {
-  const limit  = 15;
-  const offset = (page - 1) * limit;
-
-  const conditions = [];
-  const values     = [];
-  let   i          = 1;
-
-  if (status) { conditions.push(`r.status = $${i}`);           values.push(status); i++; }
-  if (type)   { conditions.push(`r.reclamation_type = $${i}`); values.push(type);   i++; }
-
-  const where       = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const countValues = [...values];
-  values.push(limit, offset);
-
-  const [totalResult, result] = await Promise.all([
-    database.query(`SELECT COUNT(*) FROM reclamations r ${where}`, countValues),
-    database.query(
-      `SELECT
-         r.id, r.reclamation_type, r.message, r.status,
-         r.admin_response, r.responded_at,
-         r.resolution_delay, r.deadline_at,
-         r.created_at, r.updated_at,
-         -- Infos user via JOIN
-         u.id    AS user_id,
-         u.name  AS user_name,
-         u.email AS user_email,
-         u.phone AS user_phone,
-         -- Infos commande via JOIN
-         o.id           AS order_id,
-         o.order_number,
-         o.status       AS order_status,
-         o.total_price  AS order_total,
-         o.created_at   AS order_date,
-         -- Admin qui a répondu
-         a.name         AS admin_name
-       FROM reclamations r
-       LEFT JOIN users  u ON u.id = r.user_id
-       LEFT JOIN orders o ON o.id = r.order_id
-       LEFT JOIN users  a ON a.id = r.admin_id
-       ${where}
-      ORDER BY
-  CASE r.status
-    WHEN 'urgente'    THEN 1   -- priorité maximale
-    WHEN 'en_retard'  THEN 2
-    WHEN 'en_attente' THEN 3
-    WHEN 'en_cours'   THEN 4
-    ELSE 5
-  END,
-         r.created_at DESC
-       LIMIT $${i} OFFSET $${i + 1}`,
-      values
-    ),
-  ]);
-
-  return {
-    total:        parseInt(totalResult.rows[0].count),
-    totalPages:   Math.ceil(parseInt(totalResult.rows[0].count) / limit),
-    page,
-    reclamations: result.rows,
-  };
+  return await Reclamation.findAllAdmin({ status, type, page });
 };
 
+
 // ═══════════════════════════════════════════════════════════
-// SERVICE — GET SINGLE RÉCLAMATION (admin uniquement)
+// GET SINGLE RÉCLAMATION (admin)
 // ═══════════════════════════════════════════════════════════
 export const getSingleReclamationService = async (reclamationId) => {
-  const result = await database.query(
-    `SELECT
-       r.*,
-       u.name   AS user_name,
-       u.email  AS user_email,
-       u.phone  AS user_phone,
-       o.order_number,
-       o.status       AS order_status,
-       o.total_price  AS order_total,
-       o.created_at   AS order_date,
-       a.name         AS admin_name
-     FROM reclamations r
-     LEFT JOIN users  u ON u.id = r.user_id
-     LEFT JOIN orders o ON o.id = r.order_id
-     LEFT JOIN users  a ON a.id = r.admin_id
-     WHERE r.id = $1`,
-    [reclamationId]
-  );
-
-  if (result.rows.length === 0)
-    throw new ErrorHandler("Réclamation introuvable.", 404);
-
-  return result.rows[0];
+  const reclamation = await Reclamation.findByIdFull(reclamationId);
+  if (!reclamation) throw new ErrorHandler("Réclamation introuvable.", 404);
+  return reclamation;
 };
 
+
 // ═══════════════════════════════════════════════════════════
-// SERVICE — RÉPONDRE À UNE RÉCLAMATION (admin)
-// ✅ status + admin_response + délai en une seule action
-// ✅ Email automatique au client avec la réponse
+// RÉPONDRE À UNE RÉCLAMATION (admin)
 // ═══════════════════════════════════════════════════════════
 export const respondToReclamationService = async ({
   reclamationId, adminId, status, admin_response, resolution_delay,
@@ -346,111 +192,56 @@ export const respondToReclamationService = async ({
   if (!admin_response || admin_response.trim().length < 5)
     throw new ErrorHandler("La réponse doit contenir au moins 5 caractères.", 400);
 
-  // Récupérer la réclamation + infos client pour l'email
-  const existing = await database.query(
-    `SELECT r.*, u.name AS user_name, u.email AS user_email, o.order_number
-     FROM reclamations r
-     LEFT JOIN users  u ON u.id = r.user_id
-     LEFT JOIN orders o ON o.id = r.order_id
-     WHERE r.id = $1`,
-    [reclamationId]
-  );
-
-  if (existing.rows.length === 0)
-    throw new ErrorHandler("Réclamation introuvable.", 404);
-
-  const current = existing.rows[0];
+  const current = await Reclamation.findByIdFull(reclamationId);
+  if (!current) throw new ErrorHandler("Réclamation introuvable.", 404);
 
   if (["resolue", "rejetee"].includes(current.status))
-  throw new ErrorHandler("Cette réclamation est déjà clôturée.", 400);
+    throw new ErrorHandler("Cette réclamation est déjà clôturée.", 400);
 
-  // Calcul deadline si délai fourni (en heures)
   let deadlineAt = null;
-  if (resolution_delay && resolution_delay > 0) {
+  if (resolution_delay && resolution_delay > 0)
     deadlineAt = new Date(Date.now() + resolution_delay * 60 * 60 * 1000);
-  }
 
-  const result = await database.query(
-    `UPDATE reclamations
-     SET
-       status           = $1,
-       admin_response   = $2,
-       admin_id         = $3,
-       responded_at     = NOW(),
-       resolution_delay = $4,
-       deadline_at      = $5,
-       updated_at       = NOW()
-     WHERE id = $6
-     RETURNING *`,
-    [
-      status,
-      admin_response.trim(),
-      adminId,
-      resolution_delay || null,
-      deadlineAt,
-      reclamationId,
-    ]
-  );
+  const reclamation = await Reclamation.respondFull(reclamationId, {
+    admin_id:         adminId,
+    admin_response:   admin_response.trim(),
+    status,
+    resolution_delay: resolution_delay || null,
+    deadline_at:      deadlineAt,
+  });
 
-  const reclamation = result.rows[0];
-await invalidateDashboardCache();
-  // ✅ Email automatique au client
-  await sendAdminResponseEmail(
-    current.user_email,
-    current.user_name,
-    reclamation,
-    current.order_number
-  );
-  // Notifier le client en temps réel
-notifyUser(current.user_id, {
-  type    : "RECLAMATION_UPDATE",
-  id      : reclamation.id,
-  status  : reclamation.status,
-  admin_response : reclamation.admin_response,
-  message : "Votre réclamation a reçu une réponse.",
-});
+  await invalidateDashboardCache();
 
-  return {
-    ...reclamation,
-    user_name:    current.user_name,
-    user_email:   current.user_email,
-    order_number: current.order_number,
-  };
+  await sendAdminResponseEmail(current.user_email, current.user_name, reclamation, current.order_number);
+
+  notifyUser(current.user_id, {
+    type:          "RECLAMATION_UPDATE",
+    id:            reclamation.id,
+    status:        reclamation.status,
+    admin_response: reclamation.admin_response,
+    message:       "Votre réclamation a reçu une réponse.",
+  });
+
+  return { ...reclamation, user_name: current.user_name, user_email: current.user_email, order_number: current.order_number };
 };
 
+
 // ═══════════════════════════════════════════════════════════
-// SERVICE — STATS (admin dashboard)
+// STATS (admin dashboard)
 // ═══════════════════════════════════════════════════════════
 export const getReclamationStatsService = async () => {
-  const result = await database.query(
-    `SELECT
-       COUNT(*)                                                     AS total,
-       COUNT(*) FILTER (WHERE status = 'en_attente')               AS en_attente,
-       COUNT(*) FILTER (WHERE status = 'en_cours')                 AS en_cours,
-       COUNT(*) FILTER (WHERE status = 'urgente')                  AS urgentes,
-       COUNT(*) FILTER (WHERE status = 'en_retard')                AS en_retard,
-       COUNT(*) FILTER (WHERE status = 'resolue')                  AS resolues,
-       COUNT(*) FILTER (WHERE status = 'rejetee')                  AS rejetees,
-       ROUND(
-         AVG(
-           EXTRACT(EPOCH FROM (responded_at - created_at)) / 3600
-         ) FILTER (WHERE responded_at IS NOT NULL)
-       )                                                            AS avg_response_hours
-     FROM reclamations`
-  );
-  return result.rows[0];
+  return await Reclamation.getStats();
 };
 
 
 // ═══════════════════════════════════════════════════════════
-// SERVICE — CRÉER RÉCLAMATION GUEST
-// Vérification : email + order_number
+// CRÉER RÉCLAMATION GUEST
 // ═══════════════════════════════════════════════════════════
 export const createGuestReclamationService = async ({
-  email, order_number, reclamation_type, message,
+  email, order_number, complaint_type, message,
 }) => {
-  if (!VALID_TYPES.includes(reclamation_type))
-    throw new ErrorHandler(`Type invalide.`, 400);
+  if (!VALID_TYPES.includes(complaint_type))
+    throw new ErrorHandler("Type invalide.", 400);
 
   if (!message || message.trim().length < 10)
     throw new ErrorHandler("Message trop court (min 10 caractères).", 400);
@@ -458,103 +249,46 @@ export const createGuestReclamationService = async ({
   if (!email || !order_number)
     throw new ErrorHandler("Email et numéro de commande obligatoires.", 400);
 
-  // ── Trouver la commande par order_number ─────────────────
-  const orderResult = await database.query(
-    `SELECT o.id, o.order_number, o.status, o.payment_status, o.user_id
-     FROM orders o
-     WHERE o.order_number = $1`,
-    [order_number.trim().toUpperCase()]
-  );
+  const order = await Order.findByOrderNumber(order_number.trim().toUpperCase());
+  if (!order) throw new ErrorHandler("Numéro de commande introuvable.", 404);
 
-  if (orderResult.rows.length === 0)
-    throw new ErrorHandler("Numéro de commande introuvable.", 404);
+  const user = await User.findById(order.user_id);
+  if (!user) throw new ErrorHandler("Utilisateur introuvable.", 404);
 
-  const order = orderResult.rows[0];
-
-  // ── Trouver le user lié à cette commande ─────────────────
-  const userResult = await database.query(
-    `SELECT id, name, email FROM users WHERE id = $1`,
-    [order.user_id]
-  );
-
-  if (userResult.rows.length === 0)
-    throw new ErrorHandler("Utilisateur introuvable.", 404);
-
-  const user = userResult.rows[0];
-  // ── Vérifier que l'email correspond ─────────────────────
   if (user.email.toLowerCase() !== email.trim().toLowerCase())
-    throw new ErrorHandler(
-      "Aucune commande trouvée avec ce numéro et cette adresse email.", 403
-    );
+    throw new ErrorHandler("Aucune commande trouvée avec ce numéro et cette adresse email.", 403);
 
-  // ── Vérifier commande éligible ───────────────────────────
   if (order.payment_status !== "paye")
     throw new ErrorHandler("Cette commande n'est pas encore payée.", 400);
 
-  // ── Vérifier pas de réclamation active du même type ─────
-  const existing = await database.query(
-    `SELECT id FROM reclamations
-     WHERE order_id         = $1
-       AND user_id          = $2
-       AND reclamation_type = $3
-       AND status NOT IN ('resolue', 'rejetee')`,
-    [order.id, user.id, reclamation_type]
-  );
+  const existing = await Reclamation.findActiveByOrderAndType(order.id, user.id, complaint_type);
+  if (existing)
+    throw new ErrorHandler("Une réclamation active de ce type existe déjà pour cette commande.", 409);
 
-  if (existing.rows.length > 0)
-    throw new ErrorHandler(
-      "Une réclamation active de ce type existe déjà pour cette commande.", 409
-    );
+  const reclamation = await Reclamation.create({
+    user_id: user.id, order_id: order.id,
+    complaint_type, message: message.trim(),
+  });
 
-  // ── Insérer la réclamation ───────────────────────────────
-  const result = await database.query(
-    `INSERT INTO reclamations (user_id, order_id, reclamation_type, message)
-     VALUES ($1, $2, $3, $4)
-     RETURNING *`,
-    [user.id, order.id, reclamation_type, message.trim()]
-  );
+  await invalidateDashboardCache();
 
-  const reclamation = result.rows[0];
-await invalidateDashboardCache();
-
-  // ── Email confirmation au guest ──────────────────────────
-  await sendReclamationConfirmationEmail(
-    user.email,
-    user.name,
-    reclamation,
-    order.order_number
-  );
+  await sendReclamationConfirmationEmail(user.email, user.name, reclamation, order.order_number);
 
   notifyAdmins({
-  type      : "NEW_RECLAMATION",
-  id        : reclamation.id,
-  user_name : user.name,
-  type_label: TYPE_LABELS[reclamation.reclamation_type],
-  message   : `Nouvelle réclamation (guest) de ${user.name}`,
-});
+    type:       "NEW_RECLAMATION",
+    id:         reclamation.id,
+    user_name:  user.name,
+    type_label: TYPE_LABELS[reclamation.complaint_type],
+    message:    `Nouvelle réclamation (guest) de ${user.name}`,
+  });
 
-  return {
-    ...reclamation,
-    user_name:    user.name,
-    order_number: order.order_number,
-  };
+  return { ...reclamation, user_name: user.name, order_number: order.order_number };
 };
 
+
 // ═══════════════════════════════════════════════════════════
-// SERVICE — GET MES RÉCLAMATIONS (user connecté)
+// GET MES RÉCLAMATIONS (user connecté)
 // ═══════════════════════════════════════════════════════════
 export const getMyReclamationsService = async (userId) => {
-  const result = await database.query(
-    `SELECT
-       r.id, r.reclamation_type, r.message, r.status,
-       r.admin_response, r.responded_at,
-       r.created_at, r.updated_at,
-       o.order_number
-     FROM reclamations r
-     LEFT JOIN orders o ON o.id = r.order_id
-     WHERE r.user_id = $1
-     ORDER BY r.created_at DESC`,
-    [userId]
-  );
-  return result.rows;
+  return await Reclamation.findByUserId(userId);
 };

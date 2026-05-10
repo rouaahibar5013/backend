@@ -12,15 +12,15 @@ export const startScheduler = () => {
   cron.schedule("*/15 * * * *", async () => {
     try {
       const urgentes = await database.query(`
-        UPDATE reclamations r
+        UPDATE complaint r
         SET status     = 'urgente',
             updated_at = NOW()
-        FROM users u
+        FROM "user" u
         WHERE r.user_id    = u.id
           AND r.status     = 'en_attente'
           AND r.created_at < NOW() - INTERVAL '24 hours'
         RETURNING
-          r.id, r.user_id, r.reclamation_type,
+          r.id, r.user_id, r.complaint_type,
           u.name  AS user_name,
           u.email AS user_email
       `);
@@ -78,10 +78,10 @@ export const startScheduler = () => {
   cron.schedule("*/15 * * * *", async () => {
     try {
       const retards = await database.query(`
-        UPDATE reclamations r
+        UPDATE complaint r
         SET status     = 'en_retard',
             updated_at = NOW()
-        FROM users u
+        FROM "user" u
         WHERE r.user_id      = u.id
           AND r.status       = 'en_cours'
           AND r.deadline_at  IS NOT NULL
@@ -145,14 +145,14 @@ cron.schedule("0 * * * *", async () => {
       // Réclamations critiques non traitées
       database.query(`
         SELECT id
-        FROM reclamations
+        FROM complaint
         WHERE status IN ('urgente', 'en_retard')
           AND updated_at < NOW() - INTERVAL '48 hours'
       `),
       // Tous les admins de la DB
       database.query(`
         SELECT email, name
-        FROM users
+        FROM "user"
         WHERE role = 'admin'
       `)
     ]);
@@ -196,7 +196,7 @@ cron.schedule("0 * * * *", async () => {
 cron.schedule("0 0 * * *", async () => {
   try {
     const result = await database.query(
-      `UPDATE products
+      `UPDATE product
        SET is_new = false, updated_at = NOW()
        WHERE is_new = true
        AND created_at < NOW() - INTERVAL '30 days'`

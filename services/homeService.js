@@ -9,11 +9,11 @@ export const getHomeDataService = async () => {
     database.query(
       `SELECT
          c.id, c.name_fr, c.slug, c.images, c.sort_order,
-         (SELECT COUNT(*) FROM products p
-          LEFT JOIN categories sub ON sub.id = p.category_id
+         (SELECT COUNT(*) FROM product p
+          LEFT JOIN category sub ON sub.id = p.category_id
           WHERE (sub.parent_id = c.id OR p.category_id = c.id)
           AND p.is_active = true) AS product_count
-       FROM categories c
+       FROM category c
        WHERE c.parent_id IS NULL
        AND   c.is_active = true
        ORDER BY c.sort_order ASC
@@ -56,19 +56,19 @@ export const getHomeDataService = async () => {
 
          pv_main.price AS original_min_price
 
-       FROM products p
-       LEFT JOIN suppliers s ON s.id = p.supplier_id
+       FROM product p
+       LEFT JOIN supplier s ON s.id = p.supplier_id
 
        LEFT JOIN LATERAL (
          SELECT id, price
-         FROM product_variants
+         FROM product_variant
          WHERE product_id = p.id AND is_active = true
          ORDER BY created_at ASC LIMIT 1
        ) pv_main ON true
 
        LEFT JOIN LATERAL (
          SELECT discount_type, discount_value, expires_at
-         FROM variant_promotions
+         FROM variant_promotion
          WHERE variant_id  = pv_main.id
          AND   is_active   = true
          AND   starts_at  <= NOW()
@@ -121,22 +121,22 @@ export const getHomeDataService = async () => {
 
          pv_main.price AS original_min_price
 
-       FROM products p
-       LEFT JOIN suppliers s ON s.id = p.supplier_id
-       LEFT JOIN product_views pv_views
+       FROM product p
+       LEFT JOIN supplier s ON s.id = p.supplier_id
+       LEFT JOIN product_view pv_views
          ON pv_views.product_id = p.id
          AND pv_views.viewed_at >= NOW() - INTERVAL '7 days'
 
        LEFT JOIN LATERAL (
          SELECT id, price
-         FROM product_variants
+         FROM product_variant
          WHERE product_id = p.id AND is_active = true
          ORDER BY created_at ASC LIMIT 1
        ) pv_main ON true
 
        LEFT JOIN LATERAL (
          SELECT discount_type, discount_value, expires_at
-         FROM variant_promotions
+         FROM variant_promotion
          WHERE variant_id  = pv_main.id
          AND   is_active   = true
          AND   starts_at  <= NOW()
@@ -178,18 +178,18 @@ export const getHomeDataService = async () => {
 
          pv_main.price AS original_min_price
 
-       FROM products p
-       LEFT JOIN suppliers s ON s.id = p.supplier_id
+       FROM product p
+       LEFT JOIN supplier s ON s.id = p.supplier_id
 
        LEFT JOIN LATERAL (
-         SELECT id, price FROM product_variants
+         SELECT id, price FROM product_variant
          WHERE product_id = p.id AND is_active = true
          ORDER BY created_at ASC LIMIT 1
        ) pv_main ON true
 
        LEFT JOIN LATERAL (
          SELECT discount_type, discount_value, expires_at
-         FROM variant_promotions
+         FROM variant_promotion
          WHERE variant_id = pv_main.id
            AND is_active  = true
            AND starts_at <= NOW()

@@ -1,24 +1,14 @@
-import database    from "../database/db.js";
-import ErrorHandler from "../middlewares/errorMiddleware.js";
-import sendEmail    from "../utils/sendEmail.js";
+import { Faq, FaqQuestion } from "../models/index.js";
+import ErrorHandler  from "../middlewares/errorMiddleware.js";
+import sendEmail     from "../utils/sendEmail.js";
 import { notifyAdmins } from "../utils/websocket.js";
 
 
-// ═══════════════════════════════════════════════════════════
-// CONSTANTES
-// ═══════════════════════════════════════════════════════════
-
-// Seuil de similarité trigramme : 0.0 = tout match, 1.0 = identique
-// 0.3 = équilibre optimal : gère les fautes de frappe légères
-//       sans faire de faux positifs ("livraison" ≠ "retour")
-const SIMILARITY_THRESHOLD = 0.3;
-
-const VALID_CATEGORIES = ['livraison', 'paiement', 'produits', 'retours', 'autre'];
+const VALID_CATEGORIES      = ['livraison', 'paiement', 'produits', 'retours', 'autre'];
+const SIMILARITY_THRESHOLD  = 0.3;
 
 
-// ═══════════════════════════════════════════════════════════
-// HELPER PRIVÉ — Email de réponse au user
-// ═══════════════════════════════════════════════════════════
+// ─── Helper email ─────────────────────────────────────────
 const sendAnswerEmail = async (toEmail, userName, question, answer) => {
   await sendEmail({
     to:      toEmail,
@@ -50,91 +40,26 @@ const sendAnswerEmail = async (toEmail, userName, question, answer) => {
 
 
 // ═══════════════════════════════════════════════════════════
-// HELPER PRIVÉ — Recherche de FAQ similaire
-// Retourne la FAQ la plus proche ou null
-// ═══════════════════════════════════════════════════════════
-const findSimilarFaq = async (question) => {
-  // Étape 1 — Full-Text Search (rapide, utilise l'index GIN french existant)
-  //   → détecte les questions sémantiquement proches ("livraison" = "livrer")
-  // Étape 2 — Trigramme similarity() (pg_trgm)
-  //   → détecte les fautes de frappe ("livrasion" ≈ "livraison")
-  // On combine les deux avec OR pour maximiser les chances de match
-  // On trie par similarité décroissante pour prendre le meilleur match
-  const result = await database.query(
-    `SELECT
-       id,
-       question_fr,
-       answer_fr,
-       category,
-       similarity(question_fr, $1) AS score
-     FROM faqs
-     WHERE is_active = true
-       AND (
-         -- Full-Text Search : détecte la sémantique (mots racines)
-         to_tsvector('french', question_fr) @@ plainto_tsquery('french', $1)
-         OR
-         -- Trigramme : détecte les fautes de frappe (caractères communs)
-         similarity(question_fr, $1) > $2
-       )
-     ORDER BY score DESC
-     LIMIT 1`,
-    [question.trim(), SIMILARITY_THRESHOLD]
-  );
-
-  return result.rows.length > 0 ? result.rows[0] : null;
-};
-
-
-// ═══════════════════════════════════════════════════════════
-// GET ALL ACTIVE FAQs (public) — triées par fréquence
+// GET ALL ACTIVE FAQs (public)
 // ═══════════════════════════════════════════════════════════
 export const getAllFaqsService = async () => {
-  // On utilise la vue faqs_public créée en migration
-  // (ORDER BY frequency DESC, order_index ASC)
-  const result = await database.query(
-    `SELECT id, category, question_fr, answer_fr, order_index, frequency
-     FROM faqs_public`
-  );
-  return result.rows;
+  return await Faq.findAllPublic();
 };
 
 
 // ═══════════════════════════════════════════════════════════
-// SEARCH FAQs (public) — Full-Text + trigramme
+// SEARCH FAQs (public)
 // ═══════════════════════════════════════════════════════════
 export const searchFaqsService = async (q) => {
   if (!q || q.trim().length < 2)
     throw new ErrorHandler("Veuillez fournir au moins 2 caractères.", 400);
 
-  const result = await database.query(
-    `SELECT
-       id, category, question_fr, answer_fr,
-       similarity(question_fr, $1) AS score
-     FROM faqs
-     WHERE is_active = true
-       AND (
-         question_fr ILIKE $2
-         OR answer_fr  ILIKE $2
-         OR similarity(question_fr, $1) > $3
-         OR to_tsvector('french', question_fr || ' ' || answer_fr)
-            @@ plainto_tsquery('french', $1)
-       )
-     ORDER BY score DESC, order_index ASC`,
-    [q.trim(), `%${q.trim()}%`, SIMILARITY_THRESHOLD]
-  );
-  return result.rows;
+  return await Faq.search(q.trim(), SIMILARITY_THRESHOLD);
 };
 
 
 // ═══════════════════════════════════════════════════════════
 // USER POSE UNE QUESTION (public)
-//
-// LOGIQUE COMPLÈTE :
-//   1. Valider les champs
-//   2. Chercher une FAQ similaire (Full-Text + trigramme)
-//   3a. MATCH → incrémenter frequency + stocker question liée
-//             + répondre immédiatement au user par email
-//   3b. PAS DE MATCH → stocker en pending + notifier admin
 // ═══════════════════════════════════════════════════════════
 export const askQuestionService = async ({ userId, user_name, user_email, question }) => {
   if (!user_name || !user_email || !question)
@@ -147,37 +72,27 @@ export const askQuestionService = async ({ userId, user_name, user_email, questi
   const cleanName     = user_name.trim();
   const cleanEmail    = user_email.trim().toLowerCase();
 
-  const matchedFaq = await findSimilarFaq(cleanQuestion);
+  const matchedFaq = await Faq.findSimilar(cleanQuestion, SIMILARITY_THRESHOLD);
 
   // ── CAS 1 : match trouvé ────────────────────────────────
   if (matchedFaq) {
-    await database.query(
-      `SELECT increment_faq_frequency($1)`,
-      [matchedFaq.id]
-    );
+    await Faq.incrementFrequency(matchedFaq.id);
 
-    const result = await database.query(
-      `INSERT INTO faq_questions
-         (user_id, user_name, user_email, question, status, answer, answered_at)
-       VALUES ($1, $2, $3, $4, 'answered', $5, NOW())
-       RETURNING *`,
-      [userId || null, cleanName, cleanEmail, cleanQuestion, matchedFaq.answer_fr]
-    );
+    const faqQuestion = await FaqQuestion.createAnswered({
+      userId:    userId || null,
+      user_name: cleanName,
+      user_email: cleanEmail,
+      question:  cleanQuestion,
+      answer:    matchedFaq.answer_fr,
+    });
 
-    await database.query(
-      `INSERT INTO frequent_question (question_id, faq_id, matched_automatically)
-       VALUES ($1, $2, TRUE)`,
-      [result.rows[0].id, matchedFaq.id]
-    );
+    await FaqQuestion.linkToFaq(faqQuestion.id, matchedFaq.id, true);
 
     await sendAnswerEmail(cleanEmail, cleanName, cleanQuestion, matchedFaq.answer_fr)
       .catch(err => console.error("Auto-answer email error:", err.message));
 
-
-
-
     return {
-      question:      result.rows[0],
+      question:      faqQuestion,
       auto_answered: true,
       matched_faq:   {
         id:          matchedFaq.id,
@@ -188,21 +103,20 @@ export const askQuestionService = async ({ userId, user_name, user_email, questi
   }
 
   // ── CAS 2 : aucun match → en attente de l'admin ─────────
-  const result = await database.query(
-    `INSERT INTO faq_questions
-       (user_id, user_name, user_email, question, status)
-     VALUES ($1, $2, $3, $4, 'pending')
-     RETURNING *`,
-    [userId || null, cleanName, cleanEmail, cleanQuestion]
-  );
+  const faqQuestion = await FaqQuestion.createPending({
+    userId:     userId || null,
+    user_name:  cleanName,
+    user_email: cleanEmail,
+    question:   cleanQuestion,
+  });
 
   notifyAdmins({
-  type      : "NEW_FAQ_QUESTION",
-  id        : result.rows[0].id,
-  user_name : cleanName,
-  question  : cleanQuestion,
-  message   : `❓ Nouvelle question de ${cleanName}`,
-});
+    type:      "NEW_FAQ_QUESTION",
+    id:        faqQuestion.id,
+    user_name: cleanName,
+    question:  cleanQuestion,
+    message:   `❓ Nouvelle question de ${cleanName}`,
+  });
 
   const adminEmail = process.env.ADMIN_EMAIL;
   if (adminEmail) {
@@ -230,21 +144,15 @@ export const askQuestionService = async ({ userId, user_name, user_email, questi
     }).catch(err => console.error("Admin notify email error:", err.message));
   }
 
-  return {
-    question:      result.rows[0],
-    auto_answered: false,
-    matched_faq:   null,
-  };
+  return { question: faqQuestion, auto_answered: false, matched_faq: null };
 };
+
 
 // ═══════════════════════════════════════════════════════════
 // ADMIN — GET ALL FAQs
 // ═══════════════════════════════════════════════════════════
 export const adminGetAllFaqsService = async () => {
-  const result = await database.query(
-    `SELECT * FROM faqs ORDER BY frequency DESC, category, order_index ASC`
-  );
-  return result.rows;
+  return await Faq.findAll();
 };
 
 
@@ -257,13 +165,10 @@ export const adminCreateFaqService = async ({ category, question_fr, answer_fr, 
   if (!question_fr || !answer_fr)
     throw new ErrorHandler("La question et la réponse sont requises.", 400);
 
-  const result = await database.query(
-    `INSERT INTO faqs (category, question_fr, answer_fr, order_index)
-     VALUES ($1, $2, $3, $4)
-     RETURNING *`,
-    [category, question_fr.trim(), answer_fr.trim(), order_index || 0]
-  );
-  return result.rows[0];
+  return await Faq.create({
+    category, question_fr: question_fr.trim(),
+    answer_fr: answer_fr.trim(), order_index: order_index || 0,
+  });
 };
 
 
@@ -271,50 +176,27 @@ export const adminCreateFaqService = async ({ category, question_fr, answer_fr, 
 // ADMIN — UPDATE FAQ
 // ═══════════════════════════════════════════════════════════
 export const adminUpdateFaqService = async ({ id, category, question_fr, answer_fr, order_index, is_active }) => {
-  const faq = await database.query("SELECT * FROM faqs WHERE id=$1", [id]);
-  if (faq.rows.length === 0)
-    throw new ErrorHandler("FAQ introuvable.", 404);
+  const current = await Faq.findById(id);
+  if (!current) throw new ErrorHandler("FAQ introuvable.", 404);
 
-  const current = faq.rows[0];
-
-  const result = await database.query(
-    `UPDATE faqs
-     SET category    = $1,
-         question_fr = $2,
-         answer_fr   = $3,
-         order_index = $4,
-          is_active   = $5,
-         updated_at  = NOW()
-     WHERE id = $6
-     RETURNING *`,
-    [
-      category    || current.category,
-      question_fr || current.question_fr,
-      answer_fr   || current.answer_fr,
-      order_index ?? current.order_index,
-      is_active   ?? current.is_active,
-      id,
-    ]
-  );
-  return result.rows[0];
+  return await Faq.update(id, {
+    category:    category    || current.category,
+    question_fr: question_fr || current.question_fr,
+    answer_fr:   answer_fr   || current.answer_fr,
+    order_index: order_index ?? current.order_index,
+    is_active:   is_active   ?? current.is_active,
+  });
 };
 
 
 // ═══════════════════════════════════════════════════════════
-// ADMIN — TOGGLE FAQ (activer / désactiver)
+// ADMIN — TOGGLE FAQ
 // ═══════════════════════════════════════════════════════════
 export const adminToggleFaqService = async (id) => {
-  const faq = await database.query("SELECT is_active FROM faqs WHERE id=$1", [id]);
-  if (faq.rows.length === 0)
-    throw new ErrorHandler("FAQ introuvable.", 404);
+  const faq = await Faq.findById(id);
+  if (!faq) throw new ErrorHandler("FAQ introuvable.", 404);
 
-  const newStatus = !faq.rows[0].is_active;
-
-  const result = await database.query(
-    "UPDATE faqs SET is_active=$1, updated_at=NOW() WHERE id=$2 RETURNING *",
-    [newStatus, id]
-  );
-  return result.rows[0];
+  return await Faq.toggle(id, !faq.is_active);
 };
 
 
@@ -322,11 +204,10 @@ export const adminToggleFaqService = async (id) => {
 // ADMIN — DELETE FAQ
 // ═══════════════════════════════════════════════════════════
 export const adminDeleteFaqService = async (id) => {
-  const faq = await database.query("SELECT id FROM faqs WHERE id=$1", [id]);
-  if (faq.rows.length === 0)
-    throw new ErrorHandler("FAQ introuvable.", 404);
+  const faq = await Faq.findById(id);
+  if (!faq) throw new ErrorHandler("FAQ introuvable.", 404);
 
-  await database.query("DELETE FROM faqs WHERE id=$1", [id]);
+  await Faq.delete(id);
 };
 
 
@@ -334,83 +215,19 @@ export const adminDeleteFaqService = async (id) => {
 // ADMIN — GET ALL USER QUESTIONS
 // ═══════════════════════════════════════════════════════════
 export const adminGetQuestionsService = async ({ status, matched, page = 1 }) => {
-  const limit  = 10;
-  const offset = (page - 1) * limit;
-
-  const conditions = [];
-  const values     = [];
-  let   index      = 1;
-
-  if (status) {
-    conditions.push(`fqq.status=$${index}`);
-    values.push(status);
-    index++;
-  }
-
-  if (matched !== undefined) {
-    if (matched === 'true') {
-      conditions.push(
-        `EXISTS (SELECT 1 FROM frequent_question fq WHERE fq.question_id = fqq.id)`
-      );
-    } else {
-      conditions.push(
-        `NOT EXISTS (SELECT 1 FROM frequent_question fq WHERE fq.question_id = fqq.id)`
-      );
-    }
-  }
-
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const countValues = [...values];
-  values.push(limit, offset);
-
-  const [totalResult, result] = await Promise.all([
-    database.query(
-      `SELECT COUNT(*)
-       FROM faq_questions fqq
-       ${whereClause}`,
-      countValues
-    ),
-    database.query(
-      `SELECT
-         fqq.*,
-         json_agg(
-           json_build_object(
-             'faq_id',                flink.faq_id,
-             'matched_automatically', flink.matched_automatically,
-             'faq_question',          f.question_fr,
-             'faq_category',          f.category
-           )
-         ) FILTER (WHERE flink.faq_id IS NOT NULL) AS linked_faqs
-       FROM faq_questions fqq
-       LEFT JOIN frequent_question flink ON flink.question_id = fqq.id
-       LEFT JOIN faqs f                  ON f.id = flink.faq_id
-       ${whereClause}
-       GROUP BY fqq.id
-       ORDER BY fqq.created_at DESC
-       LIMIT $${index} OFFSET $${index + 1}`,
-      values
-    ),
-  ]);
-
-  return {
-    total:      parseInt(totalResult.rows[0].count),
-    totalPages: Math.ceil(parseInt(totalResult.rows[0].count) / limit),
-    page,
-    questions:  result.rows,
-  };
+  return await FaqQuestion.findAllAdmin({ status, matched, page });
 };
+
+
 // ═══════════════════════════════════════════════════════════
-// ADMIN — RÉPONDRE À UNE QUESTION (manuelle)
+// ADMIN — RÉPONDRE À UNE QUESTION
 // ═══════════════════════════════════════════════════════════
 export const adminAnswerQuestionService = async ({ id, answer, create_faq, faq_category }) => {
   if (!answer || answer.trim().length < 5)
     throw new ErrorHandler("La réponse doit contenir au moins 5 caractères.", 400);
 
-  const faqQ = await database.query("SELECT * FROM faq_questions WHERE id=$1", [id]);
-  if (faqQ.rows.length === 0)
-    throw new ErrorHandler("Question introuvable.", 404);
-
-  const q = faqQ.rows[0];
+  const q = await FaqQuestion.findById(id);
+  if (!q) throw new ErrorHandler("Question introuvable.", 404);
 
   if (q.status === 'answered')
     throw new ErrorHandler("Cette question a déjà été répondue.", 400);
@@ -420,137 +237,60 @@ export const adminAnswerQuestionService = async ({ id, answer, create_faq, faq_c
 
   if (create_faq) {
     const category = faq_category && VALID_CATEGORIES.includes(faq_category)
-      ? faq_category
-      : 'autre';
+      ? faq_category : 'autre';
 
-    const newFaq = await database.query(
-      `INSERT INTO faqs (category, question_fr, answer_fr, order_index, frequency)
-       VALUES ($1, $2, $3, 0, 1)
-       RETURNING id`,
-      [category, q.question, cleanAnswer]
-    );
-    newFaqId = newFaq.rows[0].id;
+    newFaqId = await Faq.createFromQuestion({
+      category, question_fr: q.question, answer_fr: cleanAnswer,
+    });
 
-    await database.query(
-      `INSERT INTO frequent_question (question_id, faq_id, matched_automatically)
-       VALUES ($1, $2, FALSE)`,
-      [id, newFaqId]
-    );
+    await FaqQuestion.linkToFaq(id, newFaqId, false);
   }
 
-  const result = await database.query(
-    `UPDATE faq_questions
-     SET answer      = $1,
-         status      = 'answered',
-         answered_at = NOW()
-     WHERE id = $2
-     RETURNING *`,
-    [cleanAnswer, id]
-  );
+  const updated = await FaqQuestion.markAnswered(id, cleanAnswer);
 
   await sendAnswerEmail(q.user_email, q.user_name, q.question, cleanAnswer)
     .catch(err => console.error("Answer email error:", err.message));
 
-  return {
-    question:    result.rows[0],
-    faq_created: create_faq ? newFaqId : null,
-  };
+  return { question: updated, faq_created: create_faq ? newFaqId : null };
 };
+
+
 // ═══════════════════════════════════════════════════════════
 // ADMIN — LIER UNE QUESTION À UNE FAQ EXISTANTE
-// Nouveau endpoint : permet à l'admin de lier manuellement
-// une question pending à une FAQ déjà existante
 // ═══════════════════════════════════════════════════════════
 export const adminLinkQuestionToFaqService = async ({ questionId, faqId }) => {
-  const q = await database.query(
-    "SELECT * FROM faq_questions WHERE id=$1", [questionId]
-  );
-  if (q.rows.length === 0)
-    throw new ErrorHandler("Question introuvable.", 404);
+  const q   = await FaqQuestion.findById(questionId);
+  if (!q)   throw new ErrorHandler("Question introuvable.", 404);
 
-  const faq = await database.query(
-    "SELECT * FROM faqs WHERE id=$1", [faqId]
-  );
-  if (faq.rows.length === 0)
-    throw new ErrorHandler("FAQ introuvable.", 404);
+  const faq = await Faq.findById(faqId);
+  if (!faq) throw new ErrorHandler("FAQ introuvable.", 404);
 
-  await database.query(
-    `SELECT increment_faq_frequency($1)`, [faqId]
-  );
+  await Faq.incrementFrequency(faqId);
+  await FaqQuestion.linkToFaq(questionId, faqId, false);
 
-  await database.query(
-    `INSERT INTO frequent_question (question_id, faq_id, matched_automatically)
-     VALUES ($1, $2, FALSE)
-     ON CONFLICT (question_id, faq_id) DO NOTHING`,
-    [questionId, faqId]
-  );
+  const updated = await FaqQuestion.markAnswered(questionId, faq.answer_fr);
 
-  const result = await database.query(
-    `UPDATE faq_questions
-     SET answer      = $1,
-         status      = 'answered',
-         answered_at = NOW()
-     WHERE id = $2
-     RETURNING *`,
-    [faq.rows[0].answer_fr, questionId]
-  );
+  await sendAnswerEmail(q.user_email, q.user_name, q.question, faq.answer_fr)
+    .catch(err => console.error("Link email error:", err.message));
 
-  const question = q.rows[0];
-  await sendAnswerEmail(
-    question.user_email,
-    question.user_name,
-    question.question,
-    faq.rows[0].answer_fr
-  ).catch(err => console.error("Link email error:", err.message));
-
-  return result.rows[0];
+  return updated;
 };
+
+
 // ═══════════════════════════════════════════════════════════
 // ADMIN — DELETE USER QUESTION
 // ═══════════════════════════════════════════════════════════
 export const adminDeleteQuestionService = async (id) => {
-  const q = await database.query("SELECT id FROM faq_questions WHERE id=$1", [id]);
-  if (q.rows.length === 0)
-    throw new ErrorHandler("Question introuvable.", 404);
+  const q = await FaqQuestion.findById(id);
+  if (!q) throw new ErrorHandler("Question introuvable.", 404);
 
-  await database.query("DELETE FROM faq_questions WHERE id=$1", [id]);
+  await FaqQuestion.delete(id);
 };
 
 
 // ═══════════════════════════════════════════════════════════
 // ADMIN — STATS FAQ
-// Retourne les métriques utiles pour le dashboard
 // ═══════════════════════════════════════════════════════════
 export const adminFaqStatsService = async () => {
-  const [counts, topFaqs] = await Promise.all([
-    database.query(`
-      SELECT
-        COUNT(*)                                                            AS total,
-        COUNT(*) FILTER (WHERE status = 'pending')                          AS pending,
-        COUNT(*) FILTER (WHERE status = 'answered')                         AS answered,
-        COUNT(*) FILTER (WHERE EXISTS (
-          SELECT 1 FROM frequent_question fq
-          WHERE fq.question_id = faq_questions.id
-            AND fq.matched_automatically = TRUE
-        ))                                                                  AS auto_answered,
-        COUNT(*) FILTER (WHERE status = 'answered' AND EXISTS (
-          SELECT 1 FROM frequent_question fq
-          WHERE fq.question_id = faq_questions.id
-            AND fq.matched_automatically = FALSE
-        ))                                                                  AS manually_answered
-      FROM faq_questions
-    `),
-    database.query(`
-      SELECT id, category, question_fr, frequency
-      FROM faqs
-      WHERE is_active = true
-      ORDER BY frequency DESC
-      LIMIT 5
-    `),
-  ]);
-
-  return {
-    questions: counts.rows[0],
-    top_faqs:  topFaqs.rows,
-  };
+  return await FaqQuestion.getStats();
 };

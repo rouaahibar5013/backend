@@ -1,9 +1,11 @@
 import database from "../database/db.js";
-import redis from "../config/redis.js"; // ✅ ajouter cette ligne
+import { getCache, setCache } from "../config/redis.js";
+import { TTL } from "../utils/cacheInvalideation.js";
+import { Promotion } from "../models/index.js";
 
 
 const OFFRES_CACHE_KEY = "offres:homepage";
-const OFFRES_CACHE_TTL = 10 * 60; // 10 minutes
+const OFFRES_CACHE_TTL = TTL.OFFRES_HOME; // 1h au lieu de 10min
 
 // ═══════════════════════════════════════════════════════════
 // HELPER — colonnes communes
@@ -51,11 +53,11 @@ const productColumns = `
 // HELPER — jointures communes
 // ═══════════════════════════════════════════════════════════
 const productJoins = `
-  LEFT JOIN suppliers s ON s.id = p.supplier_id
+  LEFT JOIN supplier s ON s.id = p.supplier_id
 
   LEFT JOIN LATERAL (
     SELECT id, price
-    FROM product_variants
+    FROM product_variant
     WHERE product_id = p.id
     AND   is_active  = true
     ORDER BY created_at ASC LIMIT 1
@@ -63,7 +65,7 @@ const productJoins = `
 
   LEFT JOIN LATERAL (
     SELECT discount_type, discount_value, expires_at
-    FROM variant_promotions
+    FROM variant_promotion
     WHERE variant_id  = pv_main.id
     AND   is_active   = true
     AND   starts_at  <= NOW()
@@ -77,12 +79,12 @@ const productJoins = `
 // ═══════════════════════════════════════════════════════════
 export const getOffresDataService = async () => {
  try {
-    const cached = await redis.get(OFFRES_CACHE_KEY);
-    if (cached) {
-      console.log("[Redis] Cache HIT — offres:homepage");
-      return JSON.parse(cached);
-    }
-    console.log("[Redis] Cache MISS — offres:homepage");
+const cached = await getCache(OFFRES_CACHE_KEY);
+if (cached) {
+  console.log("[Redis] Cache HIT — offres:homepage");
+  return cached;
+}
+console.log("[Redis] Cache MISS — offres:homepage");
   } catch (err) {
     console.error("[Redis] Erreur lecture cache:", err.message);
   }
@@ -96,7 +98,7 @@ export const getOffresDataService = async () => {
     // ── Offres Flash ───────────────────────────────────────
     database.query(
       `SELECT ${productColumns}
-       FROM products p
+       FROM product p
        ${productJoins}
        WHERE p.is_active                = true
        AND   pv_main.id               IS NOT NULL
@@ -108,7 +110,7 @@ export const getOffresDataService = async () => {
     // ── Nouveautés ─────────────────────────────────────────
     database.query(
       `SELECT ${productColumns}
-       FROM products p
+       FROM product p
        ${productJoins}
        WHERE p.is_active = true
        AND   pv_main.id IS NOT NULL
@@ -123,7 +125,7 @@ export const getOffresDataService = async () => {
     // ── Produits vedettes ──────────────────────────────────
     database.query(
       `SELECT ${productColumns}
-       FROM products p
+       FROM product p
        ${productJoins}
        WHERE p.is_active   = true
        AND   p.is_featured = true
@@ -139,7 +141,7 @@ export const getOffresDataService = async () => {
          discount_type, discount_value,
          min_order_amount, expires_at,
          max_uses, used_count
-       FROM promotions
+       FROM promotion
        WHERE is_active  = true
        AND   starts_at <= NOW()
        AND   expires_at >= NOW()
@@ -159,7 +161,7 @@ export const getOffresDataService = async () => {
 
   // ✅ Sauvegarder dans Redis
   try {
-    await redis.set(OFFRES_CACHE_KEY, JSON.stringify(offresResult), "EX", OFFRES_CACHE_TTL);
+await setCache(OFFRES_CACHE_KEY, offresResult, OFFRES_CACHE_TTL);
     console.log("[Redis] Cache SET — offres:homepage");
   } catch (err) {
     console.error("[Redis] Erreur écriture cache:", err.message);
@@ -171,21 +173,6 @@ export const getOffresDataService = async () => {
 // VALIDATE PROMO CODE
 // ═══════════════════════════════════════════════════════════
 export const validatePromoCodeService = async (code) => {
-  const result = await database.query(
-    `SELECT
-       id, code, description_fr,
-       discount_type, discount_value, min_order_amount,
-       expires_at, max_uses, used_count
-     FROM promotions
-     WHERE UPPER(code) = UPPER($1)
-     AND   is_active   = true
-     AND   starts_at  <= NOW()
-     AND   expires_at >= NOW()
-     AND   (max_uses IS NULL OR used_count < max_uses)`,
-    [code]
-  );
-
-  if (result.rows.length === 0) return null;
-  return result.rows[0];
+  return await Promotion.findValidByCode(code);
 };
 
