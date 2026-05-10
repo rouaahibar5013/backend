@@ -61,7 +61,7 @@ export const optionalAuth = async (req, res, next) => {
     
     
     const result = await database.query(
-      "SELECT id, name, email, avatar, role, is_active FROM users WHERE id = $1",
+      `SELECT id, name, email, avatar, role, is_active FROM "user" WHERE id = $1`,
       [decoded.id]
     );
     

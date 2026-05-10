@@ -35,6 +35,7 @@ export const searchFaqs = catchAsyncErrors(async (req, res, next) => {
 // Un user connecté ne peut pas usurper l'identité d'un autre.
 // ═══════════════════════════════════════════════════════════
 export const askQuestion = catchAsyncErrors(async (req, res, next) => {
+  
   const { question } = req.body;
 
   // Si connecté → forcer nom et email depuis le JWT
