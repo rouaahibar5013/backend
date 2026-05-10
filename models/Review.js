@@ -6,7 +6,7 @@ class Review {
     const result = await database.query(
       `SELECT r.*, u.name AS user_name, u.avatar AS user_avatar
        FROM review r
-       LEFT JOIN users u ON u.id = r.user_id
+       LEFT JOIN "user" u ON u.id = r.user_id
        WHERE r.product_id = $1
        ORDER BY r.created_at DESC
        LIMIT $2 OFFSET $3`,
@@ -24,7 +24,7 @@ class Review {
            COALESCE(u.name,   'Anonyme') AS user_name,
            COALESCE(u.avatar, null)      AS user_avatar
          FROM review r
-         LEFT JOIN users u ON u.id = r.user_id
+         LEFT JOIN "user" u ON u.id = r.user_id
          WHERE r.product_id = $1
          ORDER BY r.created_at DESC`,
         [productId]
@@ -64,7 +64,7 @@ class Review {
     const result = await database.query(
       `SELECT r.*, p.name_fr AS product_name, p.slug AS product_slug
        FROM review r
-       LEFT JOIN products p ON p.id = r.product_id
+       LEFT JOIN product p ON p.id = r.product_id
        WHERE r.user_id = $1
        ORDER BY r.created_at DESC`,
       [userId]
@@ -93,9 +93,9 @@ class Review {
   static async verifyPurchase({ userId, productId }) {
     const result = await database.query(
       `SELECT 1
-       FROM orders o
-       JOIN order_items      oi ON oi.order_id  = o.id
-       JOIN product_variants pv ON pv.id        = oi.variant_id
+       FROM "order" o
+       JOIN order_item      oi ON oi.order_id  = o.id
+       JOIN product_variant pv ON pv.id        = oi.variant_id
        WHERE o.user_id     = $1
          AND pv.product_id = $2
          AND o.status      = 'livree'
@@ -172,8 +172,8 @@ class Review {
            p.name_fr AS product_name,
            p.id      AS product_id
          FROM review r
-         LEFT JOIN users    u ON u.id = r.user_id
-         LEFT JOIN products p ON p.id = r.product_id
+         LEFT JOIN "user"    u ON u.id = r.user_id
+         LEFT JOIN product p ON p.id = r.product_id
          ${WHERE}
          ORDER BY r.created_at DESC
          LIMIT $${i} OFFSET $${i + 1}`,

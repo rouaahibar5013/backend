@@ -4,7 +4,7 @@ class Supplier {
   static async findAll({ activeOnly = true } = {}) {
     const where = activeOnly ? "WHERE is_active = true" : "";
     const result = await database.query(
-      `SELECT * FROM suppliers ${where} ORDER BY name ASC`
+      `SELECT * FROM supplier ${where} ORDER BY name ASC`
     );
     return result.rows;
   }
@@ -19,8 +19,8 @@ class Supplier {
          s.email, s.website, s.logo_url,
          s.is_certified_bio, s.is_active,
          COUNT(DISTINCT p.id) AS product_count
-       FROM suppliers s
-       LEFT JOIN products p ON p.supplier_id = s.id AND p.is_active = true
+       FROM supplier s
+       LEFT JOIN product p ON p.supplier_id = s.id AND p.is_active = true
        WHERE s.is_active = true
        GROUP BY s.id
        ORDER BY s.name ASC`
@@ -30,14 +30,14 @@ class Supplier {
 
   static async findById(id) {
     const result = await database.query(
-      "SELECT * FROM suppliers WHERE id = $1", [id]
+      "SELECT * FROM supplier WHERE id = $1", [id]
     );
     return result.rows[0] || null;
   }
 
   static async findBySlug(slug) {
     const result = await database.query(
-      "SELECT * FROM suppliers WHERE slug = $1 AND is_active = true", [slug]
+      "SELECT * FROM supplier WHERE slug = $1 AND is_active = true", [slug]
     );
     return result.rows[0] || null;
   }
@@ -46,8 +46,8 @@ class Supplier {
   static async findBySlugWithProducts(slug) {
     const supplierResult = await database.query(
       `SELECT s.*, COUNT(DISTINCT p.id) AS product_count
-       FROM suppliers s
-       LEFT JOIN products p ON p.supplier_id = s.id AND p.is_active = true
+       FROM supplier s
+       LEFT JOIN product p ON p.supplier_id = s.id AND p.is_active = true
        WHERE s.slug = $1
        GROUP BY s.id`,
       [slug]
@@ -60,14 +60,14 @@ class Supplier {
       `SELECT
          p.id, p.name_fr, p.slug,
          p.images, p.rating_avg, p.rating_count, p.is_featured,
-         (SELECT MIN(pv.price) FROM product_variants pv
+         (SELECT MIN(pv.price) FROM product_variant pv
           WHERE pv.product_id = p.id) AS min_price,
-         (SELECT COALESCE(SUM(pv.stock), 0) FROM product_variants pv
+         (SELECT COALESCE(SUM(pv.stock), 0) FROM product_variant pv
           WHERE pv.product_id = p.id) AS total_stock,
          c.name_fr AS category_name,
          c.slug    AS category_slug
-       FROM products p
-       LEFT JOIN categories c ON c.id = p.category_id
+       FROM product p
+       LEFT JOIN category c ON c.id = p.category_id
        WHERE p.supplier_id = $1 AND p.is_active = true
        ORDER BY p.created_at DESC`,
       [supplier.id]
@@ -80,7 +80,7 @@ class Supplier {
   // ─── Trouver par nom (insensible à la casse) ──────────
   static async findByName(name) {
     const result = await database.query(
-      "SELECT id FROM suppliers WHERE name ILIKE $1", [name]
+      "SELECT id FROM supplier WHERE name ILIKE $1", [name]
     );
     return result.rows[0] || null;
   }
@@ -88,7 +88,7 @@ class Supplier {
   // ─── Trouver par nom en excluant un ID ────────────────
   static async findByNameExcludingId(name, excludeId) {
     const result = await database.query(
-      "SELECT id FROM suppliers WHERE name ILIKE $1 AND id != $2",
+      "SELECT id FROM supplier WHERE name ILIKE $1 AND id != $2",
       [name, excludeId]
     );
     return result.rows[0] || null;
@@ -97,8 +97,8 @@ class Supplier {
   // ─── Vérifier slug en excluant un ID ─────────────────
   static async findBySlugExcludingId(slug, excludeId = null) {
     const query  = excludeId
-      ? "SELECT id FROM suppliers WHERE slug = $1 AND id != $2"
-      : "SELECT id FROM suppliers WHERE slug = $1";
+      ? "SELECT id FROM supplier WHERE slug = $1 AND id != $2"
+      : "SELECT id FROM supplier WHERE slug = $1";
     const params = excludeId ? [slug, excludeId] : [slug];
     const result = await database.query(query, params);
     return result.rows[0] || null;
@@ -106,7 +106,7 @@ class Supplier {
 
   static async create(data) {
     const result = await database.query(
-      `INSERT INTO suppliers
+      `INSERT INTO supplier
          (name, slug, description_fr, region, address, contact,
           email, website, logo_url, is_certified_bio, is_active)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
@@ -124,7 +124,7 @@ class Supplier {
   // ─── Update complet ───────────────────────────────────
   static async updateFull(id, data) {
     const result = await database.query(
-      `UPDATE suppliers SET
+      `UPDATE supplier SET
          name             = $1,
          description_fr   = $2,
          region           = $3,
@@ -149,7 +149,7 @@ class Supplier {
 
   static async update(id, data) {
     const result = await database.query(
-      `UPDATE suppliers
+      `UPDATE supplier
        SET name             = COALESCE($1, name),
            description_fr   = COALESCE($2, description_fr),
            region           = COALESCE($3, region),
@@ -167,13 +167,13 @@ class Supplier {
   // ─── Détacher les produits avant suppression ──────────
   static async unlinkProducts(supplierId) {
     await database.query(
-      "UPDATE products SET supplier_id = NULL WHERE supplier_id = $1",
+      "UPDATE product SET supplier_id = NULL WHERE supplier_id = $1",
       [supplierId]
     );
   }
 
   static async delete(id) {
-    await database.query("DELETE FROM suppliers WHERE id = $1", [id]);
+    await database.query("DELETE FROM supplier WHERE id = $1", [id]);
   }
 }
 

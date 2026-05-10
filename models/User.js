@@ -4,7 +4,7 @@ class User {
   // ─── Trouver par ID ───────────────────────────────────
   static async findById(id) {
     const result = await database.query(
-      "SELECT * FROM users WHERE id = $1", [id]
+      `SELECT * FROM "user" WHERE id = $1`, [id]
     );
     return result.rows[0] || null;
   }
@@ -20,7 +20,7 @@ class User {
               shipping_city, shipping_governorate, shipping_postal_code, shipping_country,
               google_id IS NOT NULL AS has_google,
               created_at, updated_at
-       FROM users WHERE id = $1`,
+       FROM "user" WHERE id = $1`,
       [id]
     );
     return result.rows[0] || null;
@@ -29,7 +29,7 @@ class User {
   // ─── Trouver par email ────────────────────────────────
   static async findByEmail(email) {
     const result = await database.query(
-      "SELECT * FROM users WHERE email = $1", [email]
+      `SELECT * FROM "user" WHERE email = $1`, [email]
     );
     return result.rows[0] || null;
   }
@@ -37,7 +37,7 @@ class User {
   // ─── Trouver par email en excluant un ID ─────────────
   static async findByEmailExcludingId(email, excludeId) {
     const result = await database.query(
-      "SELECT id FROM users WHERE email = $1 AND id != $2",
+      `SELECT id FROM "user" WHERE email = $1 AND id != $2`,
       [email, excludeId]
     );
     return result.rows[0] || null;
@@ -46,7 +46,7 @@ class User {
   // ─── Trouver par Google ID ────────────────────────────
   static async findByGoogleId(googleId) {
     const result = await database.query(
-      "SELECT * FROM users WHERE google_id = $1", [googleId]
+      `SELECT * FROM "user" WHERE google_id = $1`, [googleId]
     );
     return result.rows[0] || null;
   }
@@ -54,7 +54,7 @@ class User {
   // ─── Trouver par token de vérification ───────────────
   static async findByVerificationToken(token) {
     const result = await database.query(
-      "SELECT * FROM users WHERE verification_token = $1", [token]
+      `SELECT * FROM "user" WHERE verification_token = $1`, [token]
     );
     return result.rows[0] || null;
   }
@@ -62,7 +62,7 @@ class User {
   // ─── Trouver par token de reset password ─────────────
   static async findByResetToken(token) {
     const result = await database.query(
-      `SELECT * FROM users
+      `SELECT * FROM "user"
        WHERE reset_password_token = $1
          AND reset_password_expire > NOW()`,
       [token]
@@ -73,7 +73,7 @@ class User {
   // ─── Trouver par token complete account ──────────────
   static async findByCompleteAccountToken(token) {
     const result = await database.query(
-      `SELECT * FROM users
+      `SELECT * FROM "user"
        WHERE complete_account_token = $1
          AND complete_account_expire > NOW()`,
       [token]
@@ -84,7 +84,7 @@ class User {
   // ─── Trouver user avec MFA valide ────────────────────
   static async findWithValidMfa(id) {
     const result = await database.query(
-      `SELECT * FROM users
+      `SELECT * FROM "user"
        WHERE id = $1
          AND mfa_otp IS NOT NULL
          AND mfa_otp_expire > NOW()`,
@@ -96,7 +96,7 @@ class User {
   // ─── Créer un utilisateur (register) ─────────────────
   static async create({ name, email, password, role = "user", phone = null, google_id = null }) {
     const result = await database.query(
-      `INSERT INTO users (name, email, password, role, phone, google_id)
+      `INSERT INTO "user" (name, email, password, role, phone, google_id)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
       [name, email, password, role, phone, google_id]
@@ -111,7 +111,7 @@ class User {
     phone, address, city,
   }) {
     const result = await database.query(
-      `INSERT INTO users
+      `INSERT INTO "user"
          (name, email, password, avatar, role, is_verified,
           verification_token, verification_token_expire,
           phone, address, city)
@@ -132,7 +132,7 @@ class User {
     completeAccountToken, completeAccountExpire,
   }) {
     const result = await database.query(
-      `INSERT INTO users
+      `INSERT INTO "user"
          (name, email, phone, shipping_address, shipping_city,
           role, is_verified, complete_account_token, complete_account_expire)
        VALUES ($1,$2,$3,$4,$5,'user',false,$6,$7)
@@ -149,7 +149,7 @@ class User {
   // ─── Mettre à jour les infos de base ──────────────────
   static async update(id, fields) {
     const result = await database.query(
-      `UPDATE users
+      `UPDATE "user"
        SET name       = COALESCE($1, name),
            phone      = COALESCE($2, phone),
            avatar     = COALESCE($3, avatar),
@@ -168,7 +168,7 @@ class User {
     billingPhone, billingAddress, billingCity,
   }) {
     const result = await database.query(
-      `UPDATE users
+      `UPDATE "user"
        SET name            = $1,
            avatar          = $2,
            phone           = $3,
@@ -202,7 +202,7 @@ class User {
     shipping_governorate, shipping_postal_code, shipping_country,
   }) {
     const result = await database.query(
-      `UPDATE users SET
+      `UPDATE "user" SET
          billing_full_name    = COALESCE($1,  billing_full_name),
          billing_phone        = COALESCE($2,  billing_phone),
          billing_address      = COALESCE($3,  billing_address),
@@ -238,7 +238,7 @@ class User {
   // ─── Vérifier le compte (avec retour) ────────────────
   static async verify(id) {
     const result = await database.query(
-      `UPDATE users
+      `UPDATE "user"
        SET is_verified = true,
            verification_token = NULL,
            verification_token_expire = NULL,
@@ -253,7 +253,7 @@ class User {
   // ─── Mettre à jour le token de vérification ──────────
   static async updateVerificationToken(id, token, expire) {
     await database.query(
-      `UPDATE users
+      `UPDATE "user"
        SET verification_token = $1, verification_token_expire = $2
        WHERE id = $3`,
       [token, expire, id]
@@ -263,7 +263,7 @@ class User {
   // ─── Mettre à jour le mot de passe ───────────────────
   static async updatePassword(id, hashedPassword) {
     await database.query(
-      `UPDATE users
+      `UPDATE "user"
        SET password = $1,
            reset_password_token = NULL,
            reset_password_expire = NULL,
@@ -276,7 +276,7 @@ class User {
   // ─── Changer le mot de passe (sans reset token) ──────
   static async setPassword(id, hashedPassword) {
     await database.query(
-      "UPDATE users SET password = $1, updated_at = NOW() WHERE id = $2",
+      `UPDATE "user" SET password = $1, updated_at = NOW() WHERE id = $2`,
       [hashedPassword, id]
     );
   }
@@ -284,7 +284,7 @@ class User {
   // ─── Définir le token de reset password ──────────────
   static async setResetToken(id, token, expire) {
     await database.query(
-      `UPDATE users
+      `UPDATE "user"
        SET reset_password_token = $1, reset_password_expire = $2, updated_at = NOW()
        WHERE id = $3`,
       [token, expire, id]
@@ -294,14 +294,14 @@ class User {
   // ─── Définir / effacer le OTP MFA ────────────────────
   static async setMfaOtp(id, otp, expire) {
     await database.query(
-      "UPDATE users SET mfa_otp = $1, mfa_otp_expire = $2, updated_at = NOW() WHERE id = $3",
+      `UPDATE "user" SET mfa_otp = $1, mfa_otp_expire = $2, updated_at = NOW() WHERE id = $3`,
       [otp, expire, id]
     );
   }
 
   static async clearMfaOtp(id) {
     await database.query(
-      "UPDATE users SET mfa_otp = NULL, mfa_otp_expire = NULL, updated_at = NOW() WHERE id = $1",
+    `UPDATE "user" SET mfa_otp = NULL, mfa_otp_expire = NULL, updated_at = NOW() WHERE id = $1`,
       [id]
     );
   }
@@ -309,7 +309,7 @@ class User {
   // ─── Définir le token complete-account ───────────────
   static async setCompleteAccountToken(id, token, expire) {
     await database.query(
-      `UPDATE users
+      `UPDATE "user"
        SET complete_account_token = $1, complete_account_expire = $2, updated_at = NOW()
        WHERE id = $3`,
       [token, expire, id]
@@ -319,7 +319,7 @@ class User {
   // ─── Compléter le compte guest ────────────────────────
   static async completeAccount(id, hashedPassword) {
     const result = await database.query(
-      `UPDATE users
+      `UPDATE "user"
        SET password = $1,
            is_verified = true,
            complete_account_token = NULL,
@@ -336,7 +336,7 @@ class User {
   // ─── Activer / désactiver ─────────────────────────────
   static async setActive(id, isActive) {
     const result = await database.query(
-      `UPDATE users SET is_active = $1, updated_at = NOW()
+      `UPDATE "user" SET is_active = $1, updated_at = NOW()
        WHERE id = $2
        RETURNING id, name, email, role, is_active`,
       [isActive, id]
@@ -347,7 +347,7 @@ class User {
   // ─── Mettre à jour le rôle ────────────────────────────
   static async updateRole(id, role) {
     const result = await database.query(
-      `UPDATE users SET role = $1, updated_at = NOW()
+      `UPDATE "user" SET role = $1, updated_at = NOW()
        WHERE id = $2
        RETURNING id, name, email, role, is_verified, is_active, created_at`,
       [role, id]
@@ -357,7 +357,7 @@ class User {
 
   // ─── Supprimer ────────────────────────────────────────
   static async delete(id) {
-    await database.query("DELETE FROM users WHERE id = $1", [id]);
+    await database.query(`DELETE FROM "user" WHERE id = $1`, [id]);
   }
 
   // ─── Admin : mettre à jour toutes les infos ───────────
@@ -366,7 +366,7 @@ class User {
     role, is_verified, is_active, hashedPassword,
   }) {
     const result = await database.query(
-      `UPDATE users
+      `UPDATE "user"
        SET name        = $1, email       = $2, phone     = $3,
            address     = $4, city        = $5, role      = $6,
            is_verified = $7, is_active   = $8, password  = $9,
@@ -408,12 +408,12 @@ class User {
         `SELECT id, name, email, avatar, role, is_verified, is_active,
                 phone, city, google_id IS NOT NULL AS has_google,
                 created_at, updated_at
-         FROM users ${where}
+         FROM "user" ${where}
          ORDER BY created_at DESC
          LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
         params
       ),
-      database.query(`SELECT COUNT(*) FROM users ${where}`, countParams),
+      database.query(`SELECT COUNT(*) FROM "user" ${where}`, countParams),
     ]);
 
     const total = parseInt(countResult.rows[0].count);
@@ -436,7 +436,7 @@ class User {
 
     const result = await database.query(
       `SELECT id, name, email, role, is_verified, is_active, phone, created_at
-       FROM users ${where}
+       FROM "user" ${where}
        ORDER BY created_at DESC
        LIMIT $${idx - 1} OFFSET $${idx}`,
       values

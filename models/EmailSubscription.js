@@ -22,7 +22,7 @@ class EmailSubscription {
     const result = await database.query(
       `SELECT es.*, u.name AS user_name
        FROM email_subscription es
-       LEFT JOIN users u ON u.id = es.user_id
+       LEFT JOIN "user" u ON u.id = es.user_id
        ORDER BY es.subscribed_at DESC`
     );
     return result.rows;

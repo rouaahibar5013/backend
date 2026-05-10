@@ -117,7 +117,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     database.query(
       `SELECT COALESCE(SUM(total_price), 0)::float AS revenue,
               COUNT(*)::int AS orders_count
-       FROM orders
+       FROM "order"
        WHERE status != 'annulee'
        AND DATE(created_at) BETWEEN $1 AND $2`,
       [start, end]
@@ -126,7 +126,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 1 — Commandes période actuelle
     database.query(
       `SELECT COUNT(*)::int AS count
-       FROM orders
+       FROM "order"
        WHERE DATE(created_at) BETWEEN $1 AND $2`,
       [start, end]
     ),
@@ -134,7 +134,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 2 — Nouveaux users période actuelle
     database.query(
       `SELECT COUNT(*)::int AS count
-       FROM users
+       FROM "user"
        WHERE DATE(created_at) BETWEEN $1 AND $2`,
       [start, end]
     ),
@@ -142,7 +142,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 3 — CA période précédente
     database.query(
       `SELECT COALESCE(SUM(total_price), 0)::float AS revenue
-       FROM orders
+       FROM "order"
        WHERE status != 'annulee'
        AND DATE(created_at) BETWEEN $1 AND $2`,
       [prevStartStr, prevEndStr]
@@ -151,7 +151,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 4 — Commandes période précédente
     database.query(
       `SELECT COUNT(*)::int AS count
-       FROM orders
+       FROM "order"
        WHERE DATE(created_at) BETWEEN $1 AND $2`,
       [prevStartStr, prevEndStr]
     ),
@@ -159,19 +159,19 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 5 — Users période précédente
     database.query(
       `SELECT COUNT(*)::int AS count
-       FROM users
+       FROM "user"
        WHERE DATE(created_at) BETWEEN $1 AND $2`,
       [prevStartStr, prevEndStr]
     ),
 
     // 6 — Total produits actifs
     database.query(
-      `SELECT COUNT(*)::int AS count FROM products WHERE is_active = true`
+      `SELECT COUNT(*)::int AS count FROM product WHERE is_active = true`
     ),
 
     // 7 — Total users
     database.query(
-      `SELECT COUNT(*)::int AS count FROM users`
+      `SELECT COUNT(*)::int AS count FROM "user"`
     ),
 
     // 8 — Produits en rupture/stock faible
@@ -180,9 +180,9 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
          p.id, p.name_fr, p.slug,
          pv.sku, pv.stock, pv.low_stock_threshold,
          c.name_fr AS category_name
-       FROM product_variants pv
-       LEFT JOIN products   p ON p.id = pv.product_id
-       LEFT JOIN categories c ON c.id = p.category_id
+       FROM product_variant pv
+       LEFT JOIN product   p ON p.id = pv.product_id
+       LEFT JOIN category c ON c.id = p.category_id
        WHERE pv.stock <= pv.low_stock_threshold
        AND   p.is_active  = true
        AND   pv.is_active = true
@@ -194,8 +194,8 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     database.query(
       `SELECT o.id, o.order_number, o.total_price, o.created_at,
               u.name AS customer_name
-       FROM orders o
-       LEFT JOIN users u ON u.id = o.user_id
+       FROM "order" o
+       LEFT JOIN "user" u ON u.id = o.user_id
        WHERE o.status = 'en_attente'
        AND o.created_at < NOW() - INTERVAL '48 hours'
        ORDER BY o.created_at ASC
@@ -205,7 +205,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 10 — Commandes annulées aujourd'hui
     database.query(
       `SELECT COUNT(*)::int AS count
-       FROM orders
+       FROM "order"
        WHERE status = 'annulee'
        AND DATE(updated_at) = CURRENT_DATE`
     ),
@@ -213,7 +213,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 11 — Nouveaux users aujourd'hui
     database.query(
       `SELECT COUNT(*)::int AS count
-       FROM users
+       FROM "user"
        WHERE DATE(created_at) = CURRENT_DATE`
     ),
 
@@ -223,7 +223,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
          DATE(created_at) AS date,
          COALESCE(SUM(total_price), 0)::float AS revenue,
          COUNT(*)::int AS orders
-       FROM orders
+       FROM "order"
        WHERE status != 'annulee'
        AND DATE(created_at) BETWEEN $1 AND $2
        GROUP BY DATE(created_at)
@@ -238,7 +238,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
          TO_CHAR(DATE_TRUNC('month', created_at), 'MM/YYYY')  AS month_key,
          COALESCE(SUM(total_price), 0)::float AS revenue,
          COUNT(*)::int AS orders
-       FROM orders
+       FROM "order"
        WHERE status != 'annulee'
        AND DATE(created_at) BETWEEN $1 AND $2
        GROUP BY DATE_TRUNC('month', created_at)
@@ -249,7 +249,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 14 — Commandes par statut
     database.query(
       `SELECT status, COUNT(*)::int AS count
-       FROM orders
+       FROM "order"
        WHERE DATE(created_at) BETWEEN $1 AND $2
        GROUP BY status
        ORDER BY count DESC`,
@@ -259,7 +259,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 15 — Réclamations total période actuelle
     database.query(
       `SELECT COUNT(*)::int AS total
-       FROM reclamations
+       FROM complaint
        WHERE DATE(created_at) BETWEEN $1 AND $2`,
       [start, end]
     ),
@@ -267,7 +267,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 16 — Réclamations en attente
     database.query(
       `SELECT COUNT(*)::int AS count
-       FROM reclamations
+       FROM complaint
        WHERE status = 'en_attente'
        AND DATE(created_at) BETWEEN $1 AND $2`,
       [start, end]
@@ -276,7 +276,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 17 — Réclamations résolues
     database.query(
       `SELECT COUNT(*)::int AS count
-       FROM reclamations
+       FROM complaint
        WHERE status = 'resolue'
        AND DATE(created_at) BETWEEN $1 AND $2`,
       [start, end]
@@ -284,10 +284,10 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
 
     // 18 — Réclamations par type
     database.query(
-      `SELECT reclamation_type, COUNT(*)::int AS count
-       FROM reclamations
+      `SELECT complaint_type, COUNT(*)::int AS count
+       FROM complaint
        WHERE DATE(created_at) BETWEEN $1 AND $2
-       GROUP BY reclamation_type
+       GROUP BY complaint_type
        ORDER BY count DESC`,
       [start, end]
     ),
@@ -295,14 +295,14 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 19 — Réclamations récentes en attente
     database.query(
       `SELECT
-         r.id, r.reclamation_type, r.message, r.status, r.created_at,
+         r.id, r.complaint_type, r.message, r.status, r.created_at,
          u.name  AS user_name,
          u.email AS user_email,
          u.phone AS user_phone,
          o.order_number
-       FROM reclamations r
-       LEFT JOIN users  u ON u.id = r.user_id
-       LEFT JOIN orders o ON o.id = r.order_id
+       FROM complaint r
+       LEFT JOIN "user"  u ON u.id = r.user_id
+       LEFT JOIN "order" o ON o.id = r.order_id
        WHERE r.status = 'en_attente'
        ORDER BY r.created_at DESC
        LIMIT 10`
@@ -311,7 +311,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 20 — Réclamations total période précédente
     database.query(
       `SELECT COUNT(*)::int AS total
-       FROM reclamations
+       FROM complaint
        WHERE DATE(created_at) BETWEEN $1 AND $2`,
       [prevStartStr, prevEndStr]
     ),
@@ -319,7 +319,7 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
     // 21 — Réclamations en attente période précédente
     database.query(
       `SELECT COUNT(*)::int AS count
-       FROM reclamations
+       FROM complaint
        WHERE status = 'en_attente'
        AND DATE(created_at) BETWEEN $1 AND $2`,
       [prevStartStr, prevEndStr]
@@ -331,11 +331,11 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
          c.name_fr AS category,
          COUNT(DISTINCT o.id)::int AS orders_count,
          COALESCE(SUM(oi.quantity * oi.price_at_order), 0)::float AS revenue
-       FROM order_items oi
-       LEFT JOIN orders           o  ON o.id  = oi.order_id
-       LEFT JOIN product_variants pv ON pv.id = oi.variant_id
-       LEFT JOIN products         p  ON p.id  = pv.product_id
-       LEFT JOIN categories       c  ON c.id  = p.category_id
+       FROM order_item oi
+       LEFT JOIN "order"           o  ON o.id  = oi.order_id
+       LEFT JOIN product_variant pv ON pv.id = oi.variant_id
+       LEFT JOIN product         p  ON p.id  = pv.product_id
+       LEFT JOIN category       c  ON c.id  = p.category_id
        WHERE o.status != 'annulee'
        AND DATE(o.created_at) BETWEEN $1 AND $2
        GROUP BY c.name_fr
@@ -351,10 +351,10 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
          SUM(oi.quantity)::int AS total_qty,
          COUNT(DISTINCT o.id)::int AS total_orders,
          COALESCE(SUM(oi.quantity * oi.price_at_order), 0)::float AS revenue
-       FROM order_items oi
-       LEFT JOIN orders           o  ON o.id  = oi.order_id
-       LEFT JOIN product_variants pv ON pv.id = oi.variant_id
-       LEFT JOIN products         p  ON p.id  = pv.product_id
+       FROM order_item oi
+       LEFT JOIN "order"           o  ON o.id  = oi.order_id
+       LEFT JOIN product_variant pv ON pv.id = oi.variant_id
+       LEFT JOIN product         p  ON p.id  = pv.product_id
        WHERE o.status != 'annulee'
        AND DATE(o.created_at) BETWEEN $1 AND $2
        GROUP BY p.id, p.name_fr, p.slug
@@ -372,9 +372,9 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
          u.name  AS customer_name,
          u.email AS customer_email,
          COUNT(oi.id)::int AS item_count
-       FROM orders o
-       LEFT JOIN users       u  ON u.id = o.user_id
-       LEFT JOIN order_items oi ON oi.order_id = o.id
+       FROM "order" o
+       LEFT JOIN "user"       u  ON u.id = o.user_id
+       LEFT JOIN order_item oi ON oi.order_id = o.id
        WHERE DATE(o.created_at) BETWEEN $1 AND $2
        GROUP BY o.id, u.name, u.email
        ORDER BY o.created_at DESC
@@ -388,8 +388,8 @@ export const getDashboardStatsService = async ({ period, month, year }) => {
          u.id, u.name, u.email,
          COUNT(DISTINCT o.id)::int AS total_orders,
          COALESCE(SUM(o.total_price), 0)::float AS total_spent
-       FROM orders o
-       LEFT JOIN users u ON u.id = o.user_id
+       FROM "order" o
+       LEFT JOIN "user" u ON u.id = o.user_id
        WHERE o.status != 'annulee'
        AND DATE(o.created_at) BETWEEN $1 AND $2
        GROUP BY u.id, u.name, u.email
@@ -487,8 +487,8 @@ export const exportStatsService = async ({ period, month, year, type }) => {
         `SELECT o.order_number, o.status, o.payment_method, o.payment_status,
                 o.total_price, o.created_at,
                 u.name AS customer_name, u.email AS customer_email
-         FROM orders o
-         LEFT JOIN users u ON u.id = o.user_id
+         FROM "order" o
+         LEFT JOIN "user" u ON u.id = o.user_id
          WHERE DATE(o.created_at) BETWEEN $1 AND $2
          ORDER BY o.created_at DESC`,
         [start, end]
@@ -507,11 +507,11 @@ export const exportStatsService = async ({ period, month, year, type }) => {
         `SELECT p.name_fr, p.slug, c.name_fr AS category,
                 SUM(oi.quantity)::int AS total_qty,
                 COALESCE(SUM(oi.quantity * oi.price_at_order), 0)::float AS revenue
-         FROM order_items oi
-         LEFT JOIN orders           o  ON o.id  = oi.order_id
-         LEFT JOIN product_variants pv ON pv.id = oi.variant_id
-         LEFT JOIN products         p  ON p.id  = pv.product_id
-         LEFT JOIN categories       c  ON c.id  = p.category_id
+         FROM order_item oi
+         LEFT JOIN "order"           o  ON o.id  = oi.order_id
+         LEFT JOIN product_variant pv ON pv.id = oi.variant_id
+         LEFT JOIN product         p  ON p.id  = pv.product_id
+         LEFT JOIN category      c  ON c.id  = p.category_id
          WHERE o.status != 'annulee'
          AND DATE(o.created_at) BETWEEN $1 AND $2
          GROUP BY p.id, p.name_fr, p.slug, c.name_fr
@@ -529,8 +529,8 @@ export const exportStatsService = async ({ period, month, year, type }) => {
         `SELECT u.name, u.email, u.created_at,
                 COUNT(DISTINCT o.id)::int AS total_orders,
                 COALESCE(SUM(o.total_price), 0)::float AS total_spent
-         FROM users u
-         LEFT JOIN orders o ON o.user_id = u.id AND o.status != 'annulee'
+         FROM "user" u
+         LEFT JOIN "order" o ON o.user_id = u.id AND o.status != 'annulee'
          GROUP BY u.id, u.name, u.email, u.created_at
          ORDER BY total_spent DESC`
       );
