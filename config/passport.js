@@ -23,7 +23,7 @@ passport.use(
 
         // ── Check if user already exists with this email ──
         const existingUser = await database.query(
-          "SELECT * FROM users WHERE email = $1", [email]
+          'SELECT * FROM "user" WHERE email = $1', [email]
         );
 
         if (existingUser.rows.length > 0) {
@@ -36,13 +36,13 @@ passport.use(
 
           if (!user.google_id) {
             await database.query(
-              "UPDATE users SET google_id=$1 WHERE id=$2",
+              'UPDATE "user" SET google_id=$1 WHERE id=$2',
               [googleId, user.id]
             );
           }
 
           const refreshed = await database.query(
-            "SELECT id, name, email, avatar, role, is_verified, is_active, google_id FROM users WHERE id = $1",
+            'SELECT id, name, email, avatar, role, is_verified, is_active, google_id FROM "user" WHERE id = $1',
             [user.id]
           );
           return done(null, refreshed.rows[0]);
@@ -51,7 +51,7 @@ passport.use(
         // ── User doesn't exist → create a new account ─────
         // Google users are auto-verified (email confirmed by Google)
         const newUser = await database.query(
-          `INSERT INTO users (name, email, avatar, google_id, role, is_verified)
+          `INSERT INTO "user" (name, email, avatar, google_id, role, is_verified)
            VALUES ($1, $2, $3, $4, 'user', true)
            RETURNING id, name, email, avatar, role, is_verified`,
           [name, email, avatar, googleId]
@@ -71,7 +71,7 @@ passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
   try {
     const result = await database.query(
-      "SELECT id, name, email, avatar, role, is_verified FROM users WHERE id = $1",
+      'SELECT id, name, email, avatar, role, is_verified FROM "user" WHERE id = $1',
       [id]
     );
     done(null, result.rows[0] || null);
