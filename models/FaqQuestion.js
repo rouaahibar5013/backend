@@ -3,11 +3,18 @@ import database from "../database/db.js";
 class FaqQuestion {
   // ─── Trouver par ID ───────────────────────────────────
   static async findById(id) {
-    const result = await database.query(
-      "SELECT * FROM question WHERE id = $1", [id]
-    );
-    return result.rows[0] || null;
-  }
+  const result = await database.query(
+    `SELECT 
+       q.*,
+       COALESCE(u.name,  q.user_name)  AS user_name,
+       COALESCE(u.email, q.user_email) AS user_email
+     FROM question q
+     LEFT JOIN users u ON u.id = q.user_id
+     WHERE q.id = $1`,
+    [id]
+  );
+  return result.rows[0] || null;
+}
 
   // ─── Créer une question auto-répondue ─────────────────
   static async createAnswered({ userId, user_name, user_email, question, answer }) {
@@ -22,16 +29,16 @@ class FaqQuestion {
   }
 
   // ─── Créer une question en attente ────────────────────
-  static async createPending({ userId, user_name, user_email, question }) {
-    const result = await database.query(
-      `INSERT INTO question
-         (user_id, user_name, user_email, question, status)
-       VALUES ($1, $2, $3, $4, 'pending')
-       RETURNING *`,
-      [userId, user_name, user_email, question]
-    );
-    return result.rows[0];
-  }
+ static async createPending({ userId, user_name, user_email, question }) {
+  const result = await database.query(
+    `INSERT INTO question
+       (user_id, user_name, user_email, question, status)
+     VALUES ($1, $2, $3, $4, 'pending')
+     RETURNING *`,
+    [userId, user_name, user_email, question]
+  );
+  return result.rows[0];
+}
 
   // ─── Lier une question à une FAQ ─────────────────────
   static async linkToFaq(questionId, faqId, matchedAutomatically) {
@@ -83,24 +90,28 @@ class FaqQuestion {
       database.query(
         `SELECT COUNT(*) FROM question fqq ${whereClause}`, countValues
       ),
-      database.query(
-        `SELECT
-           fqq.*,
-           json_agg(
-             json_build_object(
-               'faq_id',                flink.faq_id,
-               'matched_automatically', flink.matched_automatically,
-               'faq_question',          f.question_fr,
-               'faq_category',          f.category
-             )
-           ) FILTER (WHERE flink.faq_id IS NOT NULL) AS linked_faqs
-         FROM question fqq
-         LEFT JOIN frequent_question flink ON flink.question_id = fqq.id
-         LEFT JOIN faq f                  ON f.id = flink.faq_id
-         ${whereClause}
-         GROUP BY fqq.id
-         ORDER BY fqq.created_at DESC
-         LIMIT $${index} OFFSET $${index + 1}`,
+  
+    database.query(
+      `SELECT
+         fqq.*,
+         COALESCE(u.name,  fqq.user_name)  AS user_name,   -- ← ajout
+         COALESCE(u.email, fqq.user_email) AS user_email,  -- ← ajout
+         json_agg(
+           json_build_object(
+             'faq_id',                flink.faq_id,
+             'matched_automatically', flink.matched_automatically,
+             'faq_question',          f.question_fr,
+             'faq_category',          f.category
+           )
+         ) FILTER (WHERE flink.faq_id IS NOT NULL) AS linked_faqs
+       FROM question fqq
+       LEFT JOIN users u ON u.id = fqq.user_id              -- ← ajout
+       LEFT JOIN frequent_question flink ON flink.question_id = fqq.id
+       LEFT JOIN faq f ON f.id = flink.faq_id
+       ${whereClause}
+       GROUP BY fqq.id, u.name, u.email                     -- ← u.name et u.email ajoutés au GROUP BY
+       ORDER BY fqq.created_at DESC
+       LIMIT $${index} OFFSET $${index + 1}`,
         values
       ),
     ]);

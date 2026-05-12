@@ -1,5 +1,4 @@
-import { Faq, FaqQuestion } from "../models/index.js";
-import ErrorHandler  from "../middlewares/errorMiddleware.js";
+import { Faq, FaqQuestion, User } from "../models/index.js";import ErrorHandler  from "../middlewares/errorMiddleware.js";
 import sendEmail     from "../utils/sendEmail.js";
 import { notifyAdmins } from "../utils/websocket.js";
 
@@ -62,15 +61,26 @@ export const searchFaqsService = async (q) => {
 // USER POSE UNE QUESTION (public)
 // ═══════════════════════════════════════════════════════════
 export const askQuestionService = async ({ userId, user_name, user_email, question }) => {
-  if (!user_name || !user_email || !question)
-    throw new ErrorHandler("Nom, email et question sont requis.", 400);
 
-  if (question.trim().length < 10)
+if (!question || question.trim().length < 10)
     throw new ErrorHandler("La question doit contenir au moins 10 caractères.", 400);
-
   const cleanQuestion = question.trim();
-  const cleanName     = user_name.trim();
-  const cleanEmail    = user_email.trim().toLowerCase();
+  let   cleanName;
+  let   cleanEmail;
+if (userId) {
+    // User connecté → on ignore le body, on prend depuis la DB
+    const user = await User.findById(userId);
+    if (!user) throw new ErrorHandler("Utilisateur introuvable.", 404);
+    cleanName  = user.name;
+    cleanEmail = user.email;
+  } else {
+    // Anonyme → name et email obligatoires dans le body
+    if (!user_name?.trim() || !user_email?.trim())
+      throw new ErrorHandler("Nom et email requis pour les questions anonymes.", 400);
+    cleanName  = user_name.trim();
+    cleanEmail = user_email.trim().toLowerCase();
+  }
+  
 
   const matchedFaq = await Faq.findSimilar(cleanQuestion, SIMILARITY_THRESHOLD);
 
