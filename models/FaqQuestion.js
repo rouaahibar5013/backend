@@ -9,7 +9,7 @@ class FaqQuestion {
        COALESCE(u.name,  q.user_name)  AS user_name,
        COALESCE(u.email, q.user_email) AS user_email
      FROM question q
-     LEFT JOIN users u ON u.id = q.user_id
+     LEFT JOIN "user" u ON u.id = q.user_id
      WHERE q.id = $1`,
     [id]
   );
@@ -94,8 +94,8 @@ class FaqQuestion {
     database.query(
       `SELECT
          fqq.*,
-         COALESCE(u.name,  fqq.user_name)  AS user_name,   -- ← ajout
-         COALESCE(u.email, fqq.user_email) AS user_email,  -- ← ajout
+         COALESCE(u.name,  fqq.user_name)  AS user_name,   
+         COALESCE(u.email, fqq.user_email) AS user_email,  
          json_agg(
            json_build_object(
              'faq_id',                flink.faq_id,
@@ -105,11 +105,11 @@ class FaqQuestion {
            )
          ) FILTER (WHERE flink.faq_id IS NOT NULL) AS linked_faqs
        FROM question fqq
-       LEFT JOIN users u ON u.id = fqq.user_id              -- ← ajout
+       LEFT JOIN "user" u ON u.id = fqq.user_id              
        LEFT JOIN frequent_question flink ON flink.question_id = fqq.id
        LEFT JOIN faq f ON f.id = flink.faq_id
        ${whereClause}
-       GROUP BY fqq.id, u.name, u.email                     -- ← u.name et u.email ajoutés au GROUP BY
+       GROUP BY fqq.id, u.name, u.email                     
        ORDER BY fqq.created_at DESC
        LIMIT $${index} OFFSET $${index + 1}`,
         values
