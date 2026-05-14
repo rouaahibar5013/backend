@@ -470,20 +470,25 @@ const p = await Promotion.findValidByCode(code);
 // ═══════════════════════════════════════════════════════════
 // HELPER — Insérer les articles + gérer le stock
 // ═══════════════════════════════════════════════════════════
-const insertOrderItems = async (orderId, orderItems) => {
+
+
+// Fonction 1 — enregistrer articles SANS toucher au stock
+const insertOrderItemsOnly = async (orderId, orderItems) => {
   for (const item of orderItems) {
-    // ✅ Model : insérer l'article
     await OrderItem.create({
       orderId,
       variantId:    item.variant_id,
       quantity:     item.quantity,
       priceAtOrder: item.price_at_order,
     });
+  }
+};
 
-    // ✅ Model : décrémenter le stock
+// Fonction 2 — décrémenter stock + alertes
+// Appelée UNIQUEMENT après confirmation paiement Stripe
+const decrementStockForOrder = async (orderId, orderItems) => {
+  for (const item of orderItems) {
     await ProductVariant.decrementStock(item.variant_id, item.quantity);
-
-    // ✅ Model : vérifier le stock après décrémentation
     const updated = await ProductVariant.findById(item.variant_id);
     if (updated && updated.stock <= (updated.low_stock_threshold || 5)) {
       await sendStockAlertEmail(item._product_name_fr, updated.sku, updated.stock);
@@ -510,7 +515,7 @@ const restoreStock = async (orderId) => {
 // HELPER — Finaliser la commande (articles + livraison + promo)
 // ═══════════════════════════════════════════════════════════
 const finalizeOrder = async ({ order, orderItems, promoId }) => {
-  await insertOrderItems(order.id, orderItems);
+  await insertOrderItemsOnly(order.id, orderItems);
 
   // ✅ Model : créer la livraison
   await Delivery.create(order.id);
@@ -711,11 +716,12 @@ export const handleStripeWebhookService = async (payload, signature) => {
     // ── Paiement réussi ───────────────────────────────────
     case "payment_intent.succeeded": {
       const pi = event.data.object;
-
       // ✅ Model : confirmer le paiement
       const order = await Order.confirmPayment(pi.id);
       if (!order) break;
-
+  // ✅ NOUVEAU — décrémenter stock ici après paiement confirmé
+  const orderItemsForStock = await OrderItem.findByOrderIdSimple(order.id);
+  await decrementStockForOrder(order.id, orderItemsForStock);
       // ✅ Model : récupérer l'utilisateur
       const user = await User.findById(order.user_id);
 
@@ -832,7 +838,7 @@ export const getAllOrdersService = async ({ status, payment_status, page = 1 }) 
 export const updateOrderStatusService = async ({ orderId, status }) => {
   const validStatuses = [
     "en_attente", "confirmee", "en_preparation",
-    "expediee", "livree", "annulee", "remboursee",
+    "expediee", "livree", "annulee", "remboursee","en_reclamation", "retournee",
   ];
 
   if (!validStatuses.includes(status))
@@ -905,13 +911,13 @@ export const cancelOrderService = async ({ orderId, reason }) => {
   if (order.status === "livree")
     throw new ErrorHandler("Impossible d'annuler une commande déjà livrée.", 400);
 
-  // ✅ Helper : restaurer le stock
+  // ✅ Stock décrémenté seulement si paiement confirmé → restaurer seulement dans ce cas
+if (order.payment_status === "paye") {
   await restoreStock(orderId);
-
-  // ✅ Stripe : rembourser si déjà payé
-  if (order.payment_status === "paye" && order.payment_id) {
+  if (order.payment_id) {
     await stripe.refunds.create({ payment_intent: order.payment_id });
   }
+}
 
   // ✅ Model : annuler commande + livraison
   await Order.cancel(orderId, reason.trim());

@@ -27,7 +27,11 @@ const statusMap = {
   "annuler":        "annulee",
   "remboursée":     "remboursee",
   "remboursee":     "remboursee",
-  "rembourse":      "remboursee"
+  "rembourse":      "remboursee",
+  "en_reclamation":      "en_reclamation",
+"en réclamation":      "en_reclamation",
+"retournée":           "retournee",
+"retournee":           "retournee",
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -296,7 +300,7 @@ export const getAllOrders = catchAsyncErrors(async (req, res, next) => {
   let { status, payment_status } = req.query;
   const page = parseInt(req.query.page) || 1;
 
-  const validStatuses = ["en_attente", "confirmee", "en_preparation", "expediee", "livree", "annulee", "remboursee"];
+  const validStatuses = ["en_attente", "confirmee", "en_preparation", "expediee", "livree", "annulee", "remboursee","en_reclamation", "retournee"];
   const validPayments = ["en_attente", "paye", "echoue", "rembourse"];
 
   // Conversion du statut d'affichage vers format BDD si nécessaire

@@ -3,7 +3,7 @@ import ErrorHandler from "../middlewares/errorMiddleware.js";
 import sendEmail    from "../utils/sendEmail.js";
 import { invalidateDashboardCache } from "../utils/cacheInvalideation.js";
 import { notifyUser, notifyAdmins } from "../utils/websocket.js";
-
+import Stripe from "stripe";
 
 const VALID_STATUSES = ["en_attente", "en_cours", "urgente", "en_retard", "resolue", "rejetee"];
 
@@ -142,9 +142,13 @@ export const createReclamationService = async ({
   }
 
   const reclamation = await Reclamation.create({
+    
     user_id: userId, order_id: order_id || null,
     complaint_type, message: message.trim(),
   });
+  if (order_id && order && order.status === "livree") {
+  await Order.updateStatus(order_id, "en_reclamation");
+}
 
   await invalidateDashboardCache();
 
@@ -208,7 +212,30 @@ export const respondToReclamationService = async ({
     status,
     resolution_delay: resolution_delay || null,
     deadline_at:      deadlineAt,
-  });
+  })
+  
+  
+  if (current.order_id) {
+  const order = await Order.findById(current.order_id);
+
+  if (status === "resolue" && avec_remboursement) {
+    // Admin accepte avec remboursement → retournee → (webhook → remboursee)
+    await Order.markReturned(current.order_id);
+    if (order?.payment_status === "paye" && order?.payment_id) {
+      await stripe.refunds.create({ payment_intent: order.payment_id });
+    }
+
+  } else if (status === "resolue" && !avec_remboursement) {
+    // Admin accepte sans remboursement → clôturée
+    await Order.updateStatus(current.order_id, "reclamation_refusee");
+
+  } else if (status === "rejetee") {
+    // Admin refuse → END
+    await Order.updateStatus(current.order_id, "reclamation_refusee");
+  }
+}
+  
+  ;
 
   await invalidateDashboardCache();
 
