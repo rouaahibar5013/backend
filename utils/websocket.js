@@ -1,4 +1,6 @@
 import { WebSocketServer } from "ws";
+import jwt from 'jsonwebtoken';
+import cookie from 'cookie';
 
 let wss;
 
@@ -17,16 +19,19 @@ export const initWebSocket = (httpServer) => {
   wss = new WebSocketServer({ server: httpServer });
 
   wss.on("connection", (ws, req) => {
-    // Le client envoie ?userId=xxx&role=admin dans l'URL de connexion
-    const params = new URLSearchParams(req.url?.split("?")[1]);
-    const userId = params.get("userId");
-    const role   = params.get("role");
+    let userId, role = "user";
+    try {
+        const cookies = cookie.parse(req.headers.cookie || '');
+        const token   = cookies.token;
+        if (!token) { ws.close(); return; }
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userId = String(decoded.id);   // ← adjust field name to match your JWT payload
+        role   = decoded.role || "user";
+    } catch {
+        ws.close(); return;            // token absent ou invalide → reject
+    }
 
     if (!userId) { ws.close(); return; }
-
-    // Stocker la connexion
-    if (!clients.has(userId)) clients.set(userId, new Set());
-    clients.get(userId).add(ws);
 
     if (role === "admin") {
       adminIds.add(userId);
@@ -38,6 +43,13 @@ export const initWebSocket = (httpServer) => {
         try { ws.send(JSON.stringify(n)); }
         catch (_) {}
       });
+    }
+
+    if (!clients.has(userId)) clients.set(userId, new Set());
+    clients.get(userId).add(ws);
+
+    if (process.env.NODE_ENV !== 'production') {         
+      console.log(`[WS] Connecté: ${userId} (${role})`);
     }
 
     // Ping toutes les 30s pour garder la connexion vivante
@@ -58,10 +70,8 @@ export const initWebSocket = (httpServer) => {
       console.error(`[WS] Erreur client ${userId}:`, err.message);
     });
 
-    console.log(`[WS] Connecté: ${userId} (${role || "user"}) — adminIds actuels: [${[...adminIds].join(', ')}]`);
   });
 
-  console.log("[WS] WebSocket server initialisé");
 };
 
 // ─── Notifier un user spécifique (client) ─────────────────────
@@ -85,7 +95,7 @@ export const notifyAdmins = (payload) => {
   if (recentAdminNotifications.length > MAX_BUFFER) {
     recentAdminNotifications.shift();
   }
-console.log(`[WS] notifyAdmins: ${payload.type} → adminIds: [${[...adminIds].join(', ')}]`);
+
   const message = JSON.stringify(payload);
   adminIds.forEach(adminId => {
     clients.get(adminId)?.forEach(ws => {
