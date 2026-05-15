@@ -491,7 +491,7 @@ const decrementStockForOrder = async (orderId, orderItems) => {
     await ProductVariant.decrementStock(item.variant_id, item.quantity);
     const updated = await ProductVariant.findById(item.variant_id);
     if (updated && updated.stock <= (updated.low_stock_threshold || 5)) {
-      await sendStockAlertEmail(item._product_name_fr, updated.sku, updated.stock);
+      await sendStockAlertEmail(item._product_name_fr || updated.product_name_fr || "Produit", updated.sku, updated.stock);
     }
   }
 };
@@ -755,8 +755,7 @@ export const handleStripeWebhookService = async (payload, signature) => {
       // ✅ Model : annuler la livraison
       await Delivery.markReturned(order.id);
 
-      // ✅ Helper : restaurer le stock
-      await restoreStock(order.id);
+   
 
       // ✅ Model : récupérer l'utilisateur
       const user = await User.findById(order.user_id);
@@ -864,6 +863,8 @@ export const updateOrderStatusService = async ({ orderId, status }) => {
   order.status = status;
 
   // ✅ Model : sync livraison selon statut
+  if (status === "en_preparation") await Delivery.markInPreparation(orderId); 
+
   if (status === "expediee") await Delivery.markShipped(orderId);
   if (status === "livree")   await Delivery.markDelivered(orderId);
 
@@ -976,20 +977,130 @@ export const updateDeliveryService = async ({
   if (!existing)
     throw new ErrorHandler("Livraison introuvable.", 404);
 
-  // ✅ Model : mettre à jour la livraison
-  const delivery = await Delivery.update(orderId, { carrier, tracking_number, estimated_date, status, notes });
+  const delivery = await Delivery.update(orderId, {
+    carrier, tracking_number, estimated_date, status, notes,
+  });
 
-  // ✅ Sync order status + email si livraison confirmée
+  const order = await Order.findById(orderId);
+  const user  = order ? await User.findById(order.user_id) : null;
+
+  // ── livre → order passe à livree (déjà en place) ──────────────
   if (status === "livre") {
     await Order.updateStatus(orderId, "livree");
     await invalidateDashboardCache();
+    if (order && user) {
+      order.status = "livree";
+      await sendOrderStatusEmail(order, user.name, user.email);
+      notifyUser(order.user_id, {
+        type:         "ORDER_STATUS_UPDATE",
+        id:           orderId,
+        order_number: order.order_number,
+        status:       "livree",
+        message:      `🎉 Commande #${order.order_number} livrée !`,
+      });
+    }
+  }
 
-    const order = await Order.findById(orderId);
-    if (order) {
-      const user = await User.findById(order.user_id);
-      if (user) {
-        await sendOrderStatusEmail(order, user.name, user.email);
-      }
+  // ── en_transit / en_cours → notif client uniquement, order inchangée ──
+  if (status === "en_transit" || status === "en_cours") {
+    const label = status === "en_transit" ? "en transit" : "en cours de livraison";
+    if (user) {
+      await sendEmail({
+        to:      user.email,
+        subject: `🚚 Votre commande #${order.order_number} est ${label} — GOFFA`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <div style="background:#3b82f6;padding:30px;text-align:center;border-radius:10px 10px 0 0;">
+              <h1 style="color:white;margin:0;">🧺 GOFFA</h1>
+            </div>
+            <div style="padding:30px;background:#f9fafb;border-radius:0 0 10px 10px;">
+              <h2 style="color:#3b82f6;">🚚 Votre colis est ${label}</h2>
+              <p>Bonjour ${user.name},</p>
+              <p>Votre commande <strong>#${order.order_number}</strong> est actuellement ${label}.</p>
+              ${tracking_number ?? existing.tracking_number
+                ? `<p><strong>Numéro de suivi :</strong> ${tracking_number ?? existing.tracking_number}</p>`
+                : ""}
+              ${carrier ?? existing.carrier
+                ? `<p><strong>Transporteur :</strong> ${carrier ?? existing.carrier}</p>`
+                : ""}
+            </div>
+          </div>
+        `,
+      }).catch(err => console.error("Transit email error:", err.message));
+
+      notifyUser(order.user_id, {
+        type:         "DELIVERY_UPDATE",
+        id:           orderId,
+        order_number: order.order_number,
+        status,
+        message: `🚚 Commande #${order.order_number} ${label}`,
+      });
+    }
+  }
+
+  // ── echec → order reste expediee, notif admin uniquement ──────
+  if (status === "echec") {
+    const adminEmail = process.env.ADMIN_EMAIL;
+    if (adminEmail) {
+      await sendEmail({
+        to:      adminEmail,
+        subject: `⚠️ Échec livraison — Commande #${order?.order_number}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <div style="background:#f59e0b;padding:20px;border-radius:8px 8px 0 0;">
+              <h2 style="color:white;margin:0;">⚠️ Échec de livraison</h2>
+            </div>
+            <div style="padding:20px;background:#fffbeb;border-radius:0 0 8px 8px;">
+              <p><strong>Commande :</strong> #${order?.order_number}</p>
+              <p><strong>Client :</strong> ${user?.name} — ${user?.email}</p>
+              <p><strong>Transporteur :</strong> ${carrier ?? existing.carrier ?? "N/A"}</p>
+              <p><strong>Suivi :</strong> ${tracking_number ?? existing.tracking_number ?? "N/A"}</p>
+              <p><strong>Notes :</strong> ${notes ?? existing.notes ?? "—"}</p>
+              <p style="color:#92400e;">Le statut de la commande reste <strong>expédiée</strong>.
+                 Vous pouvez relancer la livraison ou initier un retour.</p>
+              <a href="${process.env.FRONTEND_URL}/admin/commandes/${orderId}"
+                 style="background:#166534;color:white;padding:10px 20px;border-radius:6px;
+                        text-decoration:none;display:inline-block;margin-top:10px;">
+                Gérer la commande →
+              </a>
+            </div>
+          </div>
+        `,
+      }).catch(err => console.error("Echec livraison email error:", err.message));
+    }
+    // order.status reste "expediee" — rien d'autre à faire
+  }
+
+  // ── retourne → order passe à retournee auto ───────────────────
+  if (status === "retourne") {
+    await Order.markReturned(orderId);
+    await invalidateDashboardCache();
+    if (user) {
+      await sendEmail({
+        to:      user.email,
+        subject: `↩️ Commande #${order.order_number} retournée — GOFFA`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <div style="background:#dc2626;padding:30px;text-align:center;border-radius:10px 10px 0 0;">
+              <h1 style="color:white;margin:0;">🧺 GOFFA</h1>
+            </div>
+            <div style="padding:30px;background:#f9fafb;border-radius:0 0 10px 10px;">
+              <h2 style="color:#dc2626;">↩️ Colis retourné</h2>
+              <p>Bonjour ${user.name},</p>
+              <p>Votre colis pour la commande <strong>#${order.order_number}</strong>
+                 nous a été retourné. Notre équipe va vous contacter rapidement.</p>
+            </div>
+          </div>
+        `,
+      }).catch(err => console.error("Retour email error:", err.message));
+
+      notifyUser(order.user_id, {
+        type:         "ORDER_STATUS_UPDATE",
+        id:           orderId,
+        order_number: order.order_number,
+        status:       "retournee",
+        message:      `↩️ Commande #${order.order_number} retournée.`,
+      });
     }
   }
 
