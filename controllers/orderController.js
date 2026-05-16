@@ -384,7 +384,7 @@ export const updateDelivery = catchAsyncErrors(async (req, res, next) => {
 
   const validDeliveryStatuses = [
     "en_preparation",
-    "expediee",
+    "expedie",
     "en_transit",
     "en_cours",
     "livre",

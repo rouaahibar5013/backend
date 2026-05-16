@@ -863,10 +863,10 @@ export const updateOrderStatusService = async ({ orderId, status }) => {
   order.status = status;
 
   // ✅ Model : sync livraison selon statut
-  if (status === "en_preparation") await Delivery.markInPreparation(orderId); 
 
-  if (status === "expediee") await Delivery.markShipped(orderId);
-  if (status === "livree")   await Delivery.markDelivered(orderId);
+if (status === "en_preparation") await Delivery.markInPreparation(orderId);
+if (status === "expediee")       await Delivery.markShipped(orderId);
+if (status === "livree")         await Delivery.markDelivered(orderId);
 
   // ✅ Récupérer tracking pour l'email si expédiée
   if (status === "expediee") {
