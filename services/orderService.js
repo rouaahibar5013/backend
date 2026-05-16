@@ -869,14 +869,15 @@ if (status === "expediee")       await Delivery.markShipped(orderId);
 if (status === "livree")         await Delivery.markDelivered(orderId);
 
   // ✅ Récupérer tracking pour l'email si expédiée
-  if (status === "expediee") {
-    const delivery = await Delivery.findByOrderId(orderId);
-    if (delivery) {
-      order.tracking_number = delivery.tracking_number;
-      order.carrier         = delivery.carrier;
-      order.estimated_date  = delivery.estimated_date;
-    }
+ // Dans updateOrderStatusService — temporairement
+if (status === "expediee") {
+  try {
+    await Delivery.markShipped(orderId);
+    console.log("✅ Delivery markShipped réussi");
+  } catch (err) {
+    console.error("❌ Delivery markShipped ERREUR:", err.message);
   }
+}
 
   // ✅ Model : récupérer l'utilisateur pour l'email
   const user = await User.findById(order.user_id);

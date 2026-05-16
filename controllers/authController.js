@@ -351,3 +351,33 @@ export const adminUpdateUser = catchAsyncErrors(async (req, res, next) => {
 
   res.status(200).json({ success: true, message: "Utilisateur mis à jour.", user });
 });
+
+// ══════════════════════════════════════════════════════════════════════════
+// UPDATE ADDRESSES (billing + shipping)
+// PUT /api/auth/me/addresses
+// ══════════════════════════════════════════════════════════════════════════
+export const updateAddresses = catchAsyncErrors(async (req, res, next) => {
+  const {
+    billing_full_name,   billing_phone,
+    billing_address,     billing_city,
+    billing_governorate, billing_postal_code, billing_country,
+    shipping_full_name,  shipping_phone,
+    shipping_address,    shipping_city,
+    shipping_governorate, shipping_postal_code, shipping_country,
+  } = req.body;
+
+  const user = await authService.updateUserAddressesService(req.user.id, {
+    billing_full_name,   billing_phone,
+    billing_address,     billing_city,
+    billing_governorate, billing_postal_code, billing_country,
+    shipping_full_name,  shipping_phone,
+    shipping_address,    shipping_city,
+    shipping_governorate, shipping_postal_code, shipping_country,
+  });
+
+  res.status(200).json({
+    success: true,
+    message: "Adresses mises à jour.",
+    user,
+  });
+});

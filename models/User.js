@@ -161,11 +161,10 @@ class User {
     return result.rows[0];
   }
 
-  // ─── Mettre à jour le profil (avec sync billing) ──────
+  // ─── Mettre à jour le profil ) ──────
   static async updateProfile(id, {
     name, avatarUrl,
-    phone, address, city,
-    billingPhone, billingAddress, billingCity,
+    phone, address, city
   }) {
     const result = await database.query(
       `UPDATE "user"
@@ -174,11 +173,8 @@ class User {
            phone           = $3,
            address         = $4,
            city            = $5,
-           billing_phone   = $6,
-           billing_address = $7,
-           billing_city    = $8,
            updated_at      = NOW()
-       WHERE id = $9
+       WHERE id = $6
        RETURNING
          id, name, email, avatar, role, is_verified, is_active,
          phone, address, city,
@@ -187,7 +183,7 @@ class User {
          shipping_full_name, shipping_phone, shipping_address,
          shipping_city, shipping_governorate, shipping_postal_code, shipping_country,
          created_at, updated_at`,
-      [name, avatarUrl, phone, address, city, billingPhone, billingAddress, billingCity, id]
+      [name, avatarUrl, phone, address, city, id]
     );
     return result.rows[0];
   }

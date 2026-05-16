@@ -404,9 +404,6 @@ export const updateUserProfile = async ({
   const newAddress = address ?? cu.address;
   const newCity    = city    ?? cu.city;
 
-  const newBillingPhone   = phone   !== undefined ? newPhone   : cu.billing_phone;
-  const newBillingAddress = address !== undefined ? newAddress : cu.billing_address;
-  const newBillingCity    = city    !== undefined ? newCity    : cu.billing_city;
 
   return await User.updateProfile(userId, {
     name:           name?.trim() || cu.name,
@@ -414,9 +411,6 @@ export const updateUserProfile = async ({
     phone:          newPhone,
     address:        newAddress,
     city:           newCity,
-    billingPhone:   newBillingPhone,
-    billingAddress: newBillingAddress,
-    billingCity:    newBillingCity,
   });
 };
 
@@ -654,4 +648,9 @@ export const adminUpdateUserService = async ({
   }
 
   return updated;
+};
+export const updateUserAddressesService = async (userId, addressData) => {
+  const user = await User.findById(userId);
+  if (!user) throw new ErrorHandler("Utilisateur introuvable.", 404);
+  return await User.updateAddresses(userId, addressData);
 };
