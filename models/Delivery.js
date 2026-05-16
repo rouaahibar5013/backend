@@ -49,7 +49,7 @@ class Delivery {
   // ─── Marquer comme expédié ────────────────────────────
   static async markShipped(orderId) {
     await database.query(
-      "UPDATE delivery SET status = 'expedie', shipped_at = NOW(), updated_at = NOW() WHERE order_id = $1",
+      "UPDATE delivery SET status = 'expediee', shipped_at = NOW(), updated_at = NOW() WHERE order_id = $1",
       [orderId]
     );
   }

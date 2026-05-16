@@ -146,9 +146,11 @@ export const createReclamationService = async ({
     user_id: userId, order_id: order_id || null,
     complaint_type, message: message.trim(),
   });
-  if (order_id && order && order.status === "livree") {
-  await Order.updateStatus(order_id, "en_reclamation");
-}
+  const RECLAMATION_ELIGIBLE = ["confirmee", "en_preparation", "expediee", "livree"];
+  if (order_id && order && RECLAMATION_ELIGIBLE.includes(order.status)) {
+    await Order.updateStatus(order_id, "en_reclamation");
+  }
+
 
   await invalidateDashboardCache();
 
@@ -295,7 +297,8 @@ export const createGuestReclamationService = async ({
     user_id: user.id, order_id: order.id,
     complaint_type, message: message.trim(),
   });
-if (order.status === "livree") {
+const RECLAMATION_ELIGIBLE = ["confirmee", "en_preparation", "expediee", "livree"];
+if (RECLAMATION_ELIGIBLE.includes(order.status)) {
   await Order.updateStatus(order.id, "en_reclamation");
 }
   await invalidateDashboardCache();
