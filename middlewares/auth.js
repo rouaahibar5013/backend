@@ -16,22 +16,23 @@ export const isAuthenticated = catchAsyncErrors(async (req, res, next) => {
   if (!token)
     return next(new ErrorHandler("Non authentifié. Veuillez vous connecter.", 401));
 
+  let decoded;
+  try {
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    return next(new ErrorHandler("Token invalide ou expiré.", 401));
+  }
+
   const revoked = await isTokenBlacklisted(token);
   if (revoked)
     return next(new ErrorHandler("Session révoquée. Veuillez vous reconnecter.", 401));
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await getUserById(decoded.id);
+  const user = await getUserById(decoded.id);
+  if (user.is_active === false)
+    return next(new ErrorHandler("Votre compte a été suspendu.", 403));
 
-    if (user.is_active === false)
-      return next(new ErrorHandler("Votre compte a été suspendu. Contactez le support.", 403));
-
-    req.user = user;
-    next();
-  } catch {
-    return next(new ErrorHandler("Token invalide ou expiré.", 401));
-  }
+  req.user = user;
+  next();
 });
 
 
