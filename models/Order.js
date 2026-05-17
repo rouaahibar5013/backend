@@ -247,11 +247,13 @@ class Order {
 
   // ─── Marquer remboursé (webhook Stripe) ───────────────
   static async markRefunded(paymentId) {
-    await database.query(
-      `UPDATE "order" SET payment_status = 'rembourse',  status         = 'remboursee', updated_at = NOW() WHERE payment_id = $1`,
+    const result = await database.query(
+      `UPDATE "order" SET payment_status = 'rembourse', status = 'remboursee', updated_at = NOW() WHERE payment_id = $1 RETURNING *`,
       [paymentId]
     );
+    return result.rows[0] || null;
   }
+
 
   // ─── Annuler une commande ─────────────────────────────
   static async cancel(id, reason) {

@@ -146,10 +146,7 @@ export const createReclamationService = async ({
     user_id: userId, order_id: order_id || null,
     complaint_type, message: message.trim(),
   });
-  const RECLAMATION_ELIGIBLE = ["confirmee", "en_preparation", "expediee", "livree"];
-  if (order_id && order && RECLAMATION_ELIGIBLE.includes(order.status)) {
-    await Order.updateStatus(order_id, "en_reclamation");
-  }
+ 
 
 
   await invalidateDashboardCache();
@@ -193,6 +190,8 @@ export const respondToReclamationService = async ({
   reclamationId, adminId, status, admin_response, resolution_delay,
   avec_remboursement = false,
 }) => {
+const avecRemboursement = [true, "true", 1, "1"].includes(avec_remboursement);
+
   if (!VALID_STATUSES.includes(status))
     throw new ErrorHandler(`Statut invalide. Valeurs : ${VALID_STATUSES.join(", ")}`, 400);
 
@@ -215,29 +214,17 @@ export const respondToReclamationService = async ({
     status,
     resolution_delay: resolution_delay || null,
     deadline_at:      deadlineAt,
-    avec_remboursement: avec_remboursement ?? false,
+    avec_remboursement: avecRemboursement,
   })
   
   
-  if (current.order_id) {
+if (current.order_id && status === "resolue" && avecRemboursement) {
   const order = await Order.findById(current.order_id);
-
-   if (status === "resolue" && avec_remboursement) {
-    // Admin accepte avec remboursement → retournee → (webhook → remboursee)
-    await Order.markReturned(current.order_id);
-       if (order?.payment_status === "paye" && order?.payment_id) {
-      await stripe.refunds.create({ payment_intent: order.payment_id });
-    }
-}  
-else if (status === "resolue" && !avec_remboursement) {
-  // Résolu sans remboursement → statut reste en_reclamation → END
-  // Rien à faire
-
-} 
-else if (status === "rejetee") {
-  // Admin refuse → statut reste en_reclamation → END
-  // Rien à faire
-}}
+  await Order.updateStatus(current.order_id, "remboursee");
+  if (order?.payment_status === "paye" && order?.payment_id) {
+    await stripe.refunds.create({ payment_intent: order.payment_id });
+  }
+}
   await invalidateDashboardCache();
 
   await sendAdminResponseEmail(current.user_email, current.user_name, reclamation, current.order_number);
@@ -297,10 +284,7 @@ export const createGuestReclamationService = async ({
     user_id: user.id, order_id: order.id,
     complaint_type, message: message.trim(),
   });
-const RECLAMATION_ELIGIBLE = ["confirmee", "en_preparation", "expediee", "livree"];
-if (RECLAMATION_ELIGIBLE.includes(order.status)) {
-  await Order.updateStatus(order.id, "en_reclamation");
-}
+
   await invalidateDashboardCache();
 
   await sendReclamationConfirmationEmail(user.email, user.name, reclamation, order.order_number);

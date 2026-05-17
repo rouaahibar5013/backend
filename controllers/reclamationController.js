@@ -71,7 +71,7 @@ export const getSingleReclamation = catchAsyncErrors(async (req, res, next) => {
 // ✅ Email automatique au client
 // ═══════════════════════════════════════════════════════════
 export const respondToReclamation = catchAsyncErrors(async (req, res, next) => {
-  const { status, admin_response, resolution_delay } = req.body;
+  const { status, admin_response, resolution_delay, avec_remboursement } = req.body;
 
   if (!status || !admin_response)
     return next(new ErrorHandler("Statut et réponse sont obligatoires.", 400));
@@ -82,6 +82,7 @@ export const respondToReclamation = catchAsyncErrors(async (req, res, next) => {
     status,
     admin_response,
     resolution_delay: resolution_delay ? parseInt(resolution_delay) : null,
+    avec_remboursement,
   });
 
   res.status(200).json({

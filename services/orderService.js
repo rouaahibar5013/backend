@@ -773,12 +773,26 @@ export const handleStripeWebhookService = async (payload, signature) => {
 
     // ── Remboursement ─────────────────────────────────────
     case "charge.refunded": {
-      const charge = event.data.object;
-      // ✅ Model : marquer remboursé
-      await Order.markRefunded(charge.payment_intent);
-      await invalidateDashboardCache();
-      break;
+  const charge = event.data.object;
+  const order  = await Order.markRefunded(charge.payment_intent);
+  await invalidateDashboardCache();
+
+  if (order) {
+    const user = await User.findById(order.user_id);
+    if (user) {
+      order.status = "remboursee";
+      await sendOrderStatusEmail(order, user.name, user.email);
+      notifyUser(order.user_id, {
+        type:         "ORDER_STATUS_UPDATE",
+        id:           order.id,
+        order_number: order.order_number,
+        status:       "remboursee",
+        message:      `💜 Remboursement initié pour la commande #${order.order_number}`,
+      });
     }
+  }
+  break;
+}
 
     default:
       console.log(`Webhook event non géré : ${event.type}`);
@@ -852,6 +866,12 @@ export const updateOrderStatusService = async ({ orderId, status }) => {
       400
     );
   }
+  if (status === "remboursee") {
+    throw new ErrorHandler(
+      "Le remboursement se déclenche automatiquement via Stripe ou via la gestion des réclamations.",
+      400
+    );
+  }
 
   // ✅ Model : mettre à jour le statut
   await Order.updateStatus(orderId, status);
@@ -893,14 +913,13 @@ export const cancelOrderService = async ({ orderId, reason }) => {
   if (!order)
     throw new ErrorHandler("Commande introuvable.", 404);
 
-  if (order.status === "annulee")
-    throw new ErrorHandler("Cette commande est déjà annulée.", 400);
-
-  if (order.status === "livree")
-    throw new ErrorHandler("Impossible d'annuler une commande déjà livrée.", 400);
+  const cancellableStatuses = ["en_attente", "confirmee", "en_preparation"];
+if (!cancellableStatuses.includes(order.status))
+  throw new ErrorHandler(
+    `Impossible d'annuler une commande au statut : ${order.status}.`, 400
+  );
 
   await Order.cancel(orderId, reason.trim());
-  await Delivery.markReturned(orderId);
   // ✅ Stock décrémenté seulement si paiement confirmé → restaurer seulement dans ce cas
 if (order.payment_status === "paye") {
   await restoreStock(orderId);
@@ -1061,6 +1080,14 @@ export const updateDeliveryService = async ({
   // ── retourne → order passe à retournee auto ───────────────────
   if (status === "retourne") {
     await Order.markReturned(orderId);
+    // ✅ Restaurer le stock
+  await restoreStock(orderId);
+  // ✅ Déclencher le remboursement → webhook charge.refunded → Order.markRefunded() → remboursee
+  if (order?.payment_status === "paye" && order?.payment_id) {
+    await stripe.refunds.create({ payment_intent: order.payment_id })
+      .catch(err => console.error("Retour refund error:", err.message));
+  }
+
     await invalidateDashboardCache();
     if (user) {
       await sendEmail({
