@@ -199,8 +199,7 @@ const sendPaymentFailedEmail = async (toEmail, customerName, order) => {
             </p>
           </div>
           <p style="color: #6b7280; font-size: 13px;">
-            Votre commande a été annulée et le stock a été libéré.
-            Vous pouvez repasser une commande à tout moment.
+            Votre commande a été annulée. Vous pouvez repasser une commande à tout moment.
           </p>
           <div style="text-align: center; margin-top: 24px;">
             <a href="${process.env.FRONTEND_URL}/panier"
@@ -246,7 +245,7 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
       .text(`Date : ${new Date(order.created_at).toLocaleDateString("fr-FR", {
         day: "2-digit", month: "long", year: "numeric",
       })}`, 350, 95, { align: "right", width: 200 })
-      .text(`Statut paiement : ${order.payment_status === "paid" ? "Payé" : "En attente"}`,
+      .text(`Statut paiement : ${order.payment_status === "paye" ? "Payé" : "En attente"}`,
         350, 110, { align: "right", width: 200 });
 
     doc.moveTo(50, 135).lineTo(545, 135).strokeColor("#166534").lineWidth(2).stroke();
@@ -752,9 +751,6 @@ export const handleStripeWebhookService = async (payload, signature) => {
       const order = await Order.markPaymentFailed(pi.id);
       if (!order) break;
 
-      // ✅ Model : annuler la livraison
-      await Delivery.markReturned(order.id);
-
    
 
       // ✅ Model : récupérer l'utilisateur
@@ -868,16 +864,6 @@ if (status === "en_preparation") await Delivery.markInPreparation(orderId);
 if (status === "expediee")       await Delivery.markShipped(orderId);
 if (status === "livree")         await Delivery.markDelivered(orderId);
 
-  // ✅ Récupérer tracking pour l'email si expédiée
- // Dans updateOrderStatusService — temporairement
-if (status === "expediee") {
-  try {
-    await Delivery.markShipped(orderId);
-    console.log("✅ Delivery markShipped réussi");
-  } catch (err) {
-    console.error("❌ Delivery markShipped ERREUR:", err.message);
-  }
-}
 
   // ✅ Model : récupérer l'utilisateur pour l'email
   const user = await User.findById(order.user_id);
@@ -913,17 +899,17 @@ export const cancelOrderService = async ({ orderId, reason }) => {
   if (order.status === "livree")
     throw new ErrorHandler("Impossible d'annuler une commande déjà livrée.", 400);
 
+  await Order.cancel(orderId, reason.trim());
+  await Delivery.markReturned(orderId);
   // ✅ Stock décrémenté seulement si paiement confirmé → restaurer seulement dans ce cas
 if (order.payment_status === "paye") {
   await restoreStock(orderId);
   if (order.payment_id) {
-    await stripe.refunds.create({ payment_intent: order.payment_id });
+    await stripe.refunds.create({ payment_intent: order.payment_id })
+      .catch(err => console.error("Stripe refund error:", err.message));
   }
 }
 
-  // ✅ Model : annuler commande + livraison
-  await Order.cancel(orderId, reason.trim());
-  await Delivery.markReturned(orderId);
 
   // ✅ Model : email client
   const user = await User.findById(order.user_id);
