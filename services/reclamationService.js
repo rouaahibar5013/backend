@@ -142,12 +142,14 @@ export const createReclamationService = async ({
   }
 
   const reclamation = await Reclamation.create({
-    
     user_id: userId, order_id: order_id || null,
     complaint_type, message: message.trim(),
   });
- 
 
+  // ✅ Passer la commande en "en_reclamation"
+  if (order_id && order) {
+    await Order.updateStatus(order_id, "en_reclamation");
+  }
 
   await invalidateDashboardCache();
 
@@ -218,11 +220,16 @@ const avecRemboursement = [true, "true", 1, "1"].includes(avec_remboursement);
   })
   
   
-if (current.order_id && status === "resolue" && avecRemboursement) {
-  const order = await Order.findById(current.order_id);
-  await Order.updateStatus(current.order_id, "remboursee");
-  if (order?.payment_status === "paye" && order?.payment_id) {
-    await stripe.refunds.create({ payment_intent: order.payment_id });
+if (current.order_id && ["resolue", "rejetee"].includes(status)) {
+  if (status === "resolue" && avecRemboursement) {
+    const order = await Order.findById(current.order_id);
+    await Order.updateStatus(current.order_id, "remboursee");
+    if (order?.payment_status === "paye" && order?.payment_id) {
+      await stripe.refunds.create({ payment_intent: order.payment_id });
+    }
+  } else {
+    // rejetee ou resolue sans remboursement → retour à livree
+    await Order.updateStatus(current.order_id, "livree");
   }
 }
   await invalidateDashboardCache();
@@ -281,11 +288,14 @@ export const createGuestReclamationService = async ({
     throw new ErrorHandler("Une réclamation active de ce type existe déjà pour cette commande.", 409);
 
   const reclamation = await Reclamation.create({
-    user_id: user.id, order_id: order.id,
-    complaint_type, message: message.trim(),
-  });
+      user_id: user.id, order_id: order.id,
+      complaint_type, message: message.trim(),
+    });
 
-  await invalidateDashboardCache();
+    // ✅ Passer la commande en "en_reclamation"
+    await Order.updateStatus(order.id, "en_reclamation");
+
+    await invalidateDashboardCache();
 
   await sendReclamationConfirmationEmail(user.email, user.name, reclamation, order.order_number);
 

@@ -314,7 +314,7 @@ static async markReturned(orderId) {
        LEFT JOIN order_item oi ON oi.order_id = o.id
        WHERE o.user_id        = $1
          AND o.payment_status = 'paye'
-         AND o.status IN ('confirmee', 'en_preparation', 'expediee', 'livree')
+         AND o.status IN ('confirmee', 'en_preparation', 'expediee', 'livree', 'en_reclamation')
        GROUP BY o.id
        ORDER BY o.created_at DESC`,
       [userId]
