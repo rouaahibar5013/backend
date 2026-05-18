@@ -3,8 +3,8 @@ import ErrorHandler from "../middlewares/errorMiddleware.js";
 import sendEmail    from "../utils/sendEmail.js";
 import { invalidateDashboardCache } from "../utils/cacheInvalideation.js";
 import { notifyUser, notifyAdmins } from "../utils/websocket.js";
-
-
+import Stripe from "stripe";
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const VALID_STATUSES = ["en_attente", "en_cours", "urgente", "en_retard", "resolue", "rejetee"];
 
 const VALID_TYPES = [
@@ -146,6 +146,11 @@ export const createReclamationService = async ({
     complaint_type, message: message.trim(),
   });
 
+  // ✅ Passer la commande en "en_reclamation"
+  if (order_id && order) {
+    await Order.updateStatus(order_id, "en_reclamation");
+  }
+
   await invalidateDashboardCache();
 
   await sendReclamationConfirmationEmail(user.email, user.name, reclamation, order?.order_number || null);
@@ -185,7 +190,10 @@ export const getSingleReclamationService = async (reclamationId) => {
 // ═══════════════════════════════════════════════════════════
 export const respondToReclamationService = async ({
   reclamationId, adminId, status, admin_response, resolution_delay,
+  avec_remboursement = false,
 }) => {
+const avecRemboursement = [true, "true", 1, "1"].includes(avec_remboursement);
+
   if (!VALID_STATUSES.includes(status))
     throw new ErrorHandler(`Statut invalide. Valeurs : ${VALID_STATUSES.join(", ")}`, 400);
 
@@ -208,8 +216,22 @@ export const respondToReclamationService = async ({
     status,
     resolution_delay: resolution_delay || null,
     deadline_at:      deadlineAt,
-  });
-
+    avec_remboursement: avecRemboursement,
+  })
+  
+  
+if (current.order_id && ["resolue", "rejetee"].includes(status)) {
+  if (status === "resolue" && avecRemboursement) {
+    const order = await Order.findById(current.order_id);
+    await Order.updateStatus(current.order_id, "remboursee");
+    if (order?.payment_status === "paye" && order?.payment_id) {
+      await stripe.refunds.create({ payment_intent: order.payment_id });
+    }
+  } else {
+    // rejetee ou resolue sans remboursement → retour à livree
+    await Order.updateStatus(current.order_id, "livree");
+  }
+}
   await invalidateDashboardCache();
 
   await sendAdminResponseEmail(current.user_email, current.user_name, reclamation, current.order_number);
@@ -266,11 +288,14 @@ export const createGuestReclamationService = async ({
     throw new ErrorHandler("Une réclamation active de ce type existe déjà pour cette commande.", 409);
 
   const reclamation = await Reclamation.create({
-    user_id: user.id, order_id: order.id,
-    complaint_type, message: message.trim(),
-  });
+      user_id: user.id, order_id: order.id,
+      complaint_type, message: message.trim(),
+    });
 
-  await invalidateDashboardCache();
+    // ✅ Passer la commande en "en_reclamation"
+    await Order.updateStatus(order.id, "en_reclamation");
+
+    await invalidateDashboardCache();
 
   await sendReclamationConfirmationEmail(user.email, user.name, reclamation, order.order_number);
 

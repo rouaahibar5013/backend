@@ -138,7 +138,7 @@ class Reclamation {
   }
 
   // ─── Répondre (admin — complet) ───────────────────────
-  static async respondFull(id, { admin_id, admin_response, status, resolution_delay, deadline_at }) {
+  static async respondFull(id, { admin_id, admin_response, status, resolution_delay, deadline_at, avec_remboursement }) {
     const result = await database.query(
       `UPDATE complaint
        SET status           = $1,
@@ -147,10 +147,11 @@ class Reclamation {
            responded_at     = NOW(),
            resolution_delay = $4,
            deadline_at      = $5,
+           avec_remboursement = $6,
            updated_at       = NOW()
-       WHERE id = $6
+       WHERE id = $7
        RETURNING *`,
-      [status, admin_response, admin_id, resolution_delay, deadline_at, id]
+      [status, admin_response, admin_id, resolution_delay, deadline_at, avec_remboursement ?? false, id]
     );
     return result.rows[0];
   }

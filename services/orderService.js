@@ -199,8 +199,7 @@ const sendPaymentFailedEmail = async (toEmail, customerName, order) => {
             </p>
           </div>
           <p style="color: #6b7280; font-size: 13px;">
-            Votre commande a été annulée et le stock a été libéré.
-            Vous pouvez repasser une commande à tout moment.
+            Votre commande a été annulée. Vous pouvez repasser une commande à tout moment.
           </p>
           <div style="text-align: center; margin-top: 24px;">
             <a href="${process.env.FRONTEND_URL}/panier"
@@ -246,7 +245,7 @@ const generateInvoicePDF = (order, orderItems, customerName) => {
       .text(`Date : ${new Date(order.created_at).toLocaleDateString("fr-FR", {
         day: "2-digit", month: "long", year: "numeric",
       })}`, 350, 95, { align: "right", width: 200 })
-      .text(`Statut paiement : ${order.payment_status === "paid" ? "Payé" : "En attente"}`,
+      .text(`Statut paiement : ${order.payment_status === "paye" ? "Payé" : "En attente"}`,
         350, 110, { align: "right", width: 200 });
 
     doc.moveTo(50, 135).lineTo(545, 135).strokeColor("#166534").lineWidth(2).stroke();
@@ -470,23 +469,28 @@ const p = await Promotion.findValidByCode(code);
 // ═══════════════════════════════════════════════════════════
 // HELPER — Insérer les articles + gérer le stock
 // ═══════════════════════════════════════════════════════════
-const insertOrderItems = async (orderId, orderItems) => {
+
+
+// Fonction 1 — enregistrer articles SANS toucher au stock
+const insertOrderItemsOnly = async (orderId, orderItems) => {
   for (const item of orderItems) {
-    // ✅ Model : insérer l'article
     await OrderItem.create({
       orderId,
       variantId:    item.variant_id,
       quantity:     item.quantity,
       priceAtOrder: item.price_at_order,
     });
+  }
+};
 
-    // ✅ Model : décrémenter le stock
+// Fonction 2 — décrémenter stock + alertes
+// Appelée UNIQUEMENT après confirmation paiement Stripe
+const decrementStockForOrder = async (orderId, orderItems) => {
+  for (const item of orderItems) {
     await ProductVariant.decrementStock(item.variant_id, item.quantity);
-
-    // ✅ Model : vérifier le stock après décrémentation
     const updated = await ProductVariant.findById(item.variant_id);
     if (updated && updated.stock <= (updated.low_stock_threshold || 5)) {
-      await sendStockAlertEmail(item._product_name_fr, updated.sku, updated.stock);
+      await sendStockAlertEmail(item._product_name_fr || updated.product_name_fr || "Produit", updated.sku, updated.stock);
     }
   }
 };
@@ -510,7 +514,7 @@ const restoreStock = async (orderId) => {
 // HELPER — Finaliser la commande (articles + livraison + promo)
 // ═══════════════════════════════════════════════════════════
 const finalizeOrder = async ({ order, orderItems, promoId }) => {
-  await insertOrderItems(order.id, orderItems);
+  await insertOrderItemsOnly(order.id, orderItems);
 
   // ✅ Model : créer la livraison
   await Delivery.create(order.id);
@@ -711,11 +715,12 @@ export const handleStripeWebhookService = async (payload, signature) => {
     // ── Paiement réussi ───────────────────────────────────
     case "payment_intent.succeeded": {
       const pi = event.data.object;
-
       // ✅ Model : confirmer le paiement
       const order = await Order.confirmPayment(pi.id);
       if (!order) break;
-
+  // ✅ NOUVEAU — décrémenter stock ici après paiement confirmé
+  const orderItemsForStock = await OrderItem.findByOrderIdSimple(order.id);
+  await decrementStockForOrder(order.id, orderItemsForStock);
       // ✅ Model : récupérer l'utilisateur
       const user = await User.findById(order.user_id);
 
@@ -746,11 +751,7 @@ export const handleStripeWebhookService = async (payload, signature) => {
       const order = await Order.markPaymentFailed(pi.id);
       if (!order) break;
 
-      // ✅ Model : annuler la livraison
-      await Delivery.markReturned(order.id);
-
-      // ✅ Helper : restaurer le stock
-      await restoreStock(order.id);
+   
 
       // ✅ Model : récupérer l'utilisateur
       const user = await User.findById(order.user_id);
@@ -772,12 +773,26 @@ export const handleStripeWebhookService = async (payload, signature) => {
 
     // ── Remboursement ─────────────────────────────────────
     case "charge.refunded": {
-      const charge = event.data.object;
-      // ✅ Model : marquer remboursé
-      await Order.markRefunded(charge.payment_intent);
-      await invalidateDashboardCache();
-      break;
+  const charge = event.data.object;
+  const order  = await Order.markRefunded(charge.payment_intent);
+  await invalidateDashboardCache();
+
+  if (order) {
+    const user = await User.findById(order.user_id);
+    if (user) {
+      order.status = "remboursee";
+      await sendOrderStatusEmail(order, user.name, user.email);
+      notifyUser(order.user_id, {
+        type:         "ORDER_STATUS_UPDATE",
+        id:           order.id,
+        order_number: order.order_number,
+        status:       "remboursee",
+        message:      `💜 Remboursement initié pour la commande #${order.order_number}`,
+      });
     }
+  }
+  break;
+}
 
     default:
       console.log(`Webhook event non géré : ${event.type}`);
@@ -832,7 +847,7 @@ export const getAllOrdersService = async ({ status, payment_status, page = 1 }) 
 export const updateOrderStatusService = async ({ orderId, status }) => {
   const validStatuses = [
     "en_attente", "confirmee", "en_preparation",
-    "expediee", "livree", "annulee", "remboursee",
+    "expediee", "livree", "annulee", "remboursee","en_reclamation", "retournee",
   ];
 
   if (!validStatuses.includes(status))
@@ -851,6 +866,12 @@ export const updateOrderStatusService = async ({ orderId, status }) => {
       400
     );
   }
+  if (status === "remboursee") {
+    throw new ErrorHandler(
+      "Le remboursement se déclenche automatiquement via Stripe ou via la gestion des réclamations.",
+      400
+    );
+  }
 
   // ✅ Model : mettre à jour le statut
   await Order.updateStatus(orderId, status);
@@ -858,18 +879,11 @@ export const updateOrderStatusService = async ({ orderId, status }) => {
   order.status = status;
 
   // ✅ Model : sync livraison selon statut
-  if (status === "expediee") await Delivery.markShipped(orderId);
-  if (status === "livree")   await Delivery.markDelivered(orderId);
 
-  // ✅ Récupérer tracking pour l'email si expédiée
-  if (status === "expediee") {
-    const delivery = await Delivery.findByOrderId(orderId);
-    if (delivery) {
-      order.tracking_number = delivery.tracking_number;
-      order.carrier         = delivery.carrier;
-      order.estimated_date  = delivery.estimated_date;
-    }
-  }
+if (status === "en_preparation") await Delivery.markInPreparation(orderId);
+if (status === "expediee")       await Delivery.markShipped(orderId);
+if (status === "livree")         await Delivery.markDelivered(orderId);
+
 
   // ✅ Model : récupérer l'utilisateur pour l'email
   const user = await User.findById(order.user_id);
@@ -899,23 +913,22 @@ export const cancelOrderService = async ({ orderId, reason }) => {
   if (!order)
     throw new ErrorHandler("Commande introuvable.", 404);
 
-  if (order.status === "annulee")
-    throw new ErrorHandler("Cette commande est déjà annulée.", 400);
+  const cancellableStatuses = ["en_attente", "confirmee", "en_preparation"];
+if (!cancellableStatuses.includes(order.status))
+  throw new ErrorHandler(
+    `Impossible d'annuler une commande au statut : ${order.status}.`, 400
+  );
 
-  if (order.status === "livree")
-    throw new ErrorHandler("Impossible d'annuler une commande déjà livrée.", 400);
-
-  // ✅ Helper : restaurer le stock
-  await restoreStock(orderId);
-
-  // ✅ Stripe : rembourser si déjà payé
-  if (order.payment_status === "paye" && order.payment_id) {
-    await stripe.refunds.create({ payment_intent: order.payment_id });
-  }
-
-  // ✅ Model : annuler commande + livraison
   await Order.cancel(orderId, reason.trim());
-  await Delivery.markReturned(orderId);
+  // ✅ Stock décrémenté seulement si paiement confirmé → restaurer seulement dans ce cas
+if (order.payment_status === "paye") {
+  await restoreStock(orderId);
+  if (order.payment_id) {
+    await stripe.refunds.create({ payment_intent: order.payment_id })
+      .catch(err => console.error("Stripe refund error:", err.message));
+  }
+}
+
 
   // ✅ Model : email client
   const user = await User.findById(order.user_id);
@@ -970,20 +983,138 @@ export const updateDeliveryService = async ({
   if (!existing)
     throw new ErrorHandler("Livraison introuvable.", 404);
 
-  // ✅ Model : mettre à jour la livraison
-  const delivery = await Delivery.update(orderId, { carrier, tracking_number, estimated_date, status, notes });
+  const delivery = await Delivery.update(orderId, {
+    carrier, tracking_number, estimated_date, status, notes,
+  });
 
-  // ✅ Sync order status + email si livraison confirmée
+  const order = await Order.findById(orderId);
+  const user  = order ? await User.findById(order.user_id) : null;
+
+  // ── livre → order passe à livree (déjà en place) ──────────────
   if (status === "livre") {
     await Order.updateStatus(orderId, "livree");
     await invalidateDashboardCache();
+    if (order && user) {
+      order.status = "livree";
+      await sendOrderStatusEmail(order, user.name, user.email);
+      notifyUser(order.user_id, {
+        type:         "ORDER_STATUS_UPDATE",
+        id:           orderId,
+        order_number: order.order_number,
+        status:       "livree",
+        message:      `🎉 Commande #${order.order_number} livrée !`,
+      });
+    }
+  }
 
-    const order = await Order.findById(orderId);
-    if (order) {
-      const user = await User.findById(order.user_id);
-      if (user) {
-        await sendOrderStatusEmail(order, user.name, user.email);
-      }
+  // ── en_transit / en_cours → notif client uniquement, order inchangée ──
+  if (status === "en_transit" || status === "en_cours") {
+    const label = status === "en_transit" ? "en transit" : "en cours de livraison";
+    if (user) {
+      await sendEmail({
+        to:      user.email,
+        subject: `🚚 Votre commande #${order.order_number} est ${label} — GOFFA`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <div style="background:#3b82f6;padding:30px;text-align:center;border-radius:10px 10px 0 0;">
+              <h1 style="color:white;margin:0;">🧺 GOFFA</h1>
+            </div>
+            <div style="padding:30px;background:#f9fafb;border-radius:0 0 10px 10px;">
+              <h2 style="color:#3b82f6;">🚚 Votre colis est ${label}</h2>
+              <p>Bonjour ${user.name},</p>
+              <p>Votre commande <strong>#${order.order_number}</strong> est actuellement ${label}.</p>
+              ${tracking_number ?? existing.tracking_number
+                ? `<p><strong>Numéro de suivi :</strong> ${tracking_number ?? existing.tracking_number}</p>`
+                : ""}
+              ${carrier ?? existing.carrier
+                ? `<p><strong>Transporteur :</strong> ${carrier ?? existing.carrier}</p>`
+                : ""}
+            </div>
+          </div>
+        `,
+      }).catch(err => console.error("Transit email error:", err.message));
+
+      notifyUser(order.user_id, {
+        type:         "DELIVERY_UPDATE",
+        id:           orderId,
+        order_number: order.order_number,
+        status,
+        message: `🚚 Commande #${order.order_number} ${label}`,
+      });
+    }
+  }
+
+  // ── echec → order reste expediee, notif admin uniquement ──────
+  if (status === "echec") {
+    const adminEmail = process.env.ADMIN_EMAIL;
+    if (adminEmail) {
+      await sendEmail({
+        to:      adminEmail,
+        subject: `⚠️ Échec livraison — Commande #${order?.order_number}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <div style="background:#f59e0b;padding:20px;border-radius:8px 8px 0 0;">
+              <h2 style="color:white;margin:0;">⚠️ Échec de livraison</h2>
+            </div>
+            <div style="padding:20px;background:#fffbeb;border-radius:0 0 8px 8px;">
+              <p><strong>Commande :</strong> #${order?.order_number}</p>
+              <p><strong>Client :</strong> ${user?.name} — ${user?.email}</p>
+              <p><strong>Transporteur :</strong> ${carrier ?? existing.carrier ?? "N/A"}</p>
+              <p><strong>Suivi :</strong> ${tracking_number ?? existing.tracking_number ?? "N/A"}</p>
+              <p><strong>Notes :</strong> ${notes ?? existing.notes ?? "—"}</p>
+              <p style="color:#92400e;">Le statut de la commande reste <strong>expédiée</strong>.
+                 Vous pouvez relancer la livraison ou initier un retour.</p>
+              <a href="${process.env.FRONTEND_URL}/admin/commandes/${orderId}"
+                 style="background:#166534;color:white;padding:10px 20px;border-radius:6px;
+                        text-decoration:none;display:inline-block;margin-top:10px;">
+                Gérer la commande →
+              </a>
+            </div>
+          </div>
+        `,
+      }).catch(err => console.error("Echec livraison email error:", err.message));
+    }
+    // order.status reste "expediee" — rien d'autre à faire
+  }
+
+  // ── retourne → order passe à retournee auto ───────────────────
+  if (status === "retourne") {
+    await Order.markReturned(orderId);
+    // ✅ Restaurer le stock
+  await restoreStock(orderId);
+  // ✅ Déclencher le remboursement → webhook charge.refunded → Order.markRefunded() → remboursee
+  if (order?.payment_status === "paye" && order?.payment_id) {
+    await stripe.refunds.create({ payment_intent: order.payment_id })
+      .catch(err => console.error("Retour refund error:", err.message));
+  }
+
+    await invalidateDashboardCache();
+    if (user) {
+      await sendEmail({
+        to:      user.email,
+        subject: `↩️ Commande #${order.order_number} retournée — GOFFA`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+            <div style="background:#dc2626;padding:30px;text-align:center;border-radius:10px 10px 0 0;">
+              <h1 style="color:white;margin:0;">🧺 GOFFA</h1>
+            </div>
+            <div style="padding:30px;background:#f9fafb;border-radius:0 0 10px 10px;">
+              <h2 style="color:#dc2626;">↩️ Colis retourné</h2>
+              <p>Bonjour ${user.name},</p>
+              <p>Votre colis pour la commande <strong>#${order.order_number}</strong>
+                 nous a été retourné. Notre équipe va vous contacter rapidement.</p>
+            </div>
+          </div>
+        `,
+      }).catch(err => console.error("Retour email error:", err.message));
+
+      notifyUser(order.user_id, {
+        type:         "ORDER_STATUS_UPDATE",
+        id:           orderId,
+        order_number: order.order_number,
+        status:       "retournee",
+        message:      `↩️ Commande #${order.order_number} retournée.`,
+      });
     }
   }
 

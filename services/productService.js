@@ -96,6 +96,9 @@ if (!variants || !Array.isArray(variants) || variants.length === 0)
   const createdVariants = [];
   for (const variant of variants) {
     const { price, cost_price, stock, sku, weight_grams, barcode, low_stock_threshold, attributes } = variant;
+const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : attributes;
+  if (!parsedAttrs || parsedAttrs.length === 0)
+    throw new ErrorHandler("Chaque variant doit avoir au moins un attribut.", 400);
 
     const newVariant = await ProductVariant.create({
       product_id:          product.id,
@@ -108,7 +111,6 @@ if (!variants || !Array.isArray(variants) || variants.length === 0)
       barcode:             barcode         || null,
     });
 
-    const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : attributes;
     await insertVariantAttributes(newVariant.id, parsedAttrs);
     createdVariants.push(newVariant);
   }
@@ -214,6 +216,9 @@ export const addVariantService = async ({
   if (!product) throw new ErrorHandler("Produit introuvable.", 404);
 
   if (!price || price < 0) throw new ErrorHandler("Prix invalide.", 400);
+const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : attributes;
+  if (!parsedAttrs || parsedAttrs.length === 0)
+    throw new ErrorHandler("Chaque variant doit avoir au moins un attribut.", 400);
 
   const variant = await ProductVariant.create({
     product_id:          productId,
@@ -225,8 +230,6 @@ export const addVariantService = async ({
     weight_grams:        weight_grams    || null,
     barcode:             barcode         || null,
   });
-
-  const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : attributes;
   await insertVariantAttributes(variant.id, parsedAttrs);
 
   await invalidateOffresCache();

@@ -247,11 +247,13 @@ class Order {
 
   // ─── Marquer remboursé (webhook Stripe) ───────────────
   static async markRefunded(paymentId) {
-    await database.query(
-      `UPDATE "order" SET payment_status = 'rembourse', updated_at = NOW() WHERE payment_id = $1`,
+    const result = await database.query(
+      `UPDATE "order" SET payment_status = 'rembourse', status = 'remboursee', updated_at = NOW() WHERE payment_id = $1 RETURNING *`,
       [paymentId]
     );
+    return result.rows[0] || null;
   }
+
 
   // ─── Annuler une commande ─────────────────────────────
   static async cancel(id, reason) {
@@ -262,6 +264,19 @@ class Order {
       [reason, id]
     );
   }
+
+  // ✅ NOUVEAU — Ajouter après cancel()
+static async markReturned(orderId) {
+  const result = await database.query(
+    `UPDATE "order"
+     SET status     = 'retournee',
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [orderId]
+  );
+  return result.rows[0] || null;
+}
 
   // ─── Mettre à jour infos livraison (admin) ────────────
   static async updateShipping(id, {
@@ -299,7 +314,7 @@ class Order {
        LEFT JOIN order_item oi ON oi.order_id = o.id
        WHERE o.user_id        = $1
          AND o.payment_status = 'paye'
-         AND o.status IN ('confirmee', 'en_preparation', 'expediee', 'livree')
+         AND o.status IN ('confirmee', 'en_preparation', 'expediee', 'livree', 'en_reclamation')
        GROUP BY o.id
        ORDER BY o.created_at DESC`,
       [userId]

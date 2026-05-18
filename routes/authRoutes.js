@@ -20,6 +20,8 @@ import {
   suspendUser,
   activateUser,
   adminUpdateUser,
+  updateAddresses
+
 } from "../controllers/authController.js";
 import {
   loginLimiter,
@@ -64,6 +66,7 @@ router.get(
 router.get("/me",      isAuthenticated,          getMe);
 router.put("/me",      isAuthenticated,          updateProfile);
 router.put("/password",isAuthenticated,          updatePassword);
+router.put("/me/addresses", isAuthenticated, updateAddresses);
 
 // ── Admin ─────────────────────────────────────────────────────────────────
 router.get   ("/users",                  isAuthenticated, isAdmin, getAllUsers);
