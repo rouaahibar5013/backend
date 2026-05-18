@@ -22,6 +22,7 @@ import emailcampaignRoutes from "./routes/emailcampaignRoutes.js";
 import reclamationRoutes   from "./routes/reclamationRoutes.js";
 import aiRoutes            from "./routes/aiRoutes.js";
 import iaRouter            from './routes/aiRecipePanierRoutes.js';
+import aiAdminRoutes       from './routes/aiAdminRoutes.js';
 import { errorMiddleware } from "./middlewares/errorMiddleware.js";
 
 dotenv.config();
@@ -77,6 +78,8 @@ app.use("/api/faqs",            faqRouter);
 app.use("/api/recipes",         recipeRoutes);
 app.use("/api/ai",              aiRoutes);
 app.use('/api/ia',              iaRouter);
+app.use('/api/admin/ai', aiAdminRoutes);
+
 // ─── Global error handler — toujours en dernier ───────────
 app.use(errorMiddleware);
 
