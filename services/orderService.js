@@ -718,15 +718,20 @@ export const handleStripeWebhookService = async (payload, signature) => {
       // ✅ Model : confirmer le paiement
       const order = await Order.confirmPayment(pi.id);
       if (!order) break;
-  // ✅ NOUVEAU — décrémenter stock ici après paiement confirmé
-  const orderItemsForStock = await OrderItem.findByOrderIdSimple(order.id);
-  await decrementStockForOrder(order.id, orderItemsForStock);
+    // items chargés plus bas pour le PDF — on anticipe ici pour éviter un double appel DB
+    const items = await OrderItem.findByOrderId(order.id);
+    await decrementStockForOrder(order.id, items.map(i => ({
+      variant_id:       i.variant_id,
+      quantity:         i.quantity,
+      _product_name_fr: i.product_name_fr,
+      _sku:             i.sku,
+    })));
+
       // ✅ Model : récupérer l'utilisateur
       const user = await User.findById(order.user_id);
 
       if (user) {
         // ✅ Model : récupérer les articles avec détails
-        const items     = await OrderItem.findByOrderId(order.id);
         const pdfBuffer = await generateInvoicePDF(order, items, user.name);
         await sendOrderConfirmationEmail(user.email, order, user.name, pdfBuffer);
         console.log(`✅ Email + PDF envoyés — commande ${order.order_number}`);
