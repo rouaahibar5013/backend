@@ -73,6 +73,19 @@ if (!variants || !Array.isArray(variants) || variants.length === 0)
     .replace(/(^-|-$)/g, "")
     + "-" + Date.now();
 
+
+  // ✅ Validation complète des variantes AVANT toute écriture en DB
+  for (const variant of variants) {
+    const parsedAttrs = typeof variant.attributes === "string"
+      ? JSON.parse(variant.attributes)
+      : variant.attributes;
+    if (!parsedAttrs || parsedAttrs.length === 0)
+      throw new ErrorHandler("Chaque variant doit avoir au moins un attribut.", 400);
+    for (const attr of parsedAttrs) {
+      if (!attr.type_fr || !attr.value_fr)
+        throw new ErrorHandler("Chaque attribut doit avoir type_fr et value_fr.", 400);
+    }
+  }
   let uploadedImages = [];
   if (files?.images) uploadedImages = await uploadProductImages(files.images);
 
