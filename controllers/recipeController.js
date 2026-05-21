@@ -20,8 +20,6 @@ export const createRecipe = catchAsyncErrors(async (req, res, next) => {
     ingredients, steps,
   } = req.body;
 
-  if (!title_fr)
-    return next(new ErrorHandler("Veuillez fournir un titre.", 400));
 
   const parsedIngredients = typeof ingredients === "string"
     ? JSON.parse(ingredients) : ingredients;
@@ -29,9 +27,25 @@ export const createRecipe = catchAsyncErrors(async (req, res, next) => {
   const parsedSteps = typeof steps === "string"
     ? JSON.parse(steps) : steps;
 
-  if (!parsedSteps || parsedSteps.length === 0)
-    return next(new ErrorHandler("Veuillez fournir au moins une étape.", 400));
+  if (!title_fr)
+  return next(new ErrorHandler("Veuillez fournir un titre.", 400));
 
+if (!description_fr || description_fr.trim() === "")
+  return next(new ErrorHandler("Veuillez fournir une description.", 400));
+
+if (!category)
+  return next(new ErrorHandler("Veuillez sélectionner une catégorie.", 400));
+
+if (!parsedIngredients || parsedIngredients.length === 0)
+  return next(new ErrorHandler("Veuillez fournir au moins un ingrédient.", 400));
+const ingredientSansQuantite = parsedIngredients.some(
+  (ing) => !ing.quantity || ing.quantity.toString().trim() === ""
+);
+if (ingredientSansQuantite)
+  return next(new ErrorHandler("Veuillez fournir une quantité pour chaque ingrédient.", 400));
+
+if (!parsedSteps || parsedSteps.length === 0)
+  return next(new ErrorHandler("Veuillez fournir au moins une étape.", 400));
   const recipe = await recipeService.createRecipeService({
    title_fr,
   description_fr,
@@ -97,34 +111,47 @@ export const fetchFeaturedRecipes = catchAsyncErrors(async (req, res, next) => {
 // PUT /api/recipes/:recipeId
 // ═══════════════════════════════════════════════════════════
 export const updateRecipe = catchAsyncErrors(async (req, res, next) => {
+  // ✅ toInt
   const toInt = (val) => {
-  if (val === "" || val === null || val === undefined) return null;
-  const n = parseInt(val);
-  return isNaN(n) ? null : n;
-};
+    if (val === "" || val === null || val === undefined) return null;
+    const n = parseInt(val);
+    return isNaN(n) ? null : n;
+  };
+
+  // ✅ Destructuration
   const {
-    title_fr, description_fr, 
+    title_fr, description_fr,
     prep_time, cook_time, servings, difficulty,
-    category, is_published, is_featured,ingredients, 
+    category, is_published, is_featured, ingredients,
   } = req.body;
 
-// updateRecipe
-const recipe = await recipeService.updateRecipeService({
-  recipeId: req.params.recipeId,
-  title_fr,
-  description_fr,
-  prep_time:  toInt(prep_time),   
-  cook_time:  toInt(cook_time),   
-  servings:   toInt(servings),    
-  difficulty,
-  category,
-  is_published,
-  is_featured,
-  ingredients: ingredients
-      ? (typeof ingredients === "string" ? JSON.parse(ingredients) : ingredients)
-      : null, 
-  coverImageFile: req.files?.cover_image || null,
-});
+  // ✅ Parsing + validation quantité
+  const parsedIngredientsUpdate = ingredients
+    ? (typeof ingredients === "string" ? JSON.parse(ingredients) : ingredients)
+    : null;
+
+  if (parsedIngredientsUpdate) {
+    const ingredientSansQuantite = parsedIngredientsUpdate.some(
+      (ing) => !ing.quantity || ing.quantity.toString().trim() === ""
+    );
+    if (ingredientSansQuantite)
+      return next(new ErrorHandler("Veuillez fournir une quantité pour chaque ingrédient.", 400));
+  }
+
+  const recipe = await recipeService.updateRecipeService({
+    recipeId: req.params.recipeId,
+    title_fr,
+    description_fr,
+    prep_time:  toInt(prep_time),
+    cook_time:  toInt(cook_time),
+    servings:   toInt(servings),
+    difficulty,
+    category,
+    is_published,
+    is_featured,
+    ingredients: parsedIngredientsUpdate,
+    coverImageFile: req.files?.cover_image || null,
+  });
 
   res.status(200).json({
     success: true,
