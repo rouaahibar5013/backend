@@ -121,6 +121,9 @@ export const logout = catchAsyncErrors(async (req, res, next) => {
 // GET /api/auth/google/callback
 // ══════════════════════════════════════════════════════════════════════════
 export const googleCallback = catchAsyncErrors(async (req, res, next) => {
+  if (!req.user) {
+    return res.redirect(`${process.env.FRONTEND_URL}/connexion?error=suspended`);
+  }
   const token = authService.googleCallbackToken(req.user);
 
   const isProduction = process.env.NODE_ENV === "production";
