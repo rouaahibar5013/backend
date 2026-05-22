@@ -9,14 +9,13 @@ import * as emailCampaignService from "../services/emailcampaignService.js";
 // Body: { email, name }
 // ═══════════════════════════════════════════════════════════
 export const subscribe = catchAsyncErrors(async (req, res, next) => {
-  const { email, name } = req.body;
+  const { email } = req.body;
 
   if (!email)
     return next(new ErrorHandler("Veuillez fournir un email.", 400));
 
   const subscription = await emailCampaignService.subscribeEmailService({
     email,
-    name,
     userId: req.user?.id || null,
   });
 

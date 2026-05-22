@@ -190,9 +190,9 @@ export const getSingleReclamationService = async (reclamationId) => {
 // ═══════════════════════════════════════════════════════════
 export const respondToReclamationService = async ({
   reclamationId, adminId, status, admin_response, resolution_delay,
-  avec_remboursement = false,
+  refundable = false,
 }) => {
-const avecRemboursement = [true, "true", 1, "1"].includes(avec_remboursement);
+const isRefundable = [true, "true", 1, "1"].includes(refundable);
 
   if (!VALID_STATUSES.includes(status))
     throw new ErrorHandler(`Statut invalide. Valeurs : ${VALID_STATUSES.join(", ")}`, 400);
@@ -216,12 +216,12 @@ const avecRemboursement = [true, "true", 1, "1"].includes(avec_remboursement);
     status,
     resolution_delay: resolution_delay || null,
     deadline_at:      deadlineAt,
-    avec_remboursement: avecRemboursement,
+    refundable: isRefundable,
   })
   
   
 if (current.order_id && ["resolue", "rejetee"].includes(status)) {
-  if (status === "resolue" && avecRemboursement) {
+  if (status === "resolue" && isRefundable) {
     const order = await Order.findById(current.order_id);
     await Order.updateStatus(current.order_id, "remboursee");
     if (order?.payment_status === "paye" && order?.payment_id) {

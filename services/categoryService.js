@@ -83,7 +83,7 @@ export const fetchSingleCategoryService = async (categoryId) => {
 // ═══════════════════════════════════════════════════════════
 export const updateCategoryService = async ({
   categoryId, name_fr, description_fr,
-  parent_id, is_active, sort_order, files,
+  parent_id, is_active, files,
 }) => {
   const c = await Category.findById(categoryId);
   if (!c) throw new ErrorHandler("Catégorie introuvable.", 404);
@@ -110,7 +110,6 @@ export const updateCategoryService = async ({
     is_active:      is_active !== undefined
       ? is_active === 'true' || is_active === true
       : c.is_active,
-    sort_order:     sort_order ?? c.sort_order,
   });
 
   await invalidateOffresCache();

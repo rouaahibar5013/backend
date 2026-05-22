@@ -249,7 +249,7 @@ async function fetchComplaints() {
                 COUNT(*) FILTER (WHERE status = 'en_retard')                         AS overdue,
                 COUNT(*) FILTER (WHERE status = 'resolue')                           AS resolved,
                 COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')      AS this_week,
-                COUNT(*) FILTER (WHERE avec_remboursement = true)                    AS with_refund_request
+                COUNT(*) FILTER (WHERE refundable = true) AS with_refund_request
             FROM complaint
         `),
 
@@ -272,7 +272,7 @@ async function fetchComplaints() {
         // 15 most recent complaints
         db.query(`
             SELECT c.complaint_type, c.message, c.status,
-                   c.avec_remboursement, c.created_at, c.deadline_at,
+                   c.refundable, c.created_at, c.deadline_at,
                    u.name AS user_name, u.email AS user_email,
                    o.order_number
             FROM complaint c

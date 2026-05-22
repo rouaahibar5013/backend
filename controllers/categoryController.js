@@ -59,14 +59,13 @@ export const updateCategory = catchAsyncErrors(async (req, res) => {
     name_fr,
     description_fr,
     parent_id,
-    is_active,
-    sort_order
+    is_active
 } = req.body || {};
 
   const category = await categoryService.updateCategoryService({
     categoryId: req.params.categoryId,
     name_fr,  description_fr, 
-    parent_id, is_active, sort_order,
+    parent_id, is_active, 
     files: req.files,
   });
 

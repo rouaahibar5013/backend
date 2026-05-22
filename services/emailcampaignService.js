@@ -50,15 +50,15 @@ const buildEmailTemplate = ({ type, title, content_fr, promoCode, promoValue }) 
 // ═══════════════════════════════════════════════════════════
 // SUBSCRIBE
 // ═══════════════════════════════════════════════════════════
-export const subscribeEmailService = async ({ email, name, userId }) => {
+export const subscribeEmailService = async ({ email, userId }) => {
   const existing = await EmailSubscription.findByEmail(email);
 
   if (existing) {
     if (existing.is_active) throw new ErrorHandler("Vous êtes déjà abonné à nos offres.", 400);
-    return await EmailSubscription.reactivate(email, name || existing.name);
+    return await EmailSubscription.reactivate(email);
   }
 
-  return await EmailSubscription.create({ userId: userId || null, email, name: name || null });
+  return await EmailSubscription.create({ userId: userId || null, email });
 };
 
 

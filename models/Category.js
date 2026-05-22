@@ -4,7 +4,7 @@ class Category {
   static async findAll({ activeOnly = true } = {}) {
     const where = activeOnly ? "WHERE is_active = true" : "";
     const result = await database.query(
-      `SELECT * FROM category ${where} ORDER BY sort_order ASC, name_fr ASC`
+      `SELECT * FROM category ${where} ORDER BY  name_fr ASC`
     );
     return result.rows;
   }
@@ -36,7 +36,7 @@ class Category {
     const result = await database.query(
       `SELECT
          c.id, c.name_fr, c.slug, c.description_fr,
-         c.images, c.parent_id, c.sort_order, c.is_active,
+         c.images, c.parent_id, c.is_active,
          COUNT(DISTINCT p.id) AS product_count,
          par.name_fr          AS parent_name_fr,
          par.slug             AS parent_slug
@@ -45,7 +45,7 @@ class Category {
        LEFT JOIN category par ON par.id = c.parent_id
        WHERE c.is_active = true
        GROUP BY c.id, par.name_fr, par.slug
-       ORDER BY c.sort_order ASC, c.name_fr ASC`
+       ORDER BY  c.name_fr ASC`
     );
     return result.rows.map(row => ({
       ...row,
@@ -114,18 +114,18 @@ class Category {
   }
 
   // ─── Créer ────────────────────────────────────────────
-  static async create({ name_fr, slug, description_fr, images, parent_id, sort_order = 0 }) {
+  static async create({ name_fr, slug, description_fr, images, parent_id}) {
     const result = await database.query(
-      `INSERT INTO category (name_fr, slug, description_fr, images, parent_id, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO category (name_fr, slug, description_fr, images, parent_id)
+       VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
-      [name_fr, slug, description_fr || null, images || null, parent_id || null, sort_order]
+      [name_fr, slug, description_fr || null, images || null, parent_id || null]
     );
     return result.rows[0];
   }
 
   // ─── Update complet ───────────────────────────────────
-  static async updateFull(id, { name_fr, description_fr, parent_id, images, is_active, sort_order }) {
+  static async updateFull(id, { name_fr, description_fr, parent_id, images, is_active }) {
     const result = await database.query(
       `UPDATE category SET
          name_fr        = $1,
@@ -133,17 +133,16 @@ class Category {
          parent_id      = $3,
          images         = $4,
          is_active      = $5,
-         sort_order     = $6,
          updated_at     = NOW()
-       WHERE id = $7
+       WHERE id = $6
        RETURNING *`,
-      [name_fr, description_fr, parent_id, images, is_active, sort_order, id]
+      [name_fr, description_fr, parent_id, images, is_active, id]
     );
     return result.rows[0];
   }
 
   // ─── Update simple (COALESCE) ─────────────────────────
-  static async update(id, { name_fr, slug, description_fr, images, is_active, sort_order }) {
+  static async update(id, { name_fr, slug, description_fr, images, is_active }) {
     const result = await database.query(
       `UPDATE category
        SET name_fr        = COALESCE($1, name_fr),
@@ -151,11 +150,10 @@ class Category {
            description_fr = COALESCE($3, description_fr),
            images         = COALESCE($4, images),
            is_active      = COALESCE($5, is_active),
-           sort_order     = COALESCE($6, sort_order),
            updated_at     = NOW()
-       WHERE id = $7
+       WHERE id = $6
        RETURNING *`,
-      [name_fr, slug, description_fr, images, is_active, sort_order, id]
+      [name_fr, slug, description_fr, images, is_active, id]
     );
     return result.rows[0];
   }

@@ -196,7 +196,7 @@ export const deleteProduct = catchAsyncErrors(async (req, res) => {
 // ═══════════════════════════════════════════════════════════
 export const addVariant = catchAsyncErrors(async (req, res, next) => {
   const {
-    price, cost_price, stock, sku, weight_grams, barcode,
+    price, cost_price, stock, sku, weight_grams,
     low_stock_threshold, attributes,              // ✅ low_stock_threshold ajouté
   } = req.body;
 
@@ -204,7 +204,7 @@ export const addVariant = catchAsyncErrors(async (req, res, next) => {
 
   const variant = await productService.addVariantService({
     productId: req.params.productId,
-    price, cost_price, stock, sku, weight_grams, barcode,
+    price, cost_price, stock, sku, weight_grams,
     low_stock_threshold,
     attributes: typeof attributes === "string" ? JSON.parse(attributes) : attributes,
   });

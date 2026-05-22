@@ -108,7 +108,7 @@ if (!variants || !Array.isArray(variants) || variants.length === 0)
 
   const createdVariants = [];
   for (const variant of variants) {
-    const { price, cost_price, stock, sku, weight_grams, barcode, low_stock_threshold, attributes } = variant;
+    const { price, cost_price, stock, sku, weight_grams, low_stock_threshold, attributes } = variant;
 const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : attributes;
   if (!parsedAttrs || parsedAttrs.length === 0)
     throw new ErrorHandler("Chaque variant doit avoir au moins un attribut.", 400);
@@ -121,7 +121,6 @@ const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : at
       stock:               stock           || 0,
       low_stock_threshold: low_stock_threshold || 5,
       weight_grams:        weight_grams    || null,
-      barcode:             barcode         || null,
     });
 
     await insertVariantAttributes(newVariant.id, parsedAttrs);
@@ -222,7 +221,7 @@ export const updateProductService = async ({
 // ═══════════════════════════════════════════════════════════
 export const addVariantService = async ({
   productId, price, cost_price,
-  stock, sku, weight_grams, barcode,
+  stock, sku, weight_grams, 
   low_stock_threshold, attributes,
 }) => {
   const product = await Product.findById(productId);
@@ -241,7 +240,6 @@ const parsedAttrs = typeof attributes === "string" ? JSON.parse(attributes) : at
     stock:               stock           || 0,
     low_stock_threshold: low_stock_threshold || 5,
     weight_grams:        weight_grams    || null,
-    barcode:             barcode         || null,
   });
   await insertVariantAttributes(variant.id, parsedAttrs);
 
