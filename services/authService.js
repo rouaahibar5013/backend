@@ -542,8 +542,6 @@ export const deleteUserService = async ({ userId, requestingAdminId }) => {
   const user = await User.findById(userId);
   if (!user) throw new ErrorHandler("Utilisateur introuvable.", 404);
 
-  if (user.role === "admin")
-    throw new ErrorHandler("Impossible de supprimer un administrateur. Révoquez son rôle d'abord.", 403);
 
   await User.delete(userId);
   await invalidateDashboardCache();
@@ -573,7 +571,8 @@ export const updateUserRoleService = async ({ userId, role, requestingAdminId })
 export const suspendUserService = async ({ userId, requestingAdminId }) => {
   if (userId === requestingAdminId)
     throw new ErrorHandler("Vous ne pouvez pas suspendre votre propre compte.", 400);
-
+const targetUser = await User.findById(userId);
+  if (!targetUser) throw new ErrorHandler("Utilisateur introuvable.", 404);
   const updated = await User.setActive(userId, false);
   if (!updated) throw new ErrorHandler("Utilisateur introuvable.", 404);
 
@@ -604,7 +603,6 @@ export const adminUpdateUserService = async ({
 }) => {
   const current = await User.findById(userId);
   if (!current) throw new ErrorHandler("Utilisateur introuvable.", 404);
-
   if (email && email.trim().toLowerCase() !== current.email) {
     validateEmail(email);
     const emailExists = await User.findByEmailExcludingId(email.trim().toLowerCase(), userId);
@@ -654,3 +652,4 @@ export const updateUserAddressesService = async (userId, addressData) => {
   if (!user) throw new ErrorHandler("Utilisateur introuvable.", 404);
   return await User.updateAddresses(userId, addressData);
 };
+
