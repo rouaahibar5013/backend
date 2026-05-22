@@ -13,6 +13,7 @@ export const createRecipe = catchAsyncErrors(async (req, res, next) => {
   const n = parseInt(val);
   return isNaN(n) ? null : n;
 };
+const toBool = (val) => val === true || val === "true";
   const {
     title_fr,  description_fr, 
     prep_time, cook_time, servings, difficulty,
@@ -54,8 +55,8 @@ if (!parsedSteps || parsedSteps.length === 0)
   servings:   toInt(servings),    // ✅
   difficulty,
   category,
-  is_published,
-  is_featured,
+  is_published: toBool(is_published),
+  is_featured:  toBool(is_featured),
   ingredients: parsedIngredients || [],
   steps:       parsedSteps,
   userId:      req.user.id,
@@ -118,12 +119,17 @@ export const updateRecipe = catchAsyncErrors(async (req, res, next) => {
     return isNaN(n) ? null : n;
   };
 
-  // ✅ Destructuration
+  const toBool = (val) => val === true || val === "true";
+
   const {
-    title_fr, description_fr,
-    prep_time, cook_time, servings, difficulty,
-    category, is_published, is_featured, ingredients,
-  } = req.body;
+  title_fr, description_fr,
+  prep_time, cook_time, servings, difficulty,
+  category, is_published, is_featured, ingredients, steps,
+} = req.body;
+
+const parsedStepsUpdate = steps
+  ? (typeof steps === "string" ? JSON.parse(steps) : steps)
+  : null;
 
   // ✅ Parsing + validation quantité
   const parsedIngredientsUpdate = ingredients
@@ -147,9 +153,10 @@ export const updateRecipe = catchAsyncErrors(async (req, res, next) => {
     servings:   toInt(servings),
     difficulty,
     category,
-    is_published,
-    is_featured,
+    is_published: toBool(is_published),
+    is_featured:  toBool(is_featured),
     ingredients: parsedIngredientsUpdate,
+    steps: parsedStepsUpdate,
     coverImageFile: req.files?.cover_image || null,
   });
 

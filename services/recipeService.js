@@ -62,8 +62,8 @@ export const createRecipeService = async ({
     cover_image: coverImageUrl,
     prep_time, cook_time, servings: servings || 4,
     difficulty: difficulty || "facile", category: category || null,
-    is_published: is_published || false,
-    is_featured: is_featured || false,
+    is_published: is_published ?? false,
+    is_featured:  is_featured  ?? false,
     created_by: userId,
   });
 
@@ -112,7 +112,7 @@ export const fetchFeaturedRecipesService = async () => {
 export const updateRecipeService = async ({
   recipeId, title_fr, description_fr,
   prep_time, cook_time, servings, difficulty, category,
-  is_published, is_featured, coverImageFile, ingredients,
+  is_published, is_featured, coverImageFile, ingredients, steps,
 }) => {
   const current = await Recipe.findById(recipeId);
   if (!current) throw new ErrorHandler("Recette introuvable.", 404);
@@ -143,6 +143,11 @@ export const updateRecipeService = async ({
   if (ingredients !== null && ingredients !== undefined) {
     await RecipeIngredient.deleteByRecipeId(recipeId);
     if (ingredients.length > 0) await insertIngredients(recipeId, ingredients);
+  }
+
+  if (steps !== null && steps !== undefined) {
+    await RecipeStep.deleteByRecipeId(recipeId);
+    if (steps.length > 0) await insertSteps(recipeId, steps);
   }
 
   return updated;
@@ -177,7 +182,7 @@ export const getRecipeByIdAdminService = async (recipeId) => {
   if (!recipe) throw new ErrorHandler("Recette introuvable.", 404);
 
   const [ingredients, steps] = await Promise.all([
-    RecipeIngredient.findByRecipeId(recipeId),
+    RecipeIngredient.findByRecipeIdWithProduct(recipeId),
     RecipeStep.findByRecipeId(recipeId),
   ]);
 
