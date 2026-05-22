@@ -28,7 +28,7 @@ export const isAuthenticated = catchAsyncErrors(async (req, res, next) => {
     return next(new ErrorHandler("Session révoquée. Veuillez vous reconnecter.", 401));
 
   const user = await getUserById(decoded.id);
-  if (user.is_active === false)
+  if (!user.is_active)
     return next(new ErrorHandler("Votre compte a été suspendu.", 403));
 
   req.user = user;
