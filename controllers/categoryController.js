@@ -47,6 +47,9 @@ export const fetchAllCategories = catchAsyncErrors(async (req, res) => {
 // ═══════════════════════════════════════════════════════════
 export const fetchSingleCategory = catchAsyncErrors(async (req, res) => {
   const category = await categoryService.fetchSingleCategoryService(req.params.categoryId);
+  if (!category) {
+    return next(new ErrorHandler('Catégorie introuvable.', 404))
+  }
   res.status(200).json({ success: true, category });
 });
 

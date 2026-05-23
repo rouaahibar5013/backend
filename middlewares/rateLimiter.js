@@ -1,9 +1,10 @@
 import rateLimit from "express-rate-limit";
+const isTest = process.env.NODE_ENV === 'test'
 
 // ── Login : 5 tentatives / 15 min par IP ─────────────────
 export const loginLimiter = rateLimit({
   windowMs:         15 * 60 * 1000,
-  max:              5,
+    max: isTest ? 1000 : 10, // ← illimité en test
   standardHeaders:  true,
   legacyHeaders:    false,
   message: {

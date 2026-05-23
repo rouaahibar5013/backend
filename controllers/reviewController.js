@@ -8,6 +8,9 @@ import * as reviewService    from "../services/reviewService.js";
 // ═══════════════════════════════════════════════════════════
 export const getProductReviews = catchAsyncErrors(async (req, res) => {
   const data = await reviewService.getProductReviewsService(req.params.productId);
+   if (!data) {
+    return next(new ErrorHandler('Produit introuvable.', 404))
+  }
   res.status(200).json({ success: true, ...data });
 });
 
