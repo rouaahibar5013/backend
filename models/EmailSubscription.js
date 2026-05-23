@@ -12,7 +12,7 @@ class EmailSubscription {
   // ─── Tous les abonnés actifs ──────────────────────────
   static async findAllActive() {
     const result = await database.query(
-      "SELECT email, name FROM email_subscription WHERE is_active = true"
+      "SELECT email FROM email_subscription WHERE is_active = true"
     );
     return result.rows;
   }
@@ -20,7 +20,7 @@ class EmailSubscription {
   // ─── Tous les abonnés avec infos user (admin) ─────────
   static async findAllWithUser() {
     const result = await database.query(
-      `SELECT es.*, u.name AS user_name
+      `SELECT es.*
        FROM email_subscription es
        LEFT JOIN "user" u ON u.id = es.user_id
        ORDER BY es.subscribed_at DESC`
@@ -29,22 +29,22 @@ class EmailSubscription {
   }
 
   // ─── Créer un abonnement ──────────────────────────────
-  static async create({ userId, email, name }) {
+  static async create({ userId, email }) {
     const result = await database.query(
-      `INSERT INTO email_subscription (user_id, email, name)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [userId || null, email, name || null]
+      `INSERT INTO email_subscription (user_id, email)
+       VALUES ($1, $2) RETURNING *`,
+      [userId || null, email]
     );
     return result.rows[0];
   }
 
   // ─── Réactiver un abonnement ──────────────────────────
-  static async reactivate(email, name) {
+  static async reactivate(email) {
     const result = await database.query(
       `UPDATE email_subscription
-       SET is_active = true, unsubscribed_at = NULL, name = $1
-       WHERE email = $2 RETURNING *`,
-      [name, email]
+       SET is_active = true, unsubscribed_at = NULL
+       WHERE email = $1 RETURNING *`,
+      [email]
     );
     return result.rows[0];
   }

@@ -9,12 +9,12 @@ class RecipeStep {
     return result.rows;
   }
 
-  static async create({ recipe_id, step_number, instruction_fr, image, duration }) {
+  static async create({ recipe_id, step_number, instruction_fr, duration }) {
     const result = await database.query(
-      `INSERT INTO recipe_step (recipe_id, step_number, instruction_fr, image, duration)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO recipe_step (recipe_id, step_number, instruction_fr, duration)
+       VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [recipe_id, step_number, instruction_fr, image || null, duration || null]
+      [recipe_id, step_number, instruction_fr, duration || null]
     );
     return result.rows[0];
   }
