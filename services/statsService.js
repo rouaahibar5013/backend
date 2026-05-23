@@ -1,7 +1,9 @@
 import database from "../database/db.js";
 import { getCache, setCache } from "../config/redis.js"; // ✅ helpers centralisés
 import { getDashboardTTL } from "../utils/cacheInvalideation.js";
-import { invalidateDashboardCache } from "../utils/cacheInvalideation.js";// ═══════════════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════════════
 // HELPER — calcul pourcentage de changement
 // ═══════════════════════════════════════════════════════════
 const calcGrowth = (current, previous) => {
@@ -25,7 +27,7 @@ const buildDateFilter = (period, month, year) => {
 
   if (month && year) {
     const start = `${year}-${String(month).padStart(2, '0')}-01`;
-    const end   = new Date(year, month, 0).toISOString().split('T')[0];
+    const end = toLocalDate(new Date(year, month, 0));
     return { start, end, label: `${month}/${year}` };
   }
 
