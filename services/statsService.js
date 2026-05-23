@@ -2,6 +2,7 @@ import database from "../database/db.js";
 import { getCache, setCache } from "../config/redis.js"; // ✅ helpers centralisés
 import { getDashboardTTL } from "../utils/cacheInvalideation.js";
 
+
 // ═══════════════════════════════════════════════════════════
 // HELPER — calcul pourcentage de changement
 // ═══════════════════════════════════════════════════════════
@@ -13,44 +14,52 @@ const calcGrowth = (current, previous) => {
 // ═══════════════════════════════════════════════════════════
 // HELPER — construire filtre date selon période
 // ═══════════════════════════════════════════════════════════
+
+
+
+const toLocalDate = (date) => {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date - offset).toISOString().split('T')[0];
+};
+
 const buildDateFilter = (period, month, year) => {
   const now = new Date();
 
   if (month && year) {
     const start = `${year}-${String(month).padStart(2, '0')}-01`;
-    const end   = new Date(year, month, 0).toISOString().split('T')[0];
+    const end = toLocalDate(new Date(year, month, 0));
     return { start, end, label: `${month}/${year}` };
   }
 
   switch (period) {
     case 'today':
       return {
-        start: now.toISOString().split('T')[0],
-        end:   now.toISOString().split('T')[0],
+        start: toLocalDate(now),
+        end:  toLocalDate(now),
         label: "Aujourd'hui",
       };
     case '7days':
       return {
-        start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        end:   now.toISOString().split('T')[0],
+        start: toLocalDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+        end:   toLocalDate(now),
         label: '7 derniers jours',
       };
     case '30days':
       return {
-        start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        end:   now.toISOString().split('T')[0],
+        start: toLocalDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+        end:  toLocalDate(now),
         label: '30 derniers jours',
       };
     case 'year':
       return {
         start: `${now.getFullYear()}-01-01`,
-        end:   `${now.getFullYear()}-12-31`,
+        end:  `${now.getFullYear()}-12-31`,
         label: `Année ${now.getFullYear()}`,
       };
     default:
       return {
-        start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        end:   now.toISOString().split('T')[0],
+        start: toLocalDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)),
+        end:   toLocalDate(now),
         label: '30 derniers jours',
       };
   }

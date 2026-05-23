@@ -1,5 +1,6 @@
 import { catchAsyncErrors } from "../middlewares/catchAsyncErrors.js";
 import * as statsService from "../services/statsService.js";
+import { invalidateDashboardCache } from "../utils/cacheInvalideation.js"; // ← AJOUTER
 
 // ═══════════════════════════════════════════════════════════
 // GET DASHBOARD STATS
@@ -39,4 +40,9 @@ export const exportStats = catchAsyncErrors(async (req, res, next) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.status(200).send('\uFEFF' + csv); // BOM pour Excel
+});
+
+export const clearCache = catchAsyncErrors(async (req, res, next) => {
+  await invalidateDashboardCache();
+  res.status(200).json({ success: true, message: "Cache dashboard vidé." });
 });
