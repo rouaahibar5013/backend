@@ -12,7 +12,11 @@ import { sendToken } from "../utils/jwtToken.js";
 export const register = catchAsyncErrors(async (req, res, next) => {
   const { name, email, password, phone, address, city } = req.body;
   const avatarFile = req.files?.avatar || null;
-
+  if (!email || !password)
+    return next(new ErrorHandler('Email et mot de passe obligatoires.', 400))
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(email))
+    return next(new ErrorHandler('Format email invalide.', 400))
   const user = await authService.registerUser({
     name, email, password, phone, address, city, avatarFile,
   });

@@ -16,7 +16,7 @@ export const loginLimiter = rateLimit({
 // ── Verify MFA : 5 tentatives / 10 min par IP ────────────
 export const mfaLimiter = rateLimit({
   windowMs:         10 * 60 * 1000,
-  max:              5,
+ max: isTest ? 1000 : 5,
   standardHeaders:  true,
   legacyHeaders:    false,
   message: {
@@ -28,7 +28,7 @@ export const mfaLimiter = rateLimit({
 // ── Register : 5 inscriptions / heure par IP ─────────────
 export const registerLimiter = rateLimit({
   windowMs:         60 * 60 * 1000,
-  max:              5,
+  max: isTest ? 1000 : 5,
   standardHeaders:  true,
   legacyHeaders:    false,
   message: {
@@ -40,7 +40,7 @@ export const registerLimiter = rateLimit({
 // ── Forgot password : 3 demandes / heure par IP ──────────
 export const forgotPasswordLimiter = rateLimit({
   windowMs:         60 * 60 * 1000,
-  max:              3,
+max: isTest ? 1000 : 3,
   standardHeaders:  true,
   legacyHeaders:    false,
   message: {
