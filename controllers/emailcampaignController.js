@@ -13,7 +13,10 @@ export const subscribe = catchAsyncErrors(async (req, res, next) => {
 
   if (!email)
     return next(new ErrorHandler("Veuillez fournir un email.", 400));
-
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(email))
+    return next(new ErrorHandler('Email invalide.', 400))
+  
   const subscription = await emailCampaignService.subscribeEmailService({
     email,
     userId: req.user?.id || null,
@@ -38,6 +41,9 @@ export const unsubscribe = catchAsyncErrors(async (req, res, next) => {
 
   if (!email)
     return next(new ErrorHandler("Veuillez fournir un email.", 400));
+ const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(email))
+    return next(new ErrorHandler('Email invalide.', 400))
 
   await emailCampaignService.unsubscribeEmailService(email);
 
