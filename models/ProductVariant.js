@@ -103,7 +103,7 @@ class ProductVariant {
     const result = await database.query(
       `INSERT INTO product_variant
          (product_id, sku, price, cost_price, stock, low_stock_threshold, weight_grams, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true)
        RETURNING *`,
       [product_id, sku || null, price, cost_price || null, stock || 0, low_stock_threshold || 5, weight_grams || null]
     );
