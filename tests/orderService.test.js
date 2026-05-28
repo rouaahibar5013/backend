@@ -15,13 +15,12 @@ vi.mock('../models/index.js', () => ({
 }))
 
 vi.mock('stripe', () => {
-  return {
-    default: vi.fn().mockImplementation(() => ({
-      paymentIntents: { create: vi.fn().mockResolvedValue({ id: 'pi_test', client_secret: 'secret_test' }) },
-      refunds:        { create: vi.fn().mockResolvedValue({ id: 'ref_test' }) },
-      webhooks:       { constructEvent: vi.fn() },
-    }))
+  function StripeMock() {
+    this.paymentIntents = { create: vi.fn().mockResolvedValue({ id: 'pi_test', client_secret: 'secret_test' }) }
+    this.refunds        = { create: vi.fn().mockResolvedValue({ id: 'ref_test' }) }
+    this.webhooks       = { constructEvent: vi.fn() }
   }
+  return { default: StripeMock }
 })
 
 vi.mock('../utils/sendEmail.js',            () => ({ default: vi.fn().mockResolvedValue(true) }))

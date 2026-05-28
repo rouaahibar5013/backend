@@ -8,7 +8,7 @@ export const getHomeDataService = async () => {
     // ── Catégories parentes — rien à changer ──────────────
     database.query(
       `SELECT
-         c.id, c.name_fr, c.slug, c.images, c.sort_order,
+         c.id, c.name_fr, c.slug, c.images,
          (SELECT COUNT(*) FROM product p
           LEFT JOIN category sub ON sub.id = p.category_id
           WHERE (sub.parent_id = c.id OR p.category_id = c.id)
@@ -16,7 +16,7 @@ export const getHomeDataService = async () => {
        FROM category c
        WHERE c.parent_id IS NULL
        AND   c.is_active = true
-       ORDER BY c.sort_order ASC
+      ORDER BY c.name_fr ASC
        LIMIT 8`
     ),
 
