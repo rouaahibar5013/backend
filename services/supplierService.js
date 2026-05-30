@@ -1,26 +1,35 @@
-import { v2 as cloudinary } from "cloudinary";
 import { Supplier } from "../models/index.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import { invalidateOffresCache } from "../utils/cacheInvalideation.js";
-
+import fs   from "fs";
+import path from "path";
+import { v4 as uuidv4 } from "uuid";
+import sharp from "sharp";
 
 // ─── Helpers ──────────────────────────────────────────
 const uploadSupplierImages = async (imageFiles) => {
   const imgs = Array.isArray(imageFiles) ? imageFiles : [imageFiles];
   const uploaded = await Promise.all(
-    imgs.map(img =>
-      cloudinary.uploader.upload(img.tempFilePath, {
-        folder: "Ecommerce_Supplier_Images", width: 500, crop: "scale",
-      })
-    )
+    imgs.map(async (img) => {
+      const filename = `${uuidv4()}.webp`;
+      const filepath = path.join(UPLOAD_DIR, filename);
+      await sharp(img.tempFilePath)
+        .resize({ width: 500, withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toFile(filepath);
+      return { url: `/uploads/suppliers/${filename}`, filename };
+    })
   );
-  return uploaded.map(r => ({ url: r.secure_url, public_id: r.public_id }));
+  return uploaded;
 };
 
-const destroyCloudinaryImage = async (url) => {
-  if (!url) return;
-  const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z]+$/i);
-  if (matches) await cloudinary.uploader.destroy(matches[1]);
+const deleteSupplierImage = (imageUrl) => {
+  if (!imageUrl) return;
+  const filename = path.basename(imageUrl);
+  const filepath = path.join(UPLOAD_DIR, filename);
+  fs.unlink(filepath, (err) => {
+    if (err) console.error("Erreur suppression image fournisseur:", err.message);
+  });
 };
 
 const generateSlug = async (name, excludeId = null) => {
@@ -103,11 +112,11 @@ export const updateSupplierService = async ({
   }
 
   let logoUrl = s.logo_url;
-  if (files?.images) {
-    await destroyCloudinaryImage(logoUrl);
+ if (files?.images) {
+    deleteSupplierImage(logoUrl);                        // ✅
     const uploaded = await uploadSupplierImages(files.images);
     logoUrl = uploaded[0]?.url || logoUrl;
-  }
+}
 
   const updated = await Supplier.updateFull(supplierId, {
     name:            name            ?? s.name,
@@ -140,6 +149,6 @@ export const deleteSupplierService = async (supplierId) => {
 
   await Supplier.unlinkProducts(supplierId);
   await Supplier.delete(supplierId);
-  await destroyCloudinaryImage(s.logo_url);
+deleteSupplierImage(s.logo_url);
   await invalidateOffresCache();
 };

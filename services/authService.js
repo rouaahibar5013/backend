@@ -1,7 +1,10 @@
 import bcrypt        from "bcryptjs";
 import crypto        from "crypto";
 import jwt           from "jsonwebtoken";
-import { v2 as cloudinary } from "cloudinary";
+import fs   from "fs";
+import path from "path";
+import { v4 as uuidv4 } from "uuid";
+import sharp from "sharp";
 import { User }      from "../models/index.js";
 import ErrorHandler  from "../middlewares/errorMiddleware.js";
 import sendEmail     from "../utils/sendEmail.js";
@@ -10,7 +13,8 @@ import { checkLoginBlock, recordFailedLogin, clearLoginAttempts } from "../utils
 import { invalidateDashboardCache } from "../utils/cacheInvalideation.js";
 import { notifyUser } from "../utils/websocket.js";
 
-
+const UPLOAD_DIR = path.resolve("public/uploads/avatars");
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 // ══════════════════════════════════════════════════════════════════════════
 // HELPERS INTERNES
 // ══════════════════════════════════════════════════════════════════════════
@@ -46,14 +50,26 @@ const generateTokenPair = () => {
   return { rawToken, hashedToken };
 };
 
-const destroyCloudinaryAvatar = async (url) => {
-  if (!url) return;
-  const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z]+$/i);
-  if (matches) {
-    await cloudinary.uploader.destroy(matches[1]).catch((err) =>
-      console.error("[Cloudinary] delete error:", err.message)
-    );
-  }
+
+const uploadAvatar = async (avatarFile) => {
+  const filename = `${uuidv4()}.webp`;
+  const filepath = path.join(UPLOAD_DIR, filename);
+  await sharp(avatarFile.tempFilePath)
+    .resize({ width: 200, withoutEnlargement: true })
+    .webp({ quality: 80 })
+    .toFile(filepath);
+  return `/uploads/avatars/${filename}`;
+};
+
+
+
+const removeAvatarFile = (avatarUrl) => {
+  if (!avatarUrl) return;
+  const filename = path.basename(avatarUrl);
+  const filepath = path.join(UPLOAD_DIR, filename);
+  fs.unlink(filepath, (err) => {
+    if (err) console.error("Erreur suppression avatar:", err.message);
+  });
 };
 
 const wrapEmail = (bodyHtml) => `
@@ -97,12 +113,7 @@ export const registerUser = async ({
   }
 
   let avatarUrl = null;
-  if (avatarFile) {
-    const result = await cloudinary.uploader.upload(avatarFile.tempFilePath, {
-      folder: "Ecommerce_Avatars", width: 200, crop: "scale",
-    });
-    avatarUrl = result.secure_url;
-  }
+if (avatarFile) avatarUrl = await uploadAvatar(avatarFile);
 
   const hashedPassword                = await bcrypt.hash(password, 12);
   const { rawToken, hashedToken }     = generateTokenPair();
@@ -387,18 +398,15 @@ export const updateUserProfile = async ({
 
   let avatarUrl = cu.avatar;
 
-  if (deleteAvatar === "true" || deleteAvatar === true) {
-    await destroyCloudinaryAvatar(cu.avatar);
-    avatarUrl = null;
-  }
+ if (deleteAvatar === "true" || deleteAvatar === true) {
+   removeAvatarFile(cu.avatar);
+  avatarUrl = null;
+}
 
-  if (avatarFile) {
-    await destroyCloudinaryAvatar(cu.avatar);
-    const upload = await cloudinary.uploader.upload(avatarFile.tempFilePath, {
-      folder: "Ecommerce_Avatars", width: 200, crop: "scale",
-    });
-    avatarUrl = upload.secure_url;
-  }
+if (avatarFile) {
+   removeAvatarFile(cu.avatar);                
+  avatarUrl = await uploadAvatar(avatarFile); 
+}
 
   const newPhone   = phone   ?? cu.phone;
   const newAddress = address ?? cu.address;

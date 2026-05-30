@@ -1,5 +1,5 @@
-import { v2 as cloudinary } from "cloudinary";
-import {
+import { uploadProductImages } from "../utils/uploadLocal.js";
+import { deleteLocalImage }    from "../utils/deleteLocalImage.js";import {
   Product, ProductVariant, ProductVariantAttribute,
   AttributeType, Category, Supplier,
 } from "../models/index.js";
@@ -8,28 +8,7 @@ import { invalidateOffresCache, invalidateDashboardCache } from "../utils/cacheI
 
 
 // ─── Helpers ──────────────────────────────────────────────
-const uploadProductImages = async (imageFiles) => {
-  const images = Array.isArray(imageFiles) ? imageFiles : [imageFiles];
 
-  const uploaded = await Promise.all(
-    images.map(img =>
-      cloudinary.uploader.upload(img.tempFilePath, {
-        folder: "Ecommerce_Product_Images",
-        // ✅ Conversion auto WebP + compression automatique
-        transformation: [
-          { width: 1000, crop: "scale", fetch_format: "auto", quality: "auto" }
-        ],
-        // ✅ Générer aussi une version thumbnail au moment de l'upload
-        eager: [
-          { width: 400, crop: "scale", fetch_format: "auto", quality: "auto" },
-        ],
-        eager_async: true,
-      })
-    )
-  );
-
-  return uploaded.map(r => ({ url: r.secure_url, public_id: r.public_id }));
-};
 
 const insertVariantAttributes = async (variantId, attributes) => {
   if (!attributes || attributes.length === 0) return;
@@ -314,11 +293,11 @@ export const deleteProductService = async (productId) => {
   const product = await Product.findById(productId);
   if (!product) throw new ErrorHandler("Produit introuvable.", 404);
 
-  await Promise.all(
-    (product.images || [])
-      .filter(img => img.public_id)
-      .map(img => cloudinary.uploader.destroy(img.public_id))
-  );
+  
+  (product.images || [])
+    .filter(img => img.filename)
+    .forEach(img => deleteLocalImage(img.filename));
+  
   await Product.delete(productId);
   await invalidateOffresCache();
   await invalidateDashboardCache();

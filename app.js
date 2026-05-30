@@ -4,7 +4,7 @@ import cors          from "cors";
 import fileUpload    from "express-fileupload";
 import cookieParser  from "cookie-parser";
 import passport      from "./config/passport.js";
-
+import path from "path";
 import statsRoutes         from "./routes/statsRoutes.js";
 import faqRouter           from "./routes/faqRoutes.js";
 import homeRoutes          from "./routes/homeRoutes.js";
@@ -49,6 +49,7 @@ app.use(fileUpload({
   useTempFiles: true,
   tempFileDir:  "/tmp/",
 }));
+app.use("/uploads", express.static(path.resolve("public/uploads")));
 
 // 4. Parsers JSON et URL-encoded
 app.use(express.json());

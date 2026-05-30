@@ -1,14 +1,38 @@
-import { v2 as cloudinary } from "cloudinary";
+
+import fs   from "fs";
+import path from "path";
+import { v4 as uuidv4 } from "uuid";
+import sharp from "sharp";
 import { Recipe, RecipeStep, RecipeIngredient } from "../models/index.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import generateSlug from "../utils/generateSlug.js";
 
-
+const UPLOAD_DIR = path.resolve("public/uploads/recipes");
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 // ─── Helper ───────────────────────────────────────────────
-const destroyCloudinaryImage = async (url) => {
-  if (!url) return;
-  const matches = url.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z]+$/i);
-  if (matches) await cloudinary.uploader.destroy(matches[1]);
+const uploadRecipeImage = async (imageFile) => {
+  const filename = `${uuidv4()}.webp`;
+  const filepath = path.join(UPLOAD_DIR, filename);
+
+  await sharp(imageFile.tempFilePath)
+    .resize({ width: 1200, withoutEnlargement: true })
+    .webp({ quality: 80 })
+    .toFile(filepath);
+
+  return `/uploads/recipes/${filename}`;  // url publique
+};
+
+
+
+
+const deleteRecipeImage = (imageUrl) => {
+  if (!imageUrl) return;
+  // extrait le filename depuis l'url  ex: "/uploads/recipes/uuid.webp"
+  const filename = path.basename(imageUrl);
+  const filepath = path.join(UPLOAD_DIR, filename);
+  fs.unlink(filepath, (err) => {
+    if (err) console.error("Erreur suppression image recette:", err.message);
+  });
 };
 
 const insertIngredients = async (recipeId, ingredients) => {
@@ -49,13 +73,7 @@ export const createRecipeService = async ({
   if (existing) throw new ErrorHandler("Une recette avec ce nom existe déjà.", 409);
 
   let coverImageUrl = null;
-  if (coverImageFile) {
-    const result = await cloudinary.uploader.upload(
-      coverImageFile.tempFilePath,
-      { folder: "Goffa_Recipes", width: 1200, crop: "scale" }
-    );
-    coverImageUrl = result.secure_url;
-  }
+ if (coverImageFile) coverImageUrl = await uploadRecipeImage(coverImageFile);
 
   const recipe = await Recipe.create({
     title_fr, slug, description_fr: description_fr || null,
@@ -119,13 +137,8 @@ export const updateRecipeService = async ({
 
   let coverImageUrl = current.cover_image;
   if (coverImageFile) {
-    await destroyCloudinaryImage(coverImageUrl);
-    const result = await cloudinary.uploader.upload(
-      coverImageFile.tempFilePath,
-      { folder: "Goffa_Recipes", width: 1200, crop: "scale" }
-    );
-    coverImageUrl = result.secure_url;
-  }
+    deleteRecipeImage(coverImageUrl);                    // ✅ supprime l'ancienne
+    coverImageUrl = await uploadRecipeImage(coverImageFile);}
 
   const updated = await Recipe.updateFull(recipeId, {
     title_fr:      title_fr      || current.title_fr,
@@ -161,8 +174,8 @@ export const deleteRecipeService = async (recipeId) => {
   const recipe = await Recipe.findById(recipeId);
   if (!recipe) throw new ErrorHandler("Recette introuvable.", 404);
 
-  await destroyCloudinaryImage(recipe.cover_image);
-  await Recipe.delete(recipeId); // CASCADE supprime ingredients + steps
+ deleteRecipeImage(recipe.cover_image); 
+  await Recipe.delete(recipeId); 
 };
 
 

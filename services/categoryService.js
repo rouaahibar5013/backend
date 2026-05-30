@@ -1,26 +1,39 @@
-import { v2 as cloudinary } from "cloudinary";
+import fs   from "fs";
+import path from "path";
+import { v4 as uuidv4 } from "uuid";
+import sharp from "sharp";
 import { Category } from "../models/index.js";
 import ErrorHandler from "../middlewares/errorMiddleware.js";
 import { invalidateOffresCache, invalidateDashboardCache } from "../utils/cacheInvalideation.js";
 
-
+const UPLOAD_DIR = path.resolve("public/uploads/categories");
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 // ─── Helpers ──────────────────────────────────────────────
 const uploadCategoryImages = async (imageFiles) => {
   const imgs = Array.isArray(imageFiles) ? imageFiles : [imageFiles];
   const uploaded = await Promise.all(
-    imgs.map(img =>
-      cloudinary.uploader.upload(img.tempFilePath, {
-        folder: "Ecommerce_Category_Images", width: 500, crop: "scale",
-      })
-    )
+    imgs.map(async (img) => {
+      const filename = `${uuidv4()}.webp`;
+      const filepath = path.join(UPLOAD_DIR, filename);
+      await sharp(img.tempFilePath)
+        .resize({ width: 500, withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toFile(filepath);
+      return { url: `/uploads/categories/${filename}`, filename };
+    })
   );
-  return uploaded.map(r => ({ url: r.secure_url, public_id: r.public_id }));
+  return uploaded;
 };
 
-const destroyImages = async (images = []) => {
-  await Promise.all(
-    images.filter(i => i.public_id).map(i => cloudinary.uploader.destroy(i.public_id))
-  );
+const deleteImages = (images = []) => {
+  images
+    .filter(img => img.filename)
+    .forEach(img => {
+      const filepath = path.join(UPLOAD_DIR, img.filename);
+      fs.unlink(filepath, (err) => {
+        if (err) console.error("Erreur suppression image catégorie:", err.message);
+      });
+    });
 };
 
 
@@ -97,10 +110,10 @@ export const updateCategoryService = async ({
   }
 
   let images = c.images || [];
-  if (files?.images) {
-    await destroyImages(images);
-    images = await uploadCategoryImages(files.images);
-  }
+if (files?.images) {
+  deleteImages(images);                              // ✅
+  images = await uploadCategoryImages(files.images);
+}
 
   const updated = await Category.updateFull(categoryId, {
     name_fr:        name_fr        ?? c.name_fr,
@@ -134,9 +147,8 @@ export const deleteCategoryService = async (categoryId) => {
     throw new ErrorHandler("Impossible : des produits sont liés à cette catégorie.", 400);
   if (childrenCount > 0)
     throw new ErrorHandler("Impossible : des sous-catégories existent.", 400);
-
-  await Category.delete(categoryId);
-  await destroyImages(c.images || []);
+await Category.delete(categoryId);
+deleteImages(c.images || [])
 
   await invalidateOffresCache();
   await invalidateDashboardCache();
