@@ -17,7 +17,7 @@ export const uploadProductImages = async (imageFiles) => {
       const filename = `${uuidv4()}.webp`;
       const filepath = path.join(UPLOAD_DIR, filename);
 
-      // Compression + conversion WebP (équivalent à ce que faisait Cloudinary)
+      // Compression + conversion WebP 
       await sharp(img.tempFilePath)
         .resize({ width: 1000, withoutEnlargement: true })
         .webp({ quality: 80 })
