@@ -227,6 +227,100 @@ class Reclamation {
     );
     return result.rows;
   }
+
+// ─── BI : résumé global des réclamations ─────────────────────
+static async getComplaintSummaryBI() {
+    const result = await database.query(`
+        SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE status = 'en_attente')                   AS pending,
+            COUNT(*) FILTER (WHERE status = 'urgente')                      AS urgent,
+            COUNT(*) FILTER (WHERE status = 'en_retard')                    AS overdue,
+            COUNT(*) FILTER (WHERE status = 'resolue')                      AS resolved,
+            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') AS this_week,
+            COUNT(*) FILTER (WHERE refundable = true)               AS with_refund_request
+        FROM complaint
+    `);
+    return result.rows[0];
 }
+ 
+// ─── BI : répartition par type ───────────────────────────────
+static async getComplaintsByType() {
+    const result = await database.query(`
+        SELECT complaint_type, COUNT(*) AS count
+        FROM complaint
+        GROUP BY complaint_type
+        ORDER BY count DESC
+    `);
+    return result.rows;
+}
+ 
+// ─── BI : répartition par statut ─────────────────────────────
+static async getComplaintsByStatus() {
+    const result = await database.query(`
+        SELECT status, COUNT(*) AS count
+        FROM complaint
+        GROUP BY status
+        ORDER BY count DESC
+    `);
+    return result.rows;
+}
+ 
+// ─── BI : dernières réclamations avec client et commande ─────
+static async getRecentComplaints(limit = 15) {
+    const result = await database.query(`
+        SELECT c.complaint_type, c.message, c.status, c.refundable,
+               c.created_at, c.deadline_at,
+               u.name AS user_name, u.email AS user_email,
+               o.order_number
+        FROM complaint c
+        LEFT JOIN "user"  u ON u.id = c.user_id
+        LEFT JOIN "order" o ON o.id = c.order_id
+        ORDER BY c.created_at DESC
+        LIMIT $1
+    `, [limit]);
+    return result.rows;
+}
+ 
+// ─── BI : réclamations en retard (deadline dépassée) ─────────
+static async getOverdueComplaints(limit = 5) {
+    const result = await database.query(`
+        SELECT c.complaint_type, c.status, c.deadline_at, c.created_at,
+               u.name AS user_name
+        FROM complaint c
+        LEFT JOIN "user" u ON u.id = c.user_id
+        WHERE c.deadline_at < NOW()
+          AND c.status NOT IN ('resolue', 'rejetee')
+        ORDER BY c.deadline_at ASC
+        LIMIT $1
+    `, [limit]);
+    return result.rows;
+}
+ 
+// ─── BI : types de plaintes fréquents (pour FAQ) ─────────────
+static async getFrequentComplaintTypes(daysBack = 90, limit = 6) {
+    const result = await database.query(`
+        SELECT complaint_type,
+               COUNT(*) AS frequency,
+               STRING_AGG(message, ' | ' ORDER BY created_at DESC) AS sample_messages
+        FROM complaint
+        WHERE created_at >= NOW() - ($1 || ' days')::INTERVAL
+        GROUP BY complaint_type
+        ORDER BY frequency DESC
+        LIMIT $2
+    `, [daysBack, limit]);
+    return result.rows;
+}
+ 
+// ─── BI : overview général ────────────────────────────────────
+static async getComplaintOverviewBI() {
+    const result = await database.query(`
+        SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE status IN ('en_attente', 'urgente', 'en_retard')) AS need_attention
+        FROM complaint
+    `);
+    return result.rows[0];
+}}
 
 export default Reclamation;

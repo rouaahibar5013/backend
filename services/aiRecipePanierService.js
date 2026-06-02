@@ -1,58 +1,256 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { jsonrepair }         from "jsonrepair";
+import { z }                  from "zod";
+import Product                from "../models/Product.js";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash-lite',
-    generationConfig: { responseMimeType: "application/json", maxOutputTokens: 2000 }
+  model: 'gemini-2.5-flash-lite',
+  generationConfig: {
+    responseMimeType: "application/json",
+    maxOutputTokens: 2000
+  }
 });
 
-const cache = new Map();
+// ─── Cache (TTL 30 min) ───────────────────────────────────
+const cache     = new Map();
 const CACHE_TTL = 1000 * 60 * 30;
 
-export const suggererRecettesService = async (produits, catalogue = []) => {
-    const cacheKey = produits.map(p => p.name_fr).filter(Boolean).sort().join(',');
-    const cached = cache.get(cacheKey);
-    if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
+const normalize = s =>
+  s.toLowerCase()
+   .normalize("NFD")
+   .replace(/[\u0300-\u036f]/g, "")
+   .trim();
 
-    const panier = produits.map(p => p.category_name ? `${p.name_fr}(${p.category_name})` : p.name_fr).join(',');
-    const catalogueNoms = catalogue.slice(0, 50).map(p => p.name_fr).join(',');
+// ─── Schéma Zod ───────────────────────────────────────────
+//
+// Changement majeur : plus de champ `suggestionGoffa` séparé.
+// Chaque ingrédient porte maintenant sa propre source :
+//
+//   source = "basket"    → déjà dans le panier du client
+//   source = "catalogue" → achetable sur Goffa (catalogue_id requis)
+//   source = "external"  → nécessaire mais non disponible sur Goffa
+//
+// Avantage : une seule liste, le frontend peut afficher 3 états distincts
+// sans fusionner plusieurs tableaux.
+const IngredientSchema = z.object({
+  nom:          z.string(),
+  quantite:     z.string(),
+  source:       z.enum(['basket', 'catalogue', 'external']),
+  catalogue_id: z.string().optional(),
+});
 
-    const prompt = `Tu es un chef cuisinier international. Voici les produits dans le panier d'un client: ${panier}. Catalogue GOFFA disponible: ${catalogueNoms}.
-IMPORTANT: les produits artisanaux (épices, miels, huiles, confitures, céréales, légumineuses, herbes, condiments) sont TOUS considérés comme alimentaires.
-Réponds UNIQUEMENT avec {"non_alimentaire":true} si le panier ne contient absolument aucun produit comestible (ex: textile, bijou, ustensile).
-Sinon, génère 1 recette mondiale en JSON strict:
-{"titre":"","origine":"🇯🇵 Japonaise","description":"","emoji":"","temps":"","ingredients":[{"nom":"","quantite":""}],"etapes":[""],"suggestionGoffa":["nom catalogue exact"]}`;
+const RecetteSchema = z.object({
+  titre:       z.string().min(1),
+  origine:     z.string().min(1),
+  description: z.string().min(1),
+  emoji:       z.string(),
+  temps:       z.string(),
+  ingredients: z.array(IngredientSchema).min(1),
+  etapes:      z.array(z.string()).min(1),
+});
 
-    try {
-        const result = await model.generateContent(prompt);
-        const raw = result.response.text().replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        const recette = JSON.parse(raw);
+// ─── Service principal ────────────────────────────────────
+//
+// Architecture finale :
+//
+//   AVANT (plusieurs itérations) :
+//     Panier → FTS similaires → Gemini → suggestionGoffa (liste séparée)
+//     Problème : Parmesan/Basilic manquants, deux listes à gérer frontend
+//
+//   MAINTENANT :
+//     Panier enrichi (nom + ingredients_fr + description_fr + catégorie)
+//     + Catalogue top 100 alimentaires actifs/bien notés [{id, nom}]
+//     → Gemini joue le rôle de chef : il choisit librement dans le catalogue
+//     → Chaque ingrédient a une source (basket/catalogue/external)
+//     → findCompleteByIds valide les IDs catalogue → 0 hallucination
+//
+// Paramètres :
+//   panierAlimentaire : produits du panier filtrés (avec ingredients_fr, description_fr)
+//   catalogue         : top 100 produits alimentaires actifs [{id, name_fr}]
+export const suggererRecettesService = async (panierAlimentaire, catalogue = []) => {
 
-        if (recette.non_alimentaire) return null;
+  // ── Cache ─────────────────────────────────────────────
+  const cacheKey = [...new Set(
+    panierAlimentaire.map(p => normalize(p.name_fr)).filter(Boolean)
+  )].sort().join('|');
 
-        const recetteAvecId = {
-            ...recette,
-            suggestionGoffa: (recette.suggestionGoffa || [])
-                .map(nom => {
-                    const produit = catalogue.find(p =>
-                        p.name_fr.toLowerCase().includes(nom.toLowerCase()) ||
-                        nom.toLowerCase().includes(p.name_fr.toLowerCase())
-                    );
-                    if (!produit) return null;
-                    return {
-                        ...produit,
-                        raison_ia: `Complète parfaitement cette recette`
-                    };
-                })
-                .filter(Boolean)
-        };
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
 
-        cache.set(cacheKey, { data: recetteAvecId, ts: Date.now() });
-        return recetteAvecId;
+  // ── Panier enrichi → contexte culinaire réel pour Gemini ─
+  // nom + categorie + ingredients_fr + description_fr
+  // "Ras el Hanout" seul est ambigu ; avec ingredients_fr Gemini comprend
+  // que c'est un mélange d'épices marocain → recette cohérente
+  const basketPourGemini = panierAlimentaire.map(p => ({
+    nom:         p.name_fr,
+    categorie:   p.category_name  || '',
+    ingredients: p.ingredients_fr || '',
+    description: p.description_fr || '',
+  }));
 
-    } catch (error) {
-        console.error("Erreur SDK Gemini:", error);
-        if (error.status === 429) throw new Error("Quota atteint. Réessayez dans une minute.");
-        throw new Error("Erreur de communication avec l'IA.");
+  // ── Catalogue → {id, nom} uniquement ─────────────────
+  // Gemini n'a pas besoin des prix/images pour choisir des ingrédients.
+  // Les IDs permettent la validation exacte côté backend (anti-hallucination).
+  const cataloguePourGemini = catalogue.map(p => ({
+    id:  p.id,
+    nom: p.name_fr,
+    ingredients: p.ingredients_fr || "",
+  }));
+
+  // ── Prompt ────────────────────────────────────────────
+ const prompt = `You are an expert international chef and culinary assistant.
+
+TASK:
+Generate exactly ONE realistic recipe using the customer's basket as the foundation.
+
+RULES:
+1. Try to use at least 60–70% basket ingredients.
+   If the basket contains fewer than 3 meaningful ingredients,
+   prioritize AVAILABLE_PRODUCTS to complete the recipe.
+
+2. You may enrich the recipe with AVAILABLE_PRODUCTS.
+
+3. For every ingredient, specify its source:
+   - "basket"    → from user basket
+   - "catalogue" → from AVAILABLE_PRODUCTS (must include catalogue_id)
+   - "external"  → only for salt, water, basic spices not in catalogue
+
+4. catalogue_id must be copied exactly from AVAILABLE_PRODUCTS. Never invent it.
+
+5. STRICT LIMITS:
+   - Maximum 8 ingredients total
+   - Maximum 3 catalogue ingredients
+   - external only for basic cooking essentials
+
+6. If no exact match exists in catalogue, use "external".
+
+7. Recipe must include:
+   - 1 main ingredient (protein or base)
+   - 1 cooking method
+   - 1 flavor enhancer (spice, sauce, herb)
+
+8. Only use real-world edible ingredients. Do not invent fictional items.
+
+9. Recipe must be simple and realistic for home cooking.
+
+10. Output MUST be a single valid JSON object only.
+    No markdown, no explanations, no extra text.
+
+BASKET:
+${JSON.stringify(basketPourGemini)}
+
+AVAILABLE_PRODUCTS:
+${JSON.stringify(cataloguePourGemini)}
+
+OUTPUT FORMAT:
+{
+  "titre": "",
+  "origine": "",
+  "description": "",
+  "emoji": "",
+  "temps": "",
+  "ingredients": [
+    {
+      "nom": "Tomates",
+      "quantite": "3",
+      "source": "basket"
+    },
+    {
+      "nom": "Parmesan",
+      "quantite": "50g",
+      "source": "catalogue",
+      "catalogue_id": "uuid"
+    },
+    {
+      "nom": "Sel",
+      "quantite": "1 pincée",
+      "source": "external"
     }
+  ],
+  "etapes": ["..."]
+}`;
+  try {
+    const result = await model.generateContent(prompt);
+
+    const raw = result.response.text()
+      .replace(/```json\n?/g, '')
+      .replace(/```\n?/g, '')
+      .trim();
+
+    // ── Validation Zod + jsonrepair ───────────────────────
+    let recette;
+    try {
+      recette = RecetteSchema.parse(JSON.parse(jsonrepair(raw)));
+    } catch (parseError) {
+      console.error("[RecipeService] Réponse Gemini invalide:", parseError.message);
+      throw new Error("Réponse IA invalide — réessayez.");
+    }
+
+    // ── Anti-hallucination : validation des catalogue_id ──
+    //
+    // Pour chaque ingrédient source=catalogue :
+    //   1. Extraire le catalogue_id
+    //   2. findCompleteByIds → recharge depuis PostgreSQL
+    //   3. ID introuvable → Gemini a halluciné
+    //      → source passe à "external", catalogue_id supprimé
+    //   4. ID trouvé → ingrédient enrichi avec données complètes
+    //
+    // Résultat frontend :
+    //   source=basket    → ✓  déjà dans ton panier
+    //   source=catalogue → 🛒 achetable sur Goffa  + données produit complètes
+    //   source=external  → ⚠  à acheter ailleurs
+    const catalogueIngredients = recette.ingredients.filter(
+      ing => ing.source === 'catalogue' && ing.catalogue_id
+    );
+
+    const catalogueIds    = catalogueIngredients.map(ing => ing.catalogue_id);
+    const produitsEnrichis = catalogueIds.length > 0
+      ? await Product.findCompleteByIds(catalogueIds)
+      : [];
+
+    const ingredientsFinaux = recette.ingredients.map(ing => {
+      // Ingrédients basket et external → inchangés
+      if (ing.source !== 'catalogue' || !ing.catalogue_id) return ing;
+
+      const produit = produitsEnrichis.find(p => p.id === ing.catalogue_id);
+
+      if (!produit) {
+        // Hallucination Gemini — catalogue_id inexistant en BDD
+        // On dégrade silencieusement en "external" pour ne pas planter le frontend
+        console.warn(`[RecipeService] catalogue_id halluciné ignoré : "${ing.catalogue_id}"`);
+        const { catalogue_id, ...rest } = ing;
+        return { ...rest, source: 'external' };
+      }
+
+      // Ingrédient catalogue validé + enrichi avec données complètes
+      return {
+        ...ing,
+        produit: {
+          id:           produit.id,
+          slug:         produit.slug,
+          name_fr:      produit.name_fr,
+          images:       produit.images,
+          prix_min:     produit.prix_min   ? parseFloat(produit.prix_min)   : null,
+          prix_promo:   produit.prix_promo ? parseFloat(produit.prix_promo) : null,
+          rating_avg:   parseFloat(produit.rating_avg) || 0,
+          categorie_fr: produit.categorie_fr,
+        },
+      };
+    });
+
+    const recetteFinale = {
+      ...recette,
+      ingredients: ingredientsFinaux,
+    };
+
+    cache.set(cacheKey, { data: recetteFinale, ts: Date.now() });
+    return recetteFinale;
+
+  } catch (error) {
+    if (error.message.includes("Réponse IA invalide")) throw error;
+    console.error("[RecipeService] Erreur Gemini:", error);
+    if (error.status === 429) throw new Error("Quota atteint. Réessayez dans une minute.");
+    throw new Error("Erreur de communication avec l'IA.");
+  }
 };

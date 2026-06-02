@@ -3,6 +3,7 @@ import { suggererRecettes } from '../controllers/aiRecipePanierController.js';
 
 const router = express.Router();
 
-router.post('/suggestions', suggererRecettes);
+router.post('/recettes-panier', suggererRecettes);
+
 
 export default router;

@@ -329,6 +329,90 @@ static async markReturned(orderId) {
     );
     return result.rows[0] || null;
   }
+
+
+
+// ─── BI : résumé global des commandes ────────────────────────
+static async getOrderSummaryBI() {
+    const result = await database.query(`
+        SELECT
+            COUNT(*)                                                            AS total_orders,
+            COALESCE(SUM(total_price), 0)                                      AS total_revenue,
+            COALESCE(AVG(total_price), 0)                                      AS avg_basket,
+            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')    AS orders_this_week,
+            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')   AS orders_this_month,
+            COALESCE(SUM(total_price) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days'), 0) AS revenue_this_month,
+            COALESCE(SUM(total_price) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days'),  0) AS revenue_this_week
+        FROM "order"
+    `);
+    return result.rows[0];
 }
+ 
+// ─── BI : répartition par statut ─────────────────────────────
+static async getOrdersByStatus() {
+    const result = await database.query(`
+        SELECT status, COUNT(*) AS count
+        FROM "order"
+        GROUP BY status
+        ORDER BY count DESC
+    `);
+    return result.rows;
+}
+ 
+// ─── BI : répartition par statut de paiement ─────────────────
+static async getOrdersByPaymentStatus() {
+    const result = await database.query(`
+        SELECT payment_status,
+               COUNT(*) AS count,
+               COALESCE(SUM(total_price), 0) AS total
+        FROM "order"
+        GROUP BY payment_status
+    `);
+    return result.rows;
+}
+ 
+// ─── BI : 10 dernières commandes avec infos client ───────────
+static async getRecentOrdersWithClient(limit = 10) {
+    const result = await database.query(`
+        SELECT o.order_number, o.status, o.payment_status,
+               o.total_price, o.shipping_city, o.created_at,
+               u.name AS client_name, u.email AS client_email
+        FROM "order" o
+        LEFT JOIN "user" u ON u.id = o.user_id
+        ORDER BY o.created_at DESC
+        LIMIT $1
+    `, [limit]);
+    return result.rows;
+}
+ 
+// ─── BI : produits les plus vendus (par quantité) ────────────
+static async getTopSellingProducts(limit = 5) {
+    const result = await database.query(`
+        SELECT p.name_fr AS product_name,
+               SUM(oi.quantity) AS total_qty,
+               SUM(oi.quantity * oi.price_at_order) AS total_revenue
+        FROM order_item oi
+        JOIN product_variant pv ON pv.id = oi.variant_id
+        JOIN product p ON p.id = pv.product_id
+        GROUP BY p.id, p.name_fr
+        ORDER BY total_qty DESC
+        LIMIT $1
+    `, [limit]);
+    return result.rows;
+}
+ 
+// ─── BI : overview général (pour dashboard) ──────────────────
+static async getGeneralOverviewBI() {
+    const result = await database.query(`
+        SELECT
+            COUNT(*) AS total,
+            COALESCE(SUM(total_price), 0) AS revenue,
+            COUNT(*) FILTER (WHERE status = 'en_attente')                    AS pending,
+            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS this_month
+        FROM "order"
+    `);
+    return result.rows[0];
+}}
+
 
 export default Order;

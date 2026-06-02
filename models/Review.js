@@ -188,6 +188,73 @@ class Review {
       reviews:    result.rows,
     };
   }
+
+// ─── BI : résumé global des avis ─────────────────────────────
+static async getReviewSummaryBI() {
+    const result = await database.query(`
+        SELECT
+            COUNT(*) AS total_reviews,
+            ROUND(AVG(rating)::numeric, 2)                                   AS avg_rating,
+            COUNT(*) FILTER (WHERE rating <= 2)                              AS negative_count,
+            COUNT(*) FILTER (WHERE rating = 3)                               AS neutral_count,
+            COUNT(*) FILTER (WHERE rating >= 4)                              AS positive_count,
+            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')  AS this_week
+        FROM review
+    `);
+    return result.rows[0];
 }
+ 
+// ─── BI : avis négatifs récents avec produit et auteur ────────
+static async getNegativeReviews(limit = 10) {
+    const result = await database.query(`
+        SELECT r.rating, r.comment, r.created_at,
+               p.name_fr AS product_name,
+               u.name    AS user_name
+        FROM review r
+        LEFT JOIN product p ON p.id = r.product_id
+        LEFT JOIN "user"  u ON u.id = r.user_id
+        WHERE r.rating <= 2
+        ORDER BY r.created_at DESC
+        LIMIT $1
+    `, [limit]);
+    return result.rows;
+}
+ 
+// ─── BI : avis positifs récents ───────────────────────────────
+static async getPositiveReviews(limit = 5) {
+    const result = await database.query(`
+        SELECT r.rating, r.comment, r.created_at,
+               p.name_fr AS product_name
+        FROM review r
+        LEFT JOIN product p ON p.id = r.product_id
+        WHERE r.rating >= 4
+        ORDER BY r.created_at DESC
+        LIMIT $1
+    `, [limit]);
+    return result.rows;
+}
+ 
+// ─── BI : produits les moins bien notés (avec seuil minimum) ──
+static async getWorstRatedProducts(limit = 5, minReviews = 2) {
+    const result = await database.query(`
+        SELECT p.name_fr,
+               ROUND(AVG(r.rating)::numeric, 1) AS avg_rating,
+               COUNT(r.id) AS review_count
+        FROM product p
+        JOIN review r ON r.product_id = p.id
+        WHERE p.is_active = true
+        GROUP BY p.id, p.name_fr
+        HAVING COUNT(r.id) >= $1
+        ORDER BY avg_rating ASC
+        LIMIT $2
+    `, [minReviews, limit]);
+    return result.rows;
+}
+}
+
+
+
+
+
 
 export default Review;

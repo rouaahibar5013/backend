@@ -439,6 +439,82 @@ class User {
     );
     return result.rows;
   }
+
+// ─── BI : résumé global des utilisateurs ─────────────────────
+static async getUserSummaryBI() {
+    const result = await database.query(`
+        SELECT
+            COUNT(*) AS total_users,
+            COUNT(*) FILTER (WHERE is_active = true)                         AS active_users,
+            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')  AS new_this_week,
+            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS new_this_month,
+            COUNT(*) FILTER (WHERE is_verified = true)                       AS verified_users
+        FROM "user"
+        WHERE role = 'user'
+    `);
+    return result.rows[0];
 }
+ 
+// ─── BI : meilleurs clients par dépenses totales ─────────────
+static async getTopClientsBySpend(limit = 5) {
+    const result = await database.query(`
+        SELECT u.name, u.email, u.city,
+               COUNT(o.id) AS order_count,
+               SUM(o.total_price) AS total_spent,
+               MAX(o.created_at) AS last_order_at
+        FROM "user" u
+        JOIN "order" o ON o.user_id = u.id AND o.status != 'annulee'
+        WHERE u.role = 'user'
+        GROUP BY u.id, u.name, u.email, u.city
+        ORDER BY total_spent DESC
+        LIMIT $1
+    `, [limit]);
+    return result.rows;
+}
+ 
+// ─── BI : nouveaux utilisateurs sur N jours ──────────────────
+static async getNewUsers(daysBack = 7, limit = 10) {
+    const result = await database.query(`
+        SELECT name, email, city, is_verified, created_at
+        FROM "user"
+        WHERE role = 'user'
+          AND created_at >= NOW() - ($1 || ' days')::INTERVAL
+        ORDER BY created_at DESC
+        LIMIT $2
+    `, [daysBack, limit]);
+    return result.rows;
+}
+ 
+// ─── BI : clients inactifs depuis N jours ────────────────────
+static async getInactiveClients(daysInactive = 60, limit = 10) {
+    const result = await database.query(`
+        SELECT u.name, u.email,
+               MAX(o.created_at) AS last_order_at,
+               COUNT(o.id) AS total_orders
+        FROM "user" u
+        JOIN "order" o ON o.user_id = u.id
+        WHERE u.role = 'user'
+        GROUP BY u.id, u.name, u.email
+        HAVING MAX(o.created_at) < NOW() - ($1 || ' days')::INTERVAL
+        ORDER BY last_order_at ASC
+        LIMIT $2
+    `, [daysInactive, limit]);
+    return result.rows;
+}
+ 
+// ─── BI : overview général ────────────────────────────────────
+static async getUserOverviewBI() {
+    const result = await database.query(`
+        SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days') AS new_this_week
+        FROM "user"
+        WHERE role = 'user'
+    `);
+    return result.rows[0];
+}}
+
+
+
 
 export default User;
