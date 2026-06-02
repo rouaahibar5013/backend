@@ -8,8 +8,15 @@ import Review      from '../models/Review.js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
+// Modèle léger pour analyses BI
     model: 'gemini-2.5-flash-lite',
     generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 2000 },
+});
+
+// Modèle avec capacité étendue pour génération longue (email, FAQ)
+const modelLong = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash-lite',
+    generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 4000 },
 });
 
 const cache = new Map();
@@ -403,7 +410,7 @@ Respond ONLY with valid JSON:
   }
 }`;
 
-    const result = await model.generateContent(prompt);
+    const result = await modelLong.generateContent(prompt);
     return parseJSON(result.response.text());
 };
 
@@ -441,7 +448,7 @@ Respond ONLY with valid JSON:
   ]
 }`;
 
-    const result = await model.generateContent(prompt);
+    const result = await modelLong.generateContent(prompt);
     return parseJSON(result.response.text());
 };
 
