@@ -7,8 +7,8 @@ import Reclamation from '../models/Reclamation.js';
 import Review      from '../models/Review.js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Modèle léger pour analyses BI (commandes, produits, clients, réclamations, avis)
 const model = genAI.getGenerativeModel({
-// Modèle léger pour analyses BI
     model: 'gemini-2.5-flash-lite',
     generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 2000 },
 });
