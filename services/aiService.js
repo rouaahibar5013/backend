@@ -231,12 +231,41 @@ Return ONLY this JSON:
 
 const result = await withTimeout(model.generateContent(prompt), 15000);
 
-  try {
-    return JSON.parse(result.response.text());
-  } catch (e) {
-    console.error('[AIService] Réponse Gemini non parsable :', result.response.text());
-    throw new Error("Format de réponse invalide de l'IA");
+  const raw = result.response.text().trim();
+
+try {
+  return JSON.parse(raw);
+} catch (e) {
+  console.warn('[AIService] JSON direct invalide, tentative de récupération...');
+
+  // Niveau 2 — extraire le premier bloc {...} du texte
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch (_) {}
   }
+
+  // Niveau 3 — reconstruire champ par champ
+  console.warn('[AIService] Reconstruction champ par champ...');
+  const ids      = [...raw.matchAll(/"id"\s*:\s*"([^"]+)"/g)];
+  const slugs    = [...raw.matchAll(/"slug"\s*:\s*"([^"]+)"/g)];
+  const raisons  = [...raw.matchAll(/"raison"\s*:\s*"([^"]+)"/g)];
+  const scores   = [...raw.matchAll(/"score"\s*:\s*(\d+)/g)];
+  const msgMatch = raw.match(/"message"\s*:\s*"([^"]+)"/);
+  const sugMatch = raw.match(/"suggestion"\s*:\s*"([^"]+)"/);
+
+  return {
+    message: msgMatch?.[1] ?? 'Voici les produits qui pourraient vous convenir.',
+    suggestion: sugMatch?.[1] ?? '',
+    produits_recommandes: ids.map((m, i) => ({
+      id:     m[1],
+      slug:   slugs[i]?.[1]   ?? '',
+      score:  scores[i] ? parseInt(scores[i][1]) : (100 - i * 10),
+      raison: raisons[i]?.[1] ?? 'Recommandé par notre conseiller.',
+    })),
+  };
+}
 };
 
 // ═══════════════════════════════════════════════════════════════
