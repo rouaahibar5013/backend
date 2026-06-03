@@ -628,29 +628,36 @@ class Product {
   //   foodSlug : string — slug catégorie racine alimentaire
   //   limit    : number — taille du catalogue envoyé à Gemini (défaut 100)
   static async findForRecipeAI({ foodSlug = 'alimentation-bio', limit = 100 } = {}) {
-    const result = await database.query(`
-      WITH RECURSIVE food_categories AS (
-        SELECT id FROM category WHERE slug = $1
-        UNION
-        SELECT c.id FROM category c
-        INNER JOIN food_categories fc ON c.parent_id = fc.id
-      )
-      SELECT
-        p.id,
-        p.name_fr
-      FROM product p
-      JOIN category c ON c.id = p.category_id
-      WHERE p.is_active = true
-        AND c.id IN (SELECT id FROM food_categories)
-      ORDER BY
-        p.rating_avg  DESC NULLS LAST,
-        p.is_featured DESC,
-        p.created_at  DESC
-      LIMIT $2
-    `, [foodSlug, limit]);
- 
-    return result.rows;
-  }
+  const result = await database.query(`
+    WITH RECURSIVE food_categories AS (
+      SELECT id FROM category WHERE slug = $1
+      UNION
+      SELECT c.id FROM category c
+      INNER JOIN food_categories fc ON c.parent_id = fc.id
+    )
+    SELECT
+      p.id,
+      p.name_fr,
+      p.slug,
+      p.images,
+      p.ingredients_fr,
+      p.usage_fr,
+      (SELECT MIN(pv.price)
+       FROM product_variant pv
+       WHERE pv.product_id = p.id AND pv.is_active = true) AS prix_min
+    FROM product p
+    JOIN category c ON c.id = p.category_id
+    WHERE p.is_active = true
+      AND c.id IN (SELECT id FROM food_categories)
+    ORDER BY
+      p.rating_avg  DESC NULLS LAST,
+      p.is_featured DESC,
+      p.created_at  DESC
+    LIMIT $2
+  `, [foodSlug, limit]);
+
+  return result.rows;
+}
 
 // ─── BI : produits avec stock critique (min variant < seuil) ──
 static async getLowStockProducts(threshold = 5, limit = 10) {

@@ -2,6 +2,8 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { jsonrepair }         from "jsonrepair";
 import { z }                  from "zod";
 import Product                from "../models/Product.js";
+import { fallbackRecipeService } from './fallbackRecipeService.js';
+
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
@@ -14,7 +16,7 @@ const model = genAI.getGenerativeModel({
 
 // ─── Cache (TTL 30 min) ───────────────────────────────────
 const cache     = new Map();
-const CACHE_TTL = 1000 * 60 * 30;
+const CACHE_TTL = 1000 * 60 * 1;
 
 const normalize = s =>
   s.toLowerCase()
@@ -96,6 +98,7 @@ export const suggererRecettesService = async (panierAlimentaire, catalogue = [])
     id:  p.id,
     nom: p.name_fr,
     ingredients: p.ingredients_fr || "",
+     usage:       p.usage_fr || "",
   }));
 
   // ── Prompt ────────────────────────────────────────────
@@ -141,6 +144,8 @@ BASKET:
 ${JSON.stringify(basketPourGemini)}
 
 AVAILABLE_PRODUCTS:
+Each product has: id, nom, ingredients, usage (how it's used in cooking).
+
 ${JSON.stringify(cataloguePourGemini)}
 
 OUTPUT FORMAT:
@@ -171,6 +176,7 @@ OUTPUT FORMAT:
   "etapes": ["..."]
 }`;
   try {
+
     const result = await model.generateContent(prompt);
 
     const raw = result.response.text()
@@ -249,8 +255,14 @@ OUTPUT FORMAT:
 
   } catch (error) {
     if (error.message.includes("Réponse IA invalide")) throw error;
-    console.error("[RecipeService] Erreur Gemini:", error);
-    if (error.status === 429) throw new Error("Quota atteint. Réessayez dans une minute.");
-    throw new Error("Erreur de communication avec l'IA.");
+
+    // Tous les cas Gemini (429, réseau, timeout...) → fallback
+    console.warn("[RecipeService] Gemini indisponible → fallback BDD:", error.message);
+
+    const recetteFallback = await fallbackRecipeService(panierAlimentaire, catalogue);
+    if (!recetteFallback) throw new Error("Aucune recette disponible pour le moment.");
+
+    cache.set(cacheKey, { data: recetteFallback, ts: Date.now() });
+    return recetteFallback;
   }
 };

@@ -2,6 +2,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Product  from '../models/Product.js';
 import Category from '../models/Category.js';
+import { fallbackLocalRecommandation } from './aiFallbackService.js';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -347,30 +348,34 @@ export const recommanderProduits = async (demande) => {
   }
 
   // 8. Réduction pour Gemini (avec ai_score)
+// 8. Réduction pour Gemini
   const catalogueReduit = reduireCatalogueForGemini(catalogue);
 
-  // 9. Appel Gemini (JSON natif)
-  const resultatGemini = await appellerGemini(demande, catalogueReduit);
+  // 9-11. Gemini + validation + scores  →  fallback si n'importe quoi échoue
+  let recommandesFinales;
+  let resultatGemini;
 
-  // 10. Validation stricte ID + slug + déduplication
-  const recommandesValidees = validerEtDedupliquer(
-    resultatGemini.produits_recommandes || [],
-    catalogueReduit
-  );
+  try {
+    resultatGemini = await appellerGemini(demande, catalogueReduit);
 
-  if (recommandesValidees.length === 0) {
-    console.error('[AIService] Toutes les recommandations Gemini ont été rejetées');
-    return {
-      message:              resultatGemini.message    || '',
-      produits_recommandes: [],
-      suggestion:           resultatGemini.suggestion || '',
-      total:                0,
-    };
-  }
+    const recommandesValidees = validerEtDedupliquer(
+      resultatGemini.produits_recommandes || [],
+      catalogueReduit
+    );
 
-  // 11. Re-normalisation scores backend
-  const recommandesFinales = normaliserScores(recommandesValidees);
+    if (recommandesValidees.length === 0) {
+      console.error('[AIService] Toutes les recommandations Gemini rejetées → fallback');
+return fallbackLocalRecommandation(demande, catalogueReduit, { motsCles, categoryIds });    }
 
+    recommandesFinales = normaliserScores(recommandesValidees);
+
+ } catch (err) {
+  return fallbackLocalRecommandation(demande, catalogueReduit, {
+    erreur:      err,
+    motsCles,        // déjà calculés étape 1
+    categoryIds,     // déjà calculés étape 3
+  });
+}
   // 12. Enrichissement complet (batch + CTE promos)
   const ids              = recommandesFinales.map(p => p.id);
   const produitsComplets = await Product.findCompleteByIds(ids);

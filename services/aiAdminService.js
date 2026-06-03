@@ -20,7 +20,7 @@ const modelLong = genAI.getGenerativeModel({
 });
 
 const cache = new Map();
-const CACHE_TTL = 1000 * 60 * 15;
+const CACHE_TTL = 1000 * 60 * 1;
 
 // ─────────────────────────────────────────────────────────────
 // THRESHOLDS — règles métier centralisées
