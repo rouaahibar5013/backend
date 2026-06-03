@@ -6,14 +6,17 @@ import User        from '../models/User.js';
 import Reclamation from '../models/Reclamation.js';
 import Review      from '../models/Review.js';
 
+import {
+    fallbackOrders, fallbackProducts, fallbackUsers,
+    fallbackComplaints, fallbackReviews,
+    fallbackGeneral, fallbackEmail, fallbackFAQ,
+} from './AdminFallbackService.js';
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-// Modèle léger pour analyses BI (commandes, produits, clients, réclamations, avis)
 const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash-lite',
     generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 2000 },
 });
-
-// Modèle avec capacité étendue pour génération longue (email, FAQ)
 const modelLong = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash-lite',
     generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 4000 },
@@ -22,29 +25,23 @@ const modelLong = genAI.getGenerativeModel({
 const cache = new Map();
 const CACHE_TTL = 1000 * 60 * 1;
 
-// ─────────────────────────────────────────────────────────────
-// THRESHOLDS — règles métier centralisées
-// ─────────────────────────────────────────────────────────────
 const THRESHOLDS = {
-    cancellation_rate:    15,   // % au-delà duquel le taux d'annulation est élevé
-    pending_orders:       20,   // nb commandes en attente considéré élevé
-    low_delivery_rate:    0.3,  // ratio livraisons / total en-dessous duquel c'est critique
-    revenue_drop_factor:  0.7,  // si revenue_7d < (revenue_30d/4) * ce facteur → alerte
-    inactivity_days:      60,   // jours sans commande pour considérer un client inactif
-    low_verification:     0.5,  // ratio vérification utilisateurs minimum
-    low_new_users_week:   2,    // nb nouveaux inscrits/semaine considéré faible
-    low_stock_count:      5,    // nb produits en stock faible au-delà duquel c'est critique
-    unsold_products:      3,    // nb produits sans vente au-delà duquel c'est critique
-    resolution_rate_min:  0.5,  // ratio résolution réclamations minimum
-    refund_pressure:      5,    // nb demandes remboursement au-delà duquel c'est élevé
-    complaints_attention: 5,    // nb réclamations nécessitant attention (general overview)
-    negative_review_rate: 0.2,  // % avis négatifs au-delà duquel c'est critique
-    min_avg_rating:       3.5,  // note moyenne en-dessous de laquelle c'est critique
+    cancellation_rate:    15,
+    pending_orders:       20,
+    low_delivery_rate:    0.3,
+    revenue_drop_factor:  0.7,
+    inactivity_days:      60,
+    low_verification:     0.5,
+    low_new_users_week:   2,
+    low_stock_count:      5,
+    unsold_products:      3,
+    resolution_rate_min:  0.5,
+    refund_pressure:      5,
+    complaints_attention: 5,
+    negative_review_rate: 0.2,
+    min_avg_rating:       3.5,
 };
 
-// ─────────────────────────────────────────────────────────────
-// SAFE JSON PARSER
-// ─────────────────────────────────────────────────────────────
 function parseJSON(raw) {
     try {
         return JSON.parse(raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim());
@@ -53,9 +50,6 @@ function parseJSON(raw) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────
-// SYSTEM PROMPT — défini une seule fois
-// ─────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are a senior Business Intelligence analyst for GOFFA, a Tunisian artisanal e-commerce platform targeting Swiss customers.
 
 RULES:
@@ -74,19 +68,13 @@ OUTPUT MUST BE STRICT JSON:
 }
 highlights MUST be derived strictly from kpis or alerts. Max 4 highlights. Return [] if not applicable.`;
 
-// ─────────────────────────────────────────────────────────────
-// INTENT MODE
-// ─────────────────────────────────────────────────────────────
 function getAnalysisMode(question) {
-    if (/pourquoi|cause|baisse|hausse|expliqu/i.test(question))   return 'explanatory';
-    if (/combien|total|nombre|chiffre|montant/i.test(question))   return 'descriptive';
+    if (/pourquoi|cause|baisse|hausse|expliqu/i.test(question))    return 'explanatory';
+    if (/combien|total|nombre|chiffre|montant/i.test(question))    return 'descriptive';
     if (/risque|problème|alerte|urgence|anomalie/i.test(question)) return 'diagnostic';
     return 'general';
 }
 
-// ─────────────────────────────────────────────────────────────
-// PROMPT BUILDER — léger, sans répétition
-// ─────────────────────────────────────────────────────────────
 function buildPrompt(question, biContext, extraContext = '') {
     const mode = getAnalysisMode(question);
     return `${SYSTEM_PROMPT}
@@ -112,22 +100,22 @@ function buildOrdersBIContext(summary, byStatus, byPayment, recentOrders, topPro
     const orders7d    = Number(summary.orders_this_week);
     const orders30d   = Number(summary.orders_this_month);
 
-    const statusMap   = Object.fromEntries(byStatus.map(r => [r.status, Number(r.count)]));
-    const cancelled   = statusMap['annulee']    || 0;
-    const pending     = statusMap['en_attente'] || 0;
-    const delivered   = statusMap['livree']     || 0;
+    const statusMap = Object.fromEntries(byStatus.map(r => [r.status, Number(r.count)]));
+    const cancelled = statusMap['annulee']    || 0;
+    const pending   = statusMap['en_attente'] || 0;
+    const delivered = statusMap['livree']     || 0;
 
     const cancellationRate = totalOrders > 0 ? Math.round((cancelled / totalOrders) * 100) : 0;
 
     return {
         kpis: {
-            total_orders:   totalOrders,
-            total_revenue:  `${revenue.toFixed(2)} CHF`,
-            avg_basket:     `${Number(summary.avg_basket).toFixed(2)} CHF`,
-            orders_7d:      orders7d,
-            orders_30d:     orders30d,
-            revenue_7d:     `${revenue7d.toFixed(2)} CHF`,
-            revenue_30d:    `${revenue30d.toFixed(2)} CHF`,
+            total_orders:  totalOrders,
+            total_revenue: `${revenue.toFixed(2)} CHF`,
+            avg_basket:    `${Number(summary.avg_basket).toFixed(2)} CHF`,
+            orders_7d:     orders7d,
+            orders_30d:    orders30d,
+            revenue_7d:    `${revenue7d.toFixed(2)} CHF`,
+            revenue_30d:   `${revenue30d.toFixed(2)} CHF`,
         },
         breakdowns: {
             by_status:  byStatus.map(r => ({ status: r.status, count: Number(r.count) })),
@@ -159,13 +147,20 @@ export const analyzeOrders = async (question) => {
         Order.getTopSellingProducts(5),
     ]);
 
-    const biContext = buildOrdersBIContext(summary, byStatus, byPayment, recentOrders, topProducts);
+    const biContext    = buildOrdersBIContext(summary, byStatus, byPayment, recentOrders, topProducts);
     const extraContext = `Order statuses: en_attente=pending, confirmee=confirmed, en_preparation=preparing, expediee=shipped, livree=delivered, annulee=cancelled, remboursee=refunded, en_reclamation=complaint, retournee=returned.
 Payment statuses: en_attente=pending, paye=paid, echoue=failed, rembourse=refunded. Currency: CHF.`;
 
-    const prompt = buildPrompt(question, biContext, extraContext);
-    const result = await model.generateContent(prompt);
-    const parsed = parseJSON(result.response.text());
+    let parsed;
+    try {
+        const prompt = buildPrompt(question, biContext, extraContext);
+        const result = await model.generateContent(prompt);
+        parsed = parseJSON(result.response.text()); // ✅ pas de const — on assigne le let du dessus
+    } catch (err) {
+        console.warn('[AI Fallback] Gemini indisponible (orders):', err.message);
+        parsed = fallbackOrders(biContext);
+    }
+
     cache.set(cacheKey, { data: parsed, ts: Date.now() });
     return parsed;
 };
@@ -194,9 +189,9 @@ function buildProductsBIContext(lowStock, lowSales, topViewed, byCategory, topRa
             top_rated:          topRated.map(p => ({ name: p.name_fr, rating: p.rating_avg, review_count: Number(p.rating_count) })),
         },
         alerts: {
-            out_of_stock:          criticalStock.length > 0,
-            many_low_stock:        lowStock.length > THRESHOLDS.low_stock_count,
-            many_unsold_products:  lowSales.filter(p => Number(p.qty_sold_this_month) === 0).length > THRESHOLDS.unsold_products,
+            out_of_stock:         criticalStock.length > 0,
+            many_low_stock:       lowStock.length > THRESHOLDS.low_stock_count,
+            many_unsold_products: lowSales.filter(p => Number(p.qty_sold_this_month) === 0).length > THRESHOLDS.unsold_products,
         },
     };
 }
@@ -214,13 +209,20 @@ export const analyzeProducts = async (question) => {
         Product.getTopRatedProducts(5, 2),
     ]);
 
-    const biContext = buildProductsBIContext(lowStock, lowSales, topViewed, byCategory, topRated);
+    const biContext    = buildProductsBIContext(lowStock, lowSales, topViewed, byCategory, topRated);
     const extraContext = `Context: Artisanal Tunisian goods (pottery, textiles, spices, cosmetics, honey, olive oil).
 Low stock = min variant stock < 5 units. Critical = 0 units. Low sales = less than 3 orders this month.`;
 
-    const prompt = buildPrompt(question, biContext, extraContext);
-    const result = await model.generateContent(prompt);
-    const parsed = parseJSON(result.response.text());
+    let parsed;
+    try {
+        const prompt = buildPrompt(question, biContext, extraContext);
+        const result = await model.generateContent(prompt);
+        parsed = parseJSON(result.response.text());
+    } catch (err) {
+        console.warn('[AI Fallback] Gemini indisponible (products):', err.message);
+        parsed = fallbackProducts(biContext);
+    }
+
     cache.set(cacheKey, { data: parsed, ts: Date.now() });
     return parsed;
 };
@@ -267,9 +269,17 @@ export const analyzeUsers = async (question) => {
     const biContext    = buildUsersBIContext(summary, topClients, newUsers, inactive);
     const extraContext = `Context: Customers are mainly Swiss buyers. Inactive = no order in 60+ days. Currency: CHF.`;
 
-    const prompt = buildPrompt(question, biContext, extraContext);
-    const result = await model.generateContent(prompt);
-    return parseJSON(result.response.text());
+    let parsed;
+    try {
+        const prompt = buildPrompt(question, biContext, extraContext);
+        const result = await model.generateContent(prompt);
+        parsed = parseJSON(result.response.text());
+    } catch (err) {
+        console.warn('[AI Fallback] Gemini indisponible (users):', err.message);
+        parsed = fallbackUsers(biContext);
+    }
+
+    return parsed;
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -320,13 +330,20 @@ export const analyzeComplaints = async (question) => {
         Reclamation.getOverdueComplaints(5),
     ]);
 
-    const biContext = buildComplaintsBIContext(summary, byType, byStatus, recent, overdue);
+    const biContext    = buildComplaintsBIContext(summary, byType, byStatus, recent, overdue);
     const extraContext = `Complaint types: produit_defectueux=defective, commande_non_recue=not received, produit_incorrect=wrong product, retard_livraison=late delivery, remboursement=refund, autre=other.
 Statuses: en_attente=pending, en_cours=in progress, urgente=urgent, en_retard=overdue, resolue=resolved, rejetee=rejected.`;
 
-    const prompt = buildPrompt(question, biContext, extraContext);
-    const result = await model.generateContent(prompt);
-    const parsed = parseJSON(result.response.text());
+    let parsed;
+    try {
+        const prompt = buildPrompt(question, biContext, extraContext);
+        const result = await model.generateContent(prompt);
+        parsed = parseJSON(result.response.text());
+    } catch (err) {
+        console.warn('[AI Fallback] Gemini indisponible (complaints):', err.message);
+        parsed = fallbackComplaints(biContext);
+    }
+
     cache.set(cacheKey, { data: parsed, ts: Date.now() });
     return parsed;
 };
@@ -378,9 +395,16 @@ export const analyzeReviews = async (question) => {
     const biContext    = buildReviewsBIContext(summary, negative, positive, worstProducts);
     const extraContext = `Ratings: 1-2=negative, 3=neutral, 4-5=positive. Max rating = 5.`;
 
-    const prompt = buildPrompt(question, biContext, extraContext);
-    const result = await model.generateContent(prompt);
-    const parsed = parseJSON(result.response.text());
+    let parsed;
+    try {
+        const prompt = buildPrompt(question, biContext, extraContext);
+        const result = await model.generateContent(prompt);
+        parsed = parseJSON(result.response.text());
+    } catch (err) {
+        console.warn('[AI Fallback] Gemini indisponible (reviews):', err.message);
+        parsed = fallbackReviews(biContext);
+    }
+
     cache.set(cacheKey, { data: parsed, ts: Date.now() });
     return parsed;
 };
@@ -389,9 +413,10 @@ export const analyzeReviews = async (question) => {
 // 6. EMAIL CAMPAIGN
 // ─────────────────────────────────────────────────────────────
 export const generateEmailCampaign = async (question) => {
-    const products = await Product.getFeaturedProductsForEmail(8);
+    try {
+        const products = await Product.getFeaturedProductsForEmail(8);
 
-    const prompt = `You are a professional marketing copywriter for GOFFA, a Tunisian artisanal e-commerce brand targeting Swiss customers.
+        const prompt = `You are a professional marketing copywriter for GOFFA, a Tunisian artisanal e-commerce brand targeting Swiss customers.
 The admin asked: "${question}"
 
 Available featured products:
@@ -410,23 +435,28 @@ Respond ONLY with valid JSON:
   }
 }`;
 
-    const result = await modelLong.generateContent(prompt);
-    return parseJSON(result.response.text());
+        const result = await modelLong.generateContent(prompt);
+        return parseJSON(result.response.text());
+    } catch (err) {
+        console.warn('[AI Fallback] Gemini indisponible (email):', err.message);
+        return fallbackEmail();
+    }
 };
 
 // ─────────────────────────────────────────────────────────────
 // 7. FAQ
 // ─────────────────────────────────────────────────────────────
 export const generateFAQ = async (question) => {
-    const complaints = await Reclamation.getFrequentComplaintTypes(90, 6);
+    try {
+        const complaints = await Reclamation.getFrequentComplaintTypes(90, 6);
 
-    const cleanedComplaints = complaints.map(c => ({
-        type:      c.complaint_type,
-        frequency: Number(c.frequency),
-        samples:   c.sample_messages?.split(' | ').slice(0, 2).map(m => m.slice(0, 100)),
-    }));
+        const cleanedComplaints = complaints.map(c => ({
+            type:      c.complaint_type,
+            frequency: Number(c.frequency),
+            samples:   c.sample_messages?.split(' | ').slice(0, 2).map(m => m.slice(0, 100)),
+        }));
 
-    const prompt = `You are a customer support specialist for GOFFA, a Tunisian artisanal e-commerce platform.
+        const prompt = `You are a customer support specialist for GOFFA, a Tunisian artisanal e-commerce platform.
 The admin asked: "${question}"
 
 Most frequent complaint types (last 90 days):
@@ -448,8 +478,12 @@ Respond ONLY with valid JSON:
   ]
 }`;
 
-    const result = await modelLong.generateContent(prompt);
-    return parseJSON(result.response.text());
+        const result = await modelLong.generateContent(prompt);
+        return parseJSON(result.response.text());
+    } catch (err) {
+        console.warn('[AI Fallback] Gemini indisponible (faq):', err.message);
+        return fallbackFAQ();
+    }
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -458,16 +492,16 @@ Respond ONLY with valid JSON:
 function buildGeneralBIContext(orders, products, users, complaints) {
     return {
         kpis: {
-            total_orders:               Number(orders.total),
-            total_revenue:              `${Number(orders.revenue).toFixed(2)} CHF`,
-            orders_30d:                 Number(orders.this_month),
-            pending_orders:             Number(orders.pending),
-            total_products:             Number(products.total),
-            active_products:            Number(products.active),
-            total_users:                Number(users.total),
-            new_users_7d:               Number(users.new_this_week),
-            total_complaints:           Number(complaints.total),
-            complaints_need_attention:  Number(complaints.need_attention),
+            total_orders:              Number(orders.total),
+            total_revenue:             `${Number(orders.revenue).toFixed(2)} CHF`,
+            orders_30d:                Number(orders.this_month),
+            pending_orders:            Number(orders.pending),
+            total_products:            Number(products.total),
+            active_products:           Number(products.active),
+            total_users:               Number(users.total),
+            new_users_7d:              Number(users.new_this_week),
+            total_complaints:          Number(complaints.total),
+            complaints_need_attention: Number(complaints.need_attention),
         },
         alerts: {
             pending_orders_high:       Number(orders.pending) > THRESHOLDS.pending_orders,
@@ -486,7 +520,16 @@ export const analyzeGeneral = async (question) => {
     ]);
 
     const biContext = buildGeneralBIContext(orders, products, users, complaints);
-    const prompt    = buildPrompt(question, biContext);
-    const result    = await model.generateContent(prompt);
-    return parseJSON(result.response.text());
+
+    let parsed;
+    try {
+        const prompt = buildPrompt(question, biContext);
+        const result = await model.generateContent(prompt);
+        parsed = parseJSON(result.response.text());
+    } catch (err) {
+        console.warn('[AI Fallback] Gemini indisponible (general):', err.message);
+        parsed = fallbackGeneral(biContext);
+    }
+
+    return parsed;
 };
