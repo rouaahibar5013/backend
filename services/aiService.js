@@ -321,31 +321,34 @@ export const recommanderProduits = async (demande) => {
     limit: 60,
   });
 
-  // 5. Fallback 1 : sans filtre catégorie
-  if (catalogue.length < 3 && categoryIds) {
-    console.info('[AIService] Fallback 1 — sans filtre catégorie');
-    catalogue = await Product.findForAI({
-      keywords: searchQuery ? [searchQuery] : null,
-      categoryIds: null,
-      limit: 60,
-    });
-  }
+// Fallback 1 : sans filtre catégorie
+if (catalogue.length < 3 && categoryIds) {
+  catalogue = await Product.findForAI({
+    keywords: searchQuery ? [searchQuery] : null,
+    categoryIds: null,
+    limit: 60,
+  });
+}
 
-  // 6. Fallback 2 : catalogue général
-  if (catalogue.length < 3) {
-    console.info('[AIService] Fallback 2 — catalogue général');
-    catalogue = await Product.findForAI({ limit: 60 });
-  }
+// Fallback 2 : catalogue général
+if (catalogue.length < 3) {
+  catalogue = await Product.findForAI({ limit: 60 });
+}
+
+// Fallback 3 : sans filtre strict (stock=0, inactifs inclus)
+if (catalogue.length < 3) {  // ← changer === 0 par < 3
+  catalogue = await Product.findForAI({ limit: 30, strict: false });
+}
 
   // 7. Catalogue vide
-  if (catalogue.length === 0) {
-    return {
-      message:              "Je suis désolée, aucun produit n'est disponible pour le moment. Revenez bientôt !",
-      produits_recommandes: [],
-      suggestion:           '',
-      total:                0,
-    };
-  }
+ if (catalogue.length === 0) {
+  return {
+    message: "Je suis désolée, aucun produit n'est disponible pour le moment.",
+    produits_recommandes: [],
+    suggestion: '',
+    total: 0,
+  };
+}
 
   // 8. Réduction pour Gemini (avec ai_score)
 // 8. Réduction pour Gemini
