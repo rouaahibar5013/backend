@@ -3,6 +3,13 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import Product  from '../models/Product.js';
 import Category from '../models/Category.js';
 import { fallbackLocalRecommandation } from './aiFallbackService.js';
+import { jsonrepair } from "jsonrepair";
+import { z }          from "zod";
+
+
+
+
+
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -139,13 +146,26 @@ const reduireCatalogueForGemini = (produits) =>
     ai_score: parseFloat((parseFloat(p.ai_score) || 0).toFixed(2)),
   }));
 
+
+const GeminiResponseSchema = z.object({
+  message: z.string().min(1),
+  suggestion: z.string().default(''),
+  produits_recommandes: z.array(z.object({
+    id:     z.string(),
+    slug:   z.string(),
+    score:  z.number(),
+    raison: z.string(),
+  })).min(1),
+});
+
+
 // ═══════════════════════════════════════════════════════════════
 // ÉTAPE 5 — Appel Gemini avec JSON structuré natif
 //
 // FIX #6 — responseMimeType: "application/json"
 // Gemini garantit un JSON valide sans markdown ni backticks.
-// Supprime le besoin de jsonrepair dans les cas normaux.
 // Le try/catch reste comme filet de sécurité ultime.
+
 // ═══════════════════════════════════════════════════════════════
 const appellerGemini = async (demandeUser, catalogueReduit) => {
   const model = genAI.getGenerativeModel({
@@ -226,47 +246,28 @@ Return ONLY this JSON:
   "suggestion": "..."
 }`;
 
+
+
+
+
   const withTimeout = (p, ms) =>
   Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error('Timeout IA (15s)')), ms))]);
 
 const result = await withTimeout(model.generateContent(prompt), 15000);
 
-  const raw = result.response.text().trim();
+const raw = result.response.text()
+  .replace(/```json\n?/g, '')
+  .replace(/```\n?/g, '')
+  .trim();
 
 try {
-  return JSON.parse(raw);
-} catch (e) {
-  console.warn('[AIService] JSON direct invalide, tentative de récupération...');
+  return GeminiResponseSchema.parse(JSON.parse(jsonrepair(raw)));
+} catch (parseError) {
+  console.error('[AIService] Réponse Gemini invalide:', parseError.message);
+  throw new Error('Réponse IA invalide');
+}};
 
-  // Niveau 2 — extraire le premier bloc {...} du texte
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    try {
-      return JSON.parse(jsonMatch[0]);
-    } catch (_) {}
-  }
 
-  // Niveau 3 — reconstruire champ par champ
-  console.warn('[AIService] Reconstruction champ par champ...');
-  const ids      = [...raw.matchAll(/"id"\s*:\s*"([^"]+)"/g)];
-  const slugs    = [...raw.matchAll(/"slug"\s*:\s*"([^"]+)"/g)];
-  const raisons  = [...raw.matchAll(/"raison"\s*:\s*"([^"]+)"/g)];
-  const scores   = [...raw.matchAll(/"score"\s*:\s*(\d+)/g)];
-  const msgMatch = raw.match(/"message"\s*:\s*"([^"]+)"/);
-  const sugMatch = raw.match(/"suggestion"\s*:\s*"([^"]+)"/);
-
-  return {
-    message: msgMatch?.[1] ?? 'Voici les produits qui pourraient vous convenir.',
-    suggestion: sugMatch?.[1] ?? '',
-    produits_recommandes: ids.map((m, i) => ({
-      id:     m[1],
-      slug:   slugs[i]?.[1]   ?? '',
-      score:  scores[i] ? parseInt(scores[i][1]) : (100 - i * 10),
-      raison: raisons[i]?.[1] ?? 'Recommandé par notre conseiller.',
-    })),
-  };
-}
-};
 
 // ═══════════════════════════════════════════════════════════════
 // ÉTAPE 6 — Validation stricte + déduplication
