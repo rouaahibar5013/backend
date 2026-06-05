@@ -382,6 +382,385 @@ class Product {
   static async delete(id) {
     await database.query("DELETE FROM product WHERE id = $1", [id]);
   }
+
+
+  // ═══════════════════════════════════════════════════════
+  // MÉTHODES DÉDIÉES IA — Recommandation Sana
+  // ═══════════════════════════════════════════════════════
+ 
+  // ─── Catalogue léger avec recherche intelligente ──────
+  //
+  // FIX #1 — logique unifiée : un seul SELECT couvre les deux cas
+  //   (avec ou sans mots-clés). Fini la double branche incohérente.
+  //
+  // FIX #2 — rating_avg toujours dans le SELECT (colonne de la table),
+  //   plus de bug SQL "column does not exist" dans ORDER BY.
+  //
+  // FIX #3 — score normalisé [0..1] :
+  //   LEAST(1, ts_rank * 0.70 + similarity * 0.30)
+  //   Valeur fixe 0.5 si pas de mots-clés (tri par featured + rating).
+  //
+  // Paramètres :
+  //   keywords    : string[] — joints en phrase pour plainto_tsquery
+  //   categoryIds : string[] | null — filtre strict si intent détecté
+  //   limit       : number
+  //
+  // Requiert : CREATE EXTENSION pg_trgm + index GIN (setup_search_indexes.sql)
+  static async findForAI({ keywords = [], categoryIds = null, limit = 60 } = {}) {
+    const values = [];
+    let   i      = 1;
+ 
+    // ── Filtre catégorie (optionnel) ──────────────────────
+    const categoryCondition = categoryIds && categoryIds.length > 0
+      ? `AND p.category_id = ANY($${i++})`
+      : '';
+    if (categoryIds && categoryIds.length > 0) values.push(categoryIds);
+ 
+    // ── Mots-clés ─────────────────────────────────────────
+    const hasKeywords = keywords && keywords.length > 0;
+    const searchQuery = hasKeywords ? keywords.join(' ') : null;
+    const searchIdx   = searchQuery ? i++ : null;
+    if (searchQuery) values.push(searchQuery);
+ 
+    values.push(limit);
+    const limitIdx = i;
+ 
+    // ── Score hybride normalisé [0..1] ────────────────────
+    // Avec mots-clés : FTS (70%) + trigram (30%), plafonné à 1
+    // Sans mots-clés : score fixe 0.5, tri par featured + rating_avg
+    const scoreExpr = searchQuery
+      ? `LEAST(1,
+           COALESCE(
+             ts_rank(
+               to_tsvector('french',
+                 p.name_fr                       || ' ' ||
+                 COALESCE(p.description_fr, '')  || ' ' ||
+                 COALESCE(p.ingredients_fr, '')  || ' ' ||
+                 COALESCE(c.name_fr, '')
+               ),
+               plainto_tsquery('french', $${searchIdx})
+             ), 0
+           ) * 0.70
+           +
+           GREATEST(
+             similarity(p.name_fr,                        $${searchIdx}),
+             similarity(COALESCE(p.ingredients_fr, ''),   $${searchIdx}),
+             similarity(COALESCE(c.name_fr, ''),          $${searchIdx})
+           ) * 0.30
+         )`
+      : `0.5`;
+ 
+    // ── Condition de pertinence (uniquement si mots-clés) ─
+    const relevanceCondition = searchQuery
+      ? `AND (
+           to_tsvector('french',
+             p.name_fr                       || ' ' ||
+             COALESCE(p.description_fr, '')  || ' ' ||
+             COALESCE(p.ingredients_fr, '')  || ' ' ||
+             COALESCE(c.name_fr, '')
+           ) @@ plainto_tsquery('french', $${searchIdx})
+           OR similarity(p.name_fr,                       $${searchIdx}) > 0.15
+           OR similarity(COALESCE(p.ingredients_fr, ''),  $${searchIdx}) > 0.15
+           OR similarity(COALESCE(c.name_fr, ''),         $${searchIdx}) > 0.20
+         )`
+      : '';
+ 
+    const result = await database.query(`
+      SELECT
+        p.id,
+        p.slug,
+        p.name_fr                                 AS nom,
+        LEFT(COALESCE(p.description_fr, ''), 200) AS description,
+        COALESCE(p.ingredients_fr, '')            AS ingredients,
+        COALESCE(c.name_fr, '')                   AS categorie,
+        p.rating_avg,
+        ${scoreExpr}                              AS ai_score
+      FROM product p
+      LEFT JOIN category c ON p.category_id = c.id
+      WHERE p.is_active = true
+        ${categoryCondition}
+        ${relevanceCondition}
+      ORDER BY ai_score DESC, p.is_featured DESC, p.rating_avg DESC
+      LIMIT $${limitIdx}
+    `, values);
+ 
+    return result.rows;
+  }
+ 
+  // ─── Enrichissement complet par IDs après sélection Gemini ───────────────
+  //
+  // FIX #4 — CTE pour les promotions actives.
+  //   Avant : sous-requête corrélée recalculée pour chaque produit.
+  //   Après : deux CTEs pré-calculées une seule fois, puis jointure simple.
+  //   Gain significatif dès 3+ produits enrichis simultanément.
+  //
+  // Batch query unique — évite N+1.
+  static async findCompleteByIds(ids) {
+    if (!ids || ids.length === 0) return [];
+ 
+    const result = await database.query(`
+      WITH active_promos AS (
+        -- Toutes les promotions actives en ce moment (calculé une fois)
+        SELECT
+          vp.variant_id,
+          vp.discount_type,
+          vp.discount_value
+        FROM variant_promotion vp
+        WHERE vp.is_active  = true
+          AND vp.starts_at <= NOW()
+          AND vp.expires_at > NOW()
+      ),
+      promo_par_produit AS (
+        -- Prix promo minimum par produit (calculé une fois)
+        SELECT
+          pv.product_id,
+          MIN(
+            CASE
+              WHEN ap.discount_type = 'percent'
+                THEN ROUND(pv.price * (1 - ap.discount_value / 100), 3)
+              WHEN ap.discount_type = 'fixed'
+                THEN GREATEST(pv.price - ap.discount_value, 0)
+            END
+          ) AS prix_promo
+        FROM product_variant pv
+        JOIN active_promos ap ON ap.variant_id = pv.id
+        WHERE pv.is_active = true
+        GROUP BY pv.product_id
+      )
+      SELECT
+        p.id,
+        p.name_fr,
+        p.description_fr,
+        p.slug,
+        p.images,
+        p.is_new,
+        p.is_featured,
+        p.rating_avg,
+        p.rating_count,
+        c.name_fr                  AS categorie_fr,
+        MIN(pv.price)              AS prix_min,
+        COALESCE(SUM(pv.stock), 0) AS stock_total,
+        pp.prix_promo
+      FROM product p
+      LEFT JOIN category c           ON c.id = p.category_id
+      LEFT JOIN product_variant pv   ON pv.product_id = p.id AND pv.is_active = true
+      LEFT JOIN promo_par_produit pp ON pp.product_id = p.id
+      WHERE p.id = ANY($1)
+        AND p.is_active = true
+      GROUP BY
+        p.id, p.name_fr, p.description_fr, p.slug,
+        p.images, p.is_new, p.is_featured, p.rating_avg, p.rating_count,
+        c.name_fr, pp.prix_promo
+    `, [ids]);
+ 
+    return result.rows;
+  }
+
+
+
+ 
+  // ═══════════════════════════════════════════════════════
+  // MÉTHODES DÉDIÉES IA — Recette Panier
+  // ═══════════════════════════════════════════════════════
+ 
+  // ─── Produits alimentaires du panier via hiérarchie récursive ─
+  //
+  // WITH RECURSIVE : couvre N niveaux de catégories
+  //   Alimentation → Bio → Huiles → Spéciales (niveau 3+, couvert automatiquement)
+  //
+  // Retourne les champs utiles pour le prompt Gemini :
+  //   name_fr        → nom du produit (ingrédient principal)
+  //   ingredients_fr → composition réelle du produit
+  //   description_fr → contexte culinaire
+  //   category_name  → type de produit (Épices, Huiles, etc.)
+  //
+  // Ces données permettent à Gemini de comprendre le panier en profondeur
+  // sans avoir besoin de produits populaires non pertinents.
+  static async findFoodByVariantIds(variantIds, { foodSlug = 'alimentation-bio' } = {}) {
+    if (!variantIds || variantIds.length === 0) return [];
+ 
+    const result = await database.query(
+      `WITH RECURSIVE food_categories AS (
+         SELECT id FROM category WHERE slug = $2
+         UNION
+         SELECT c.id FROM category c
+         INNER JOIN food_categories fc ON c.parent_id = fc.id
+       )
+       SELECT DISTINCT
+         p.id,
+         p.name_fr,
+         COALESCE(p.ingredients_fr, '') AS ingredients_fr,
+         COALESCE(p.description_fr, '') AS description_fr,
+         c.name_fr                        AS category_name
+       FROM product p
+       JOIN product_variant pv ON pv.product_id = p.id
+       JOIN category c         ON c.id = p.category_id
+       WHERE pv.id = ANY($1)
+         AND p.is_active = true
+         AND c.id IN (SELECT id FROM food_categories)`,
+      [variantIds, foodSlug]
+    );
+ 
+    return result.rows;
+  }
+ 
+  // ─── Catalogue FTS pour suggestions recette ─────────────
+  //
+  // ─── Catalogue alimentaire pour recette ─────────────────
+  //
+  // Remplace le FTS par un catalogue alimentaire représentatif :
+  //   actifs + bien notés + en stock
+  //
+  // Pourquoi plus de FTS ?
+  //   FTS cherchait des produits "similaires" textuellement au panier.
+  //   Objectif réel : Gemini joue le rôle de chef cuisinier.
+  //   Il reçoit le panier (ingrédients principaux) + un catalogue large.
+  //   C'est LUI qui décide quels produits complètent la recette.
+  //
+  //   FTS "Pâtes + Tomates" → manquait Parmesan, Basilic, Ail
+  //   Top 100 alimentaires → Gemini les voit et peut les choisir
+  //
+  // Tri : rating_avg DESC → produits les mieux notés en premier
+  //   → évite de biaiser vers les mêmes produits populaires
+  //   → favorise la qualité réelle (avis clients)
+  //
+  // Paramètres :
+  //   foodSlug : string — slug catégorie racine alimentaire
+  //   limit    : number — taille du catalogue envoyé à Gemini (défaut 100)
+  static async findForRecipeAI({ foodSlug = 'alimentation-bio', limit = 100 } = {}) {
+  const result = await database.query(`
+    WITH RECURSIVE food_categories AS (
+      SELECT id FROM category WHERE slug = $1
+      UNION
+      SELECT c.id FROM category c
+      INNER JOIN food_categories fc ON c.parent_id = fc.id
+    )
+    SELECT
+      p.id,
+      p.name_fr,
+      p.slug,
+      p.images,
+      p.ingredients_fr,
+      p.usage_fr,
+      (SELECT MIN(pv.price)
+       FROM product_variant pv
+       WHERE pv.product_id = p.id AND pv.is_active = true) AS prix_min
+    FROM product p
+    JOIN category c ON c.id = p.category_id
+    WHERE p.is_active = true
+      AND c.id IN (SELECT id FROM food_categories)
+    ORDER BY
+      p.rating_avg  DESC NULLS LAST,
+      p.is_featured DESC,
+      p.created_at  DESC
+    LIMIT $2
+  `, [foodSlug, limit]);
+
+  return result.rows;
 }
+
+// ─── BI : produits avec stock critique (min variant < seuil) ──
+static async getLowStockProducts(threshold = 5, limit = 10) {
+    const result = await database.query(`
+        SELECT
+            p.name_fr,
+            SUM(pv.stock)  AS total_stock,
+            MIN(pv.stock)  AS min_variant_stock,
+            COUNT(pv.id)   AS variant_count
+        FROM product p
+        JOIN product_variant pv ON pv.product_id = p.id AND pv.is_active = true
+        WHERE p.is_active = true
+        GROUP BY p.id, p.name_fr
+        HAVING MIN(pv.stock) < $1
+        ORDER BY MIN(pv.stock) ASC
+        LIMIT $2
+    `, [threshold, limit]);
+    return result.rows;
+}
+ 
+// ─── BI : produits avec peu de ventes ce mois ────────────────
+static async getLowSalesProducts(daysBack = 30, limit = 10) {
+    const result = await database.query(`
+        SELECT p.name_fr, COALESCE(SUM(oi.quantity), 0) AS qty_sold_this_month
+        FROM product p
+        LEFT JOIN product_variant pv ON pv.product_id = p.id
+        LEFT JOIN order_item oi ON oi.variant_id = pv.id
+        LEFT JOIN "order" o ON o.id = oi.order_id
+            AND o.created_at >= NOW() - ($1 || ' days')::INTERVAL
+            AND o.status != 'annulee'
+        WHERE p.is_active = true
+        GROUP BY p.id, p.name_fr
+        ORDER BY qty_sold_this_month ASC
+        LIMIT $2
+    `, [daysBack, limit]);
+    return result.rows;
+}
+ 
+// ─── BI : produits les plus vus ───────────────────────────────
+static async getMostViewedProducts(limit = 10) {
+    const result = await database.query(`
+        SELECT name_fr, views_count, rating_avg, rating_count
+        FROM product
+        WHERE is_active = true
+        ORDER BY views_count DESC
+        LIMIT $1
+    `, [limit]);
+    return result.rows;
+}
+ 
+// ─── BI : produits groupés par catégorie avec ventes ─────────
+static async getProductsByCategory() {
+    const result = await database.query(`
+        SELECT c.name_fr AS category,
+               COUNT(DISTINCT p.id) AS product_count,
+               COALESCE(SUM(oi.quantity), 0) AS total_sold
+        FROM category c
+        LEFT JOIN product p ON p.category_id = c.id AND p.is_active = true
+        LEFT JOIN product_variant pv ON pv.product_id = p.id
+        LEFT JOIN order_item oi ON oi.variant_id = pv.id
+        GROUP BY c.id, c.name_fr
+        ORDER BY total_sold DESC
+    `);
+    return result.rows;
+}
+ 
+// ─── BI : produits les mieux notés ───────────────────────────
+static async getTopRatedProducts(limit = 5, minReviews = 2) {
+    const result = await database.query(`
+        SELECT name_fr, rating_avg, rating_count
+        FROM product
+        WHERE is_active = true AND rating_count >= $1
+        ORDER BY rating_avg DESC
+        LIMIT $2
+    `, [minReviews, limit]);
+    return result.rows;
+}
+ 
+// ─── BI : produits mis en avant pour campagne email ───────────
+static async getFeaturedProductsForEmail(limit = 8) {
+    const result = await database.query(`
+        SELECT p.name_fr, MIN(pv.price)::numeric AS price
+        FROM product p
+        JOIN product_variant pv ON pv.product_id = p.id AND pv.is_active = true
+        WHERE p.is_active = true AND p.is_featured = true
+        GROUP BY p.id, p.name_fr
+        ORDER BY RANDOM()
+        LIMIT $1
+    `, [limit]);
+    return result.rows;
+}
+ 
+// ─── BI : overview général ────────────────────────────────────
+static async getProductOverviewBI() {
+    const result = await database.query(`
+        SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE is_active = true)   AS active,
+            COUNT(*) FILTER (WHERE is_featured = true) AS featured
+        FROM product
+    `);
+    return result.rows[0];
+}}
+
 
 export default Product;
