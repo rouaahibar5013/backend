@@ -225,12 +225,30 @@ AVAILABLE PRODUCTS (${catalogueReduit.length} products, pre-filtered for relevan
 ${JSON.stringify(catalogueReduit, null, 2)}
 
 TASK:
-1. Identify the customer's primary need.
-2. Use "ai_score" as a relevance hint (0=low, 1=high).
-3. Select 3 to 5 products. Assign each a unique score (0-100). Sort by score DESC.
-4. Write a specific French reason for each product.
-5. Write a short warm French introduction (1-2 sentences).
-6. Write one practical follow-up question or advice in French.
+Think step by step before selecting any product:
+
+STEP 1 — ANALYSE THE NEED:
+What is the customer's primary need?
+What symptom, goal or concern is expressed?
+Is the request vague or specific?
+
+STEP 2 — FILTER THE CATALOG:
+Which products are semantically related to this need?
+Which categories are relevant or irrelevant?
+Which products have a high ai_score AND are semantically coherent?
+
+STEP 3 — COMPARE AND RANK:
+For each candidate product, why does it match better than the others?
+Assign a unique score (0-100) justified by this reasoning.
+
+STEP 4 — FINAL SELECTION:
+Select the 3 to 5 best products based on steps 1-3.
+Sort by score DESC.
+
+Now produce the final JSON.
+Write a short warm French introduction (1-2 sentences) in "message".
+Write one practical follow-up question in "suggestion".
+Write a specific French reason for each product in "raison".
 
 Return ONLY this JSON:
 {

@@ -106,39 +106,25 @@ export const suggererRecettesService = async (panierAlimentaire, catalogue = [])
 
 TASK:
 Generate exactly ONE realistic recipe using the customer's basket as the foundation.
+Think step by step before building the recipe:
 
-RULES:
-1. Try to use at least 60–70% basket ingredients.
-   If the basket contains fewer than 3 meaningful ingredients,
-   prioritize AVAILABLE_PRODUCTS to complete the recipe.
+STEP 1 — ANALYSE THE BASKET:
+What are the main ingredients available?
+What cuisine styles or dishes do they suggest?
 
-2. You may enrich the recipe with AVAILABLE_PRODUCTS.
+STEP 2 — IDENTIFY GAPS:
+What key ingredients are missing to complete a realistic recipe?
+Which AVAILABLE_PRODUCTS could fill these gaps?
 
-3. For every ingredient, specify its source:
-   - "basket"    → from user basket
-   - "catalogue" → from AVAILABLE_PRODUCTS (must include catalogue_id)
-   - "external"  → only for salt, water, basic spices not in catalogue
+STEP 3 — BUILD THE RECIPE:
+Choose one realistic dish based on steps 1 and 2.
+Assign each ingredient its correct source (basket/catalogue/external).
 
-4. catalogue_id must be copied exactly from AVAILABLE_PRODUCTS. Never invent it.
+STEP 4 — VALIDATE:
+Does the recipe respect the 8 ingredient limit?
+Are catalogue_ids copied exactly from AVAILABLE_PRODUCTS?
 
-5. STRICT LIMITS:
-   - Maximum 8 ingredients total
-   - Maximum 3 catalogue ingredients
-   - external only for basic cooking essentials
-
-6. If no exact match exists in catalogue, use "external".
-
-7. Recipe must include:
-   - 1 main ingredient (protein or base)
-   - 1 cooking method
-   - 1 flavor enhancer (spice, sauce, herb)
-
-8. Only use real-world edible ingredients. Do not invent fictional items.
-
-9. Recipe must be simple and realistic for home cooking.
-
-10. Output MUST be a single valid JSON object only.
-    No markdown, no explanations, no extra text.
+Now produce the final JSON.
 
 BASKET:
 ${JSON.stringify(basketPourGemini)}
