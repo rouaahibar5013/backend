@@ -32,6 +32,20 @@ export const createProduct = catchAsyncErrors(async (req, res, next) => {
   // ✅ Validation uniquement à la création
   if (!name_fr || !description_fr || !category_id)
     return next(new ErrorHandler("name_fr, description_fr and category_id are required.", 400));
+if (!supplier_id)
+  return next(new ErrorHandler("supplier_id est obligatoire.", 400));
+if (!ethical_info_fr)
+  return next(new ErrorHandler("ethical_info_fr est obligatoire.", 400));
+if (!origin)
+  return next(new ErrorHandler("origin est obligatoire.", 400));
+if (!certifications)
+  return next(new ErrorHandler("certifications est obligatoire.", 400));
+if (!usage_fr)
+  return next(new ErrorHandler("usage_fr est obligatoire.", 400));
+if (!ingredients_fr)
+  return next(new ErrorHandler("ingredients_fr est obligatoire.", 400));
+if (!precautions_fr)
+  return next(new ErrorHandler("precautions_fr est obligatoire.", 400));
 
   const parsedVariants = typeof variants === "string" ? JSON.parse(variants) : variants;
   if (!parsedVariants || parsedVariants.length === 0)
