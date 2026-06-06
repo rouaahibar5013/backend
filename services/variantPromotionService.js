@@ -15,7 +15,7 @@ export const createVariantPromotionService = async ({
   if (discount_type === 'percent' && (discount_value <= 0 || discount_value > 100))
     throw new ErrorHandler("Pourcentage entre 1 et 100.", 400);
   if (new Date(expires_at) <= new Date(starts_at))
-    throw new ErrorHandler("expires_at doit être après starts_at.", 400);
+    throw new ErrorHandler(" La date de fin doit être postérieure à la date de début.", 400);
 
   await VariantPromotion.deactivateAllByVariantId(variantId);
 
